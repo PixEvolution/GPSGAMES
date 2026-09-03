@@ -102,6 +102,14 @@
   #cargo{font-size:13px;color:var(--text);text-align:center;display:none;
     background:rgba(13,15,13,.75);border:1px solid #2a332a;border-radius:6px;
     padding:5px 10px}
+  #dropCargo{margin-left:8px;padding:3px 9px;border-radius:5px;
+    border:1px solid var(--danger);background:transparent;color:var(--danger);
+    font-family:inherit;font-size:12px;font-weight:900}
+  .biz{width:34px;height:34px;border-radius:8px;
+    display:flex;align-items:center;justify-content:center;font-size:17px;
+    background:#0d1414;border:2px dashed #6a8a8a;opacity:.9}
+  .bizOwned{border-style:solid;border-color:#4ad0e0;
+    box-shadow:0 0 12px rgba(74,208,224,.5);opacity:1}
   #shBtn{position:absolute;top:calc(env(safe-area-inset-top,0px) + 156px);
     left:14px;z-index:1000;padding:7px 10px;border-radius:8px;
     border:2px solid #e0c84a;background:rgba(13,15,13,.85);color:#e0c84a;
@@ -120,6 +128,9 @@
     background:rgba(13,15,13,.94);padding:calc(env(safe-area-inset-top,0px) + 20px) 20px 20px;
     overflow-y:auto}
   #invPanel h2{color:#b04ae0;font-size:26px;font-weight:900;letter-spacing:2px}
+  .invHead{margin-top:18px;font-size:17px !important;color:#b04ae0}
+  .invLine{display:flex;justify-content:space-between;padding:7px 0;
+    border-bottom:1px solid #1a211a;font-size:14px}
   .invRow{display:flex;justify-content:space-between;align-items:center;gap:10px;
     border-bottom:1px solid #232b23;padding:12px 0}
   .eqBtn{padding:8px 14px;border-radius:8px;border:2px solid #b04ae0;
@@ -308,7 +319,7 @@
 <button id="fightBtn">DRAW</button>
 
 <div id="invPanel">
-  <h2>YOUR IRON</h2>
+  <h2>INVENTORY</h2>
   <div id="invList"></div>
   <button id="invClose">CLOSE</button>
 </div>
@@ -566,6 +577,7 @@ function initMap(center){
   }
 
   houses.forEach(drawHouse);
+  bizzes.forEach(drawBiz);
   if (cargo && cargo.kind === "package") addDestMarker();
   shops.forEach(drawShop);
   restoreWorld();
@@ -650,6 +662,7 @@ function maintainJobs(){
   maintainShops();
   maintainNpcs();
   maintainTerritory();
+  maintainBiz();
 }
 
 function jobIcon(emoji, cls){
@@ -665,15 +678,41 @@ const FISTS = {id:"", name:"Fists", type:"melee", dmg:8, range:3, rpm:120, use:"
 const CATALOG = [
   {id:"bat",   name:"Baseball bat",  type:"melee",   dmg:15, range:4,   rpm:80,   price:80,   use:"quiet close-quarters"},
   {id:"knife", name:"Switchblade",   type:"melee",   dmg:20, range:3,   rpm:110,  price:120,  use:"quiet, concealable"},
-  {id:"snub",  name:".38 Snub",      type:"pistol",  dmg:30, range:32,  rpm:150,  price:450,  use:"cheap backup piece"},
-  {id:"g19",   name:"Glock 19",      type:"pistol",  dmg:26, range:40,  rpm:400,  price:650,  use:"reliable sidearm"},
-  {id:"mac10", name:"MAC-10",        type:"smg",     dmg:22, range:35,  rpm:1090, price:1400, use:"spray and pray"},
-  {id:"m500",  name:"Mossberg 500",  type:"shotgun", dmg:70, range:35,  rpm:60,   price:1800, use:"devastating up close"},
-  {id:"mp5",   name:"MP5",           type:"smg",     dmg:24, range:50,  rpm:800,  price:2200, use:"controllable auto"},
-  {id:"ar15",  name:"AR-15",         type:"rifle",   dmg:34, range:90,  rpm:700,  price:3500, use:"accurate at range"},
-  {id:"ak47",  name:"AK-47",         type:"rifle",   dmg:38, range:80,  rpm:600,  price:4200, use:"hard-hitting rifle"},
-  {id:"r700",  name:"Remington 700", type:"sniper",  dmg:95, range:250, rpm:20,   price:5200, use:"one shot, one drop"},
+  {id:"snub",  name:".38 Snub",      type:"pistol",  dmg:30, range:32,  rpm:150,  price:450,  cal:"pist",  use:"cheap backup piece"},
+  {id:"g19",   name:"Glock 19",      type:"pistol",  dmg:26, range:40,  rpm:400,  price:650,  cal:"pist",  use:"reliable sidearm"},
+  {id:"mac10", name:"MAC-10",        type:"smg",     dmg:22, range:35,  rpm:1090, price:1400, cal:"pist",  use:"spray and pray"},
+  {id:"m500",  name:"Mossberg 500",  type:"shotgun", dmg:70, range:35,  rpm:60,   price:1800, cal:"shell", use:"devastating up close"},
+  {id:"mp5",   name:"MP5",           type:"smg",     dmg:24, range:50,  rpm:800,  price:2200, cal:"pist",  use:"controllable auto"},
+  {id:"ar15",  name:"AR-15",         type:"rifle",   dmg:34, range:90,  rpm:700,  price:3500, cal:"rifle", use:"accurate at range"},
+  {id:"ak47",  name:"AK-47",         type:"rifle",   dmg:38, range:80,  rpm:600,  price:4200, cal:"rifle", use:"hard-hitting rifle"},
+  {id:"r700",  name:"Remington 700", type:"sniper",  dmg:95, range:250, rpm:20,   price:5200, cal:"snip",  use:"one shot, one drop"},
 ];
+
+const AMMO_TYPES = [
+  {id:"pist",  name:"Pistol rounds",  box:30, price:90},
+  {id:"shell", name:"Shotgun shells", box:16, price:80},
+  {id:"rifle", name:"Rifle rounds",   box:30, price:150},
+  {id:"snip",  name:"Sniper rounds",  box:10, price:120},
+];
+const ammoType = id => AMMO_TYPES.find(a => a.id === id);
+let ammo = JSON.parse(store.getItem("sc_ammo") || "{}"); // cal -> rounds
+const saveAmmo = () => store.setItem("sc_ammo", JSON.stringify(ammo));
+let lastDryToast = 0;
+// melee swings free; guns eat a round or refuse to fire
+function spendRound(w){
+  if (w.type === "melee") return true;
+  if ((ammo[w.cal] || 0) <= 0){
+    if (gt() - lastDryToast > 2000){
+      lastDryToast = gt();
+      toast(`Click. You're dry — ${ammoType(w.cal).name.toLowerCase()} needed.`);
+    }
+    return false;
+  }
+  ammo[w.cal]--;
+  saveAmmo();
+  renderInvBtn();
+  return true;
+}
 const weaponById = id => CATALOG.find(w => w.id === id);
 
 const SHOP_RANGE = 60;          // m — must be this close to trade
@@ -709,6 +748,7 @@ function rollStock(){
   }
   return stock;
 }
+const rollAmmoMult = () => 0.85 + Math.random()*0.4;
 
 function shopPrice(item){
   return Math.round(weaponById(item.id).price * item.mult / 10) * 10;
@@ -743,8 +783,34 @@ function shopHtml(s){
         color:${can?"#052405":"#556055"}">BUY</button></div>`;
   }).join("");
   const note = close ? "" : `<br><i style="color:#e0c84a">get within ${SHOP_RANGE}m to trade</i>`;
-  return `<b>Gun shop</b> <span style="font-size:11px;color:#7a877a">no questions asked</span>${note}${rows}`;
+  const am = s.ammoMult || 1;
+  const ammoRows = AMMO_TYPES.map((a, i) => {
+    const price = Math.round(a.price * am / 5) * 5;
+    const can = close && money >= price;
+    return `<div style="margin-top:5px">${a.name} ×${a.box} — ${fmtMoney(price)}
+      <span style="color:#7a877a;font-size:11px">(you: ${ammo[a.id]||0})</span>
+      <button class="ammoBuyBtn" data-s="${idx}" data-a="${i}" ${can?"":"disabled"}
+      style="margin-left:6px;padding:3px 10px;font-weight:900;font-family:inherit;border:none;
+      border-radius:5px;background:${can?"#4ae04a":"#2a332a"};color:${can?"#052405":"#556055"}">BUY</button></div>`;
+  }).join("");
+  return `<b>Gun shop</b> <span style="font-size:11px;color:#7a877a">no questions asked</span>${note}${rows}
+    <hr style="border-color:#232b23;margin:8px 0"><b>Ammo</b>${ammoRows}`;
 }
+
+document.addEventListener("click", e => {
+  if (!e.target.classList || !e.target.classList.contains("ammoBuyBtn")) return;
+  const s = shops[+e.target.dataset.s];
+  const a = AMMO_TYPES[+e.target.dataset.a];
+  if (!s || !a) return;
+  const price = Math.round(a.price * (s.ammoMult || 1) / 5) * 5;
+  if (!playerPos || haversine(playerPos, s) > SHOP_RANGE || money < price) return;
+  money -= price; saveMoney(); renderMoney(true);
+  ammo[a.id] = (ammo[a.id] || 0) + a.box;
+  saveAmmo();
+  s.marker.setPopupContent(shopHtml(s));
+  renderInvBtn();
+  toast(`${a.box} ${a.name.toLowerCase()} — locked and loaded.`);
+});
 
 document.addEventListener("click", e => {
   if (!e.target.classList || !e.target.classList.contains("buyBtn")) return;
@@ -777,7 +843,8 @@ function maintainShops(){
   if (!shops.length){
     const p = offsetPoint(playerPos.lat, playerPos.lng,
       700 + Math.random()*1300, Math.random()*Math.PI*2);
-    const shop = {lat:p.lat, lng:p.lng, stock:rollStock(), restockAt: gt()+RESTOCK_MS};
+    const shop = {lat:p.lat, lng:p.lng, stock:rollStock(), restockAt: gt()+RESTOCK_MS,
+      ammoMult: rollAmmoMult()};
     shops.push(shop); drawShop(shop);
     toast("Word is a gun dealer set up shop nearby.");
     changed = true;
@@ -788,27 +855,46 @@ function maintainShops(){
 // ---------- inventory ----------
 function renderInvBtn(){
   const w = weaponById(equipped);
-  $("invBtn").innerHTML = GUN_SVG + "<span>" + (w ? w.name.toUpperCase() : "UNARMED") + "</span>";
+  const count = w && w.type !== "melee" ? " · " + (ammo[w.cal] || 0) : "";
+  $("invBtn").innerHTML = GUN_SVG + "<span>" + (w ? w.name.toUpperCase() + count : "UNARMED") + "</span>";
 }
 
 function invHtml(){
   const ids = Object.keys(inv).filter(id => inv[id] > 0);
-  const rows = ids.length ? ids.map(id => {
+  const wRows = ids.length ? ids.map(id => {
     const w = weaponById(id), eq = equipped === id;
-    return `<div class="invRow"><div><b>${w.name}</b> ×${inv[id]}<br>
+    const amm = w.type !== "melee"
+      ? ` · <span style="color:${(ammo[w.cal]||0)>0?"var(--cash)":"var(--danger)"}">${ammo[w.cal]||0} rds</span>` : "";
+    return `<div class="invRow"><div><b>${w.name}</b> ×${inv[id]}${amm}<br>
       <span style="font-size:11px;color:#7a877a">dmg ${w.dmg} · range ${w.range}m — ${w.use}</span></div>
       <button class="eqBtn" data-id="${id}" ${eq?"disabled":""}>${eq?"EQUIPPED":"EQUIP"}</button></div>`;
-  }).join("") : `<div style="color:#7a877a;margin-top:8px">Empty. Find a gun shop on the map.</div>`;
+  }).join("") : `<div style="color:#7a877a;padding:8px 0">Empty. Find a gun shop on the map.</div>`;
   const fists = `<div class="invRow"><div><b>Fists</b><br>
     <span style="font-size:11px;color:#7a877a">dmg ${FISTS.dmg} · range ${FISTS.range}m — ${FISTS.use}</span></div>
     <button class="eqBtn" data-id="" ${equipped?"":"disabled"}>${equipped?"EQUIP":"EQUIPPED"}</button></div>`;
-  const drugRows = DRUGS.filter(d => (onDrugs[d.id]||0) > 0)
-    .map(d => `${d.name} ×${onDrugs[d.id]}`).join(" · ");
-  const pockets = `<h2 style="margin-top:20px;font-size:18px">POCKETS</h2>
-    <div style="padding:8px 0;color:${drugRows?"var(--text)":"#7a877a"}">
-    ${drugRows || "Clean. Dealers wear shades."}<br>
-    <span style="font-size:11px;color:#e0c84a">lose it all if you're busted — stash at the safehouse</span></div>`;
-  return rows + fists + pockets;
+
+  const ammoRows = AMMO_TYPES.map(a => {
+    const n = ammo[a.id] || 0;
+    return `<div class="invLine"><span>${a.name}</span><b style="color:${n>0?"var(--text)":"#556055"}">${n}</b></div>`;
+  }).join("");
+
+  let street = 0;
+  const dRows = DRUGS.map(d => {
+    const q = onDrugs[d.id] || 0;
+    if (!q) return "";
+    const v = q * d.base;
+    street += v;
+    return `<div class="invLine"><span>${d.name} ×${q}</span><b>~${fmtMoney(v)}</b></div>`;
+  }).filter(Boolean).join("");
+  const pockets = dRows
+    ? dRows + `<div class="invLine" style="border-top:1px solid #232b23;margin-top:4px;padding-top:8px">
+        <span>street value</span><b style="color:var(--cash)">~${fmtMoney(street)}</b></div>
+      <div style="font-size:11px;color:#e0c84a;padding-top:6px">lose it all if you're busted — stash it</div>`
+    : `<div style="color:#7a877a;padding:8px 0">Clean. Dealers wear shades.</div>`;
+
+  return `<h2 class="invHead">WEAPONS</h2>` + wRows + fists
+    + `<h2 class="invHead">AMMO</h2>` + ammoRows
+    + `<h2 class="invHead">POCKETS</h2>` + pockets;
 }
 
 document.addEventListener("click", e => {
@@ -987,6 +1073,7 @@ function strikeNpc(n){
     toast(`Out of reach - ${Math.round(d)}m. ${w.name} works inside ${w.range}m.`);
     return;
   }
+  if (!spendRound(w)) return;
   nextShotAt = now + Math.max(150, 60000 / (w.rpm || 120));
   violence = Math.max(violence, w.type === "melee" ? 1 : 2);
   n.aggro = true;
@@ -1007,6 +1094,210 @@ function strikeNpc(n){
   if (Math.random() < base * snitchFactor())
     applyHeat(1, "Shots reported to police!");
 }
+
+// ---------- businesses (GTA MC-style) ----------
+const BIZ_PATHS = [
+  {id:"weed", name:"Weed Farm",        icon:"🌿", setup:1000, rate:8,  cap:400},
+  {id:"chop", name:"Chop Shop",        icon:"🔧", setup:1500, rate:12, cap:600},
+  {id:"meth", name:"Meth Lab",         icon:"⚗️", setup:2000, rate:14, cap:700},
+  {id:"fake", name:"Counterfeit Cash", icon:"🖨️", setup:3000, rate:20, cap:1000},
+  {id:"coke", name:"Coke Lockup",      icon:"❄️", setup:4000, rate:30, cap:1500},
+];
+const pathOf = b => BIZ_PATHS.find(p => p.id === b.path);
+const BIZ_RANGE = 60, BIZ_NEAR = 2500;
+
+let bizzes = JSON.parse(store.getItem("sc_biz") || "[]"); // owned — permanent
+let bizSeq = Number(store.getItem("sc_bizseq") || 0);
+let bizSale = null; // one for-sale opportunity floats near the player
+const saveBiz = () => { store.setItem("sc_biz", JSON.stringify(bizzes.map(b =>
+  ({uid:b.uid, lat:b.lat, lng:b.lng, path:b.path, stock:b.stock,
+    upgE:b.upgE, upgS:b.upgS, invested:b.invested}))));
+  store.setItem("sc_bizseq", bizSeq); };
+
+const bizRate = b => pathOf(b).rate * (b.upgE ? 1.6 : 1);       // $/game-min
+const bizCap  = b => pathOf(b).cap  * (b.upgS ? 2   : 1);
+const nearBiz = b => playerPos && haversine(playerPos, b) <= BIZ_RANGE;
+const nearAnyBiz = r => !!playerPos && bizzes.some(b => haversine(playerPos, b) <= r);
+
+function bizIcon(owned, icon){
+  return L.divIcon({className:"", html:
+    `<div class="biz ${owned ? "bizOwned" : ""}">${icon || "🏢"}</div>`,
+    iconSize:[34,34], iconAnchor:[17,17]});
+}
+
+function drawSale(){
+  bizSale.marker = L.marker([bizSale.lat, bizSale.lng], {
+    icon: bizIcon(false), zIndexOffset: 700
+  }).addTo(map).bindPopup(saleHtml);
+}
+function drawBiz(b){
+  b.marker = L.marker([b.lat, b.lng], {
+    icon: bizIcon(true, b.path ? pathOf(b).icon : "🏢"), zIndexOffset: 900
+  }).addTo(map).bindPopup(() => bizHtml(b));
+}
+
+function maintainBiz(){
+  if (!playerPos) return;
+  if (bizSale && haversine(playerPos, bizSale) > BIZ_NEAR){
+    if (bizSale.marker) map.removeLayer(bizSale.marker);
+    bizSale = null;
+  }
+  if (!bizSale){
+    const p = offsetPoint(playerPos.lat, playerPos.lng,
+      400 + Math.random()*800, Math.random()*Math.PI*2);
+    bizSale = {lat:p.lat, lng:p.lng, price: Math.round((2500 + Math.random()*3500)/100)*100};
+    drawSale();
+  }
+}
+
+// production ticks on game time
+setInterval(() => {
+  if (paused()) return;
+  let changed = false;
+  for (const b of bizzes){
+    if (!b.path) continue;
+    const next = Math.min(bizCap(b), b.stock + bizRate(b) * 5/60);
+    if (next !== b.stock){ b.stock = next; changed = true; }
+  }
+  if (changed) saveBiz();
+}, 5000);
+
+const btnCssBiz = ok => `margin-top:6px;margin-right:6px;padding:5px 10px;font-weight:900;
+  font-family:inherit;border:none;border-radius:6px;
+  background:${ok?"#4ae04a":"#2a332a"};color:${ok?"#052405":"#556055"}`;
+
+function saleHtml(){
+  const close = bizSale && nearBiz(bizSale);
+  const can = close && money >= bizSale.price;
+  return `<b>Property for sale</b><br>Front for whatever operation you want.<br>
+    ${fmtMoney(bizSale.price)}${close?"":`<br><i style="color:#e0c84a">get within ${BIZ_RANGE}m</i>`}
+    <br><button id="bizBuyBtn" ${can?"":"disabled"} style="${btnCssBiz(can)}">BUY</button>`;
+}
+
+let bizSellArm = 0; // uid armed for sale confirm
+function bizHtml(b){
+  const close = nearBiz(b);
+  const note = close ? "" : `<br><i style="color:#e0c84a">get within ${BIZ_RANGE}m to operate</i>`;
+  if (!b.path){
+    const rows = BIZ_PATHS.map(p => {
+      const can = close && money >= p.setup;
+      return `<div style="margin-top:6px">${p.icon} <b>${p.name}</b> — setup ${fmtMoney(p.setup)}
+        <br><span style="font-size:11px;color:#7a877a">${fmtMoney(p.rate)}/min, holds ${fmtMoney(p.cap)}</span>
+        <button class="pathBtn" data-uid="${b.uid}" data-path="${p.id}" ${can?"":"disabled"}
+        style="${btnCssBiz(can)}">SET UP</button></div>`;
+    }).join("");
+    return `<b>Your property</b> — pick its business${note}${rows}`;
+  }
+  const P = pathOf(b);
+  const stockV = Math.floor(b.stock);
+  const upE = b.upgE ? "" : `<button class="bizUpEBtn" data-uid="${b.uid}"
+    ${close && money >= Math.round(P.setup*1.2) ? "" : "disabled"}
+    style="${btnCssBiz(close && money >= Math.round(P.setup*1.2))}">EQUIP +60% — ${fmtMoney(Math.round(P.setup*1.2))}</button>`;
+  const upS = b.upgS ? "" : `<button class="bizUpSBtn" data-uid="${b.uid}"
+    ${close && money >= P.setup ? "" : "disabled"}
+    style="${btnCssBiz(close && money >= P.setup)}">STAFF ×2 CAP — ${fmtMoney(P.setup)}</button>`;
+  const canSellStock = close && stockV > 0;
+  const canRun = canSellStock && !cargo;
+  const armed = bizSellArm === b.uid;
+  return `${P.icon} <b>${P.name}</b><br>
+    stock <b>${fmtMoney(stockV)}</b> / ${fmtMoney(bizCap(b))} · ${fmtMoney(Math.round(bizRate(b)))}/min${note}<br>
+    <button class="bizLocalBtn" data-uid="${b.uid}" ${canSellStock?"":"disabled"}
+      style="${btnCssBiz(canSellStock)}">SELL LOCAL ${fmtMoney(Math.round(stockV*0.7))}</button>
+    <button class="bizRunBtn" data-uid="${b.uid}" ${canRun?"":"disabled"}
+      style="${btnCssBiz(canRun)}">SELL RUN ${fmtMoney(Math.round(stockV*1.3))}</button>
+    <br>${upE}${upS}
+    <hr style="border-color:#232b23;margin:8px 0">
+    <button id="stashAllBtn" ${close && !pocketsEmpty()?"":"disabled"} style="${btnCssBiz(close && !pocketsEmpty())}">STASH ALL</button>
+    <button id="takeAllBtn" ${close && Object.values(stash).some(q=>q>0)?"":"disabled"} style="${btnCssBiz(close && Object.values(stash).some(q=>q>0))}">TAKE ALL</button>
+    <br><button class="bizSellBtn" data-uid="${b.uid}" ${close?"":"disabled"}
+      style="margin-top:8px;padding:5px 10px;font-weight:900;font-family:inherit;border:2px solid ${armed?"#e04a4a":"#2a332a"};
+      border-radius:6px;background:transparent;color:${armed?"#e04a4a":"#7a877a"}">
+      ${armed ? "TAP AGAIN — SELL FOR " + fmtMoney(Math.round(b.invested/2)) : "SELL BUSINESS (" + fmtMoney(Math.round(b.invested/2)) + ")"}</button>`;
+}
+
+document.addEventListener("click", e => {
+  const t = e.target;
+  if (!t.classList && !t.id) return;
+  if (t.id === "bizBuyBtn"){
+    if (!bizSale || !nearBiz(bizSale) || money < bizSale.price) return;
+    money -= bizSale.price; saveMoney(); renderMoney(true);
+    map.removeLayer(bizSale.marker);
+    const b = {uid:bizSeq++, lat:bizSale.lat, lng:bizSale.lng, path:null,
+      stock:0, upgE:false, upgS:false, invested:bizSale.price};
+    bizSale = null;
+    bizzes.push(b); saveBiz(); drawBiz(b);
+    b.marker.openPopup();
+    toast("Property's yours — now pick what really happens inside.");
+    return;
+  }
+  const uid = t.dataset ? Number(t.dataset.uid) : NaN;
+  const b = bizzes.find(x => x.uid === uid);
+  if (!b) return;
+  if (t.classList.contains("pathBtn")){
+    const P = BIZ_PATHS.find(p => p.id === t.dataset.path);
+    if (!nearBiz(b) || !P || money < P.setup) return;
+    money -= P.setup; saveMoney(); renderMoney(true);
+    b.path = P.id; b.invested += P.setup; saveBiz();
+    b.marker.setIcon(bizIcon(true, P.icon));
+    b.marker.setPopupContent(bizHtml(b));
+    toast(`${P.name} is up and running.`);
+  }
+  if (t.classList.contains("bizLocalBtn")){
+    if (!nearBiz(b) || b.stock < 1) return;
+    const pay = Math.round(b.stock * 0.7);
+    b.stock = 0; saveBiz();
+    money += pay; saveMoney(); renderMoney(true); showGain(pay);
+    addXp(Math.round(pay/2));
+    b.marker.setPopupContent(bizHtml(b));
+    toast("Sold on the spot — quick and quiet.");
+  }
+  if (t.classList.contains("bizRunBtn")){
+    if (!nearBiz(b) || b.stock < 1 || cargo) return;
+    const pay = Math.round(b.stock * 1.3);
+    b.stock = 0; saveBiz();
+    const d = 600 + Math.random()*900;
+    const dp = offsetPoint(playerPos.lat, playerPos.lng, d, Math.random()*Math.PI*2);
+    cargo = {kind:"package", biz:true, payout:pay, dest:{lat:dp.lat, lng:dp.lng}};
+    addDestMarker();
+    saveCargo(); renderCargo();
+    b.marker.setPopupContent(bizHtml(b));
+    map.closePopup();
+    toast(`Load's in your hands — ${fmtMoney(pay)} at the drop.`);
+  }
+  if (t.classList.contains("bizUpEBtn")){
+    const P = pathOf(b), cost = Math.round(P.setup*1.2);
+    if (!nearBiz(b) || b.upgE || money < cost) return;
+    money -= cost; saveMoney(); renderMoney(true);
+    b.upgE = true; b.invested += cost; saveBiz();
+    b.marker.setPopupContent(bizHtml(b));
+    toast("Better equipment — production up 60%.");
+  }
+  if (t.classList.contains("bizUpSBtn")){
+    const P = pathOf(b), cost = P.setup;
+    if (!nearBiz(b) || b.upgS || money < cost) return;
+    money -= cost; saveMoney(); renderMoney(true);
+    b.upgS = true; b.invested += cost; saveBiz();
+    b.marker.setPopupContent(bizHtml(b));
+    toast("Staff hired — the place holds twice the product.");
+  }
+  if (t.classList.contains("bizSellBtn")){
+    if (!nearBiz(b)) return;
+    if (bizSellArm !== b.uid){
+      bizSellArm = b.uid;
+      b.marker.setPopupContent(bizHtml(b));
+      setTimeout(() => { if (bizSellArm === b.uid){ bizSellArm = 0;
+        if (b.marker) b.marker.setPopupContent(bizHtml(b)); } }, 3000);
+      return;
+    }
+    bizSellArm = 0;
+    const refund = Math.round(b.invested/2);
+    money += refund; saveMoney(); renderMoney(true); showGain(refund);
+    map.removeLayer(b.marker);
+    bizzes = bizzes.filter(x => x !== b); saveBiz();
+    map.closePopup();
+    toast(`Business sold off — ${fmtMoney(refund)} back in hand.`);
+  }
+});
 
 // ---------- drugs ----------
 const DRUGS = [
@@ -1258,7 +1549,7 @@ document.addEventListener("click", e => {
     else toast(`Moved ${have} for ${fmtMoney(total)}.`);
   }
   if (t.id === "stashAllBtn" || t.id === "takeAllBtn"){
-    if (!playerPos || !nearAnyHouse(CFG.safeRadius)) return;
+    if (!playerPos || (!nearAnyHouse(CFG.safeRadius) && !nearAnyBiz(BIZ_RANGE))) return;
     const [from, to] = t.id === "stashAllBtn" ? [onDrugs, stash] : [stash, onDrugs];
     for (const id of Object.keys(from)){
       to[id] = (to[id] || 0) + from[id];
@@ -1266,6 +1557,7 @@ document.addEventListener("click", e => {
     }
     saveDrugs();
     refreshHousePopups();
+    bizzes.forEach(b => b.marker && b.marker.setPopupContent(bizHtml(b)));
     toast(t.id === "stashAllBtn" ? "Product stashed — safe from the law." : "Pockets loaded up.");
   }
 });
@@ -1384,22 +1676,42 @@ function storeCar(){
 function deliverPackage(){
   money += cargo.payout; saveMoney(); renderMoney(true); showGain(cargo.payout);
   addXp(cargo.payout);
+  const wasBiz = cargo.biz;
   removeDestMarker();
   cargo = null; saveCargo(); renderCargo();
-  toast("Package delivered, no questions asked.");
+  toast(wasBiz ? "Product moved — that's how the business eats." : "Package delivered, no questions asked.");
 }
 
+let dropArmUntil = 0;
 function renderCargo(){
   const el = $("cargo");
   if (!cargo){ el.style.display = "none"; return; }
   el.style.display = "block";
+  const drop = `<button id="dropCargo">${gt() < dropArmUntil ? "SURE?" : "✕"}</button>`;
   if (cargo.kind === "car"){
-    el.innerHTML = `🚗 <b>${cargo.model}</b> (${fmtMoney(cargo.value)}) — get it to the safehouse`;
+    el.innerHTML = `🚗 <b>${cargo.model}</b> (${fmtMoney(cargo.value)}) — get it to the safehouse ${drop}`;
   } else {
     const d = playerPos ? Math.round(haversine(playerPos, cargo.dest)) + " m" : "…";
-    el.innerHTML = `📦 drop-off ${d} — <b>${fmtMoney(cargo.payout)}</b>`;
+    el.innerHTML = `📦 drop-off ${d} — <b>${fmtMoney(cargo.payout)}</b> ${drop}`;
   }
 }
+
+document.addEventListener("click", e => {
+  if (e.target.id !== "dropCargo" || !cargo) return;
+  if (gt() >= dropArmUntil){
+    dropArmUntil = gt() + 3000;
+    e.target.textContent = "SURE?";
+    setTimeout(renderCargo, 3200);
+    return;
+  }
+  dropArmUntil = 0;
+  const wasCar = cargo.kind === "car", wasBiz = cargo.biz;
+  if (cargo.kind === "package") removeDestMarker();
+  cargo = null; saveCargo(); renderCargo();
+  toast(wasCar ? "You ditch the ride in an alley."
+    : wasBiz ? "You dump the product. That money's gone."
+    : "Package dumped in a hedge. No payout.");
+});
 
 // ---------- game loop ----------
 function setPlayerPos(pos, keepView){
@@ -1583,11 +1895,15 @@ setInterval(update, 5000);
 // ---------- heat / cops (GTA-style) ----------
 let stars = 0, cops = [], bustedUntil = 0;
 let seen = false, lkp = null, hiddenMs = 0, searchCircle = null;
+let turfHeatMs = 0, lastTurfHeatToast = 0;
 
+// speed scales hard with stars: ~10 mph per star (4.47 m/s), 50 mph at 5 stars.
+// escaping is about breaking line of sight, not outrunning them.
+const MPH = 0.447;
 const UNIT_DEFS = {
-  cop:  {icon:"🚓", cls:"cop",  vision:100, dps:5, fire:40, meleeDps:6,  hp:100, killXp:50,  spd:s=>1.8+0.55*s},
-  swat: {icon:"🚔", cls:"swat", vision:100, dps:9, fire:40, meleeDps:10, hp:160, killXp:100, spd:s=>(1.8+0.55*s)*1.15},
-  heli: {icon:"🚁", cls:"heli", vision:240, dps:0, fire:0,  meleeDps:0,  hp:220, killXp:200, spd:s=>(1.8+0.55*s)*1.6},
+  cop:  {icon:"🚓", cls:"cop",  vision:100, dps:5, fire:40, meleeDps:6,  hp:100, killXp:50,  spd:s=>s*10*MPH},
+  swat: {icon:"🚔", cls:"swat", vision:100, dps:9, fire:40, meleeDps:10, hp:160, killXp:100, spd:s=>s*10*MPH*1.1},
+  heli: {icon:"🚁", cls:"heli", vision:240, dps:0, fire:0,  meleeDps:0,  hp:220, killXp:200, spd:s=>s*10*MPH*1.3},
 };
 
 function unitIcon(kind, hpPct){
@@ -1682,7 +1998,7 @@ function hideSearchZone(){
 }
 
 function clearHeat(msg){
-  stars = 0; seen = false; lkp = null; hiddenMs = 0;
+  stars = 0; seen = false; lkp = null; hiddenMs = 0; turfHeatMs = 0;
   violence = 0; // spree over, slate cleaned
   hideSearchZone();
   syncCops();
@@ -1751,6 +2067,7 @@ function attack(unit){
   if (now < nextShotAt || !playerPos) return false;
   const d = haversine(playerPos, unit);
   if (d > w.range) return false;
+  if (!spendRound(w)) return false;
   nextShotAt = now + Math.max(150, 60000 / (w.rpm || 120));
   // attacking police: you're resisting, and everyone knows where you are
   const level = w.type === "melee" ? 1 : 2;
@@ -1834,14 +2151,47 @@ setInterval(() => {
       toast("You slipped out of sight — stay low.");
       renderStars(); // stars start flashing
     }
-    // hiding progress; being outside the search zone counts double
+    // hiding inside the search zone barely counts — slipping the circle is
+    // the real escape. Outside runs double, gang blocks faster still.
     const outside = lkp && haversine(playerPos, lkp) > searchRadius();
-    hiddenMs += HEAT_TICK * (outside ? 2 : 1);
+    let mult;
+    if (outside){
+      mult = 2;
+      if (territoryAt(playerPos) !== null) mult *= 1.75;
+    } else {
+      mult = 0.15; // possible, but they'll probably sweep you up first
+    }
+    hiddenMs += HEAT_TICK * mult;
     if (hiddenMs >= hideNeedMs()){
-      clearHeat("You lost the cops.");
-      return;
+      hiddenMs = 0;
+      stars--;
+      if (stars <= 0){
+        clearHeat("You lost the cops.");
+        return;
+      }
+      syncCops();          // the force scales back with the stars
+      renderStars();
+      drawSearchZone();    // and the search tightens
+      toast("They're scaling back the search.");
     }
   }
+
+  // --- wanted on someone else's turf: their soldiers come out too ---
+  const tg = territoryAt(playerPos);
+  if (tg !== null && myGang !== null && tg !== myGang){
+    turfHeatMs += HEAT_TICK;
+    if (turfHeatMs >= 10000){
+      turfHeatMs = 0;
+      const out = npcs.filter(n => n.kind === "gang" && n.gang === tg && n.aggro).length;
+      if (out < 3){
+        spawnGangReinforcement(tg);
+        if (gt() - lastTurfHeatToast > 15000){
+          lastTurfHeatToast = gt();
+          toast(`You brought heat to ${GANGS[tg].name} turf — they're coming out.`);
+        }
+      }
+    }
+  } else turfHeatMs = 0;
 
   // --- unit movement, damage, capture ---
   for (const c of cops){
@@ -1862,10 +2212,14 @@ setInterval(() => {
       }
     }
 
-    // pick target: you if seen, otherwise hunt the search zone
+    // pick target: you if seen; otherwise RESPOND TO THE SCENE first, then sweep
     let target;
     if (seen){
       target = playerPos;
+      c.responded = false; // fresh sighting — next search starts from the scene again
+    } else if (!c.responded){
+      target = lkp; // first move: get to where it happened
+      if (haversine(c, lkp) < 35) c.responded = true;
     } else {
       if (!c.wp || haversine(c, c.wp) < 15){
         const r = Math.sqrt(Math.random()) * searchRadius();

@@ -173,7 +173,16 @@ button{
 #tradelist{overflow-y:auto; flex:1; -webkit-overflow-scrolling:touch;}
 #tradehint{font-size:12px; color:#7a9460; margin-bottom:6px;}
 #baselist h3{color:var(--amber); letter-spacing:2px; font-size:15px; margin:16px 0 4px;}
-#baselist .hint{font-size:12px; color:#7a9460; margin-bottom:4px;}
+.hint{font-size:12px; color:#7a9460; margin-bottom:4px;}
+.tabbar{display:flex; gap:8px; margin-bottom:10px;}
+.tabbtn{flex:1; padding:11px 0; font-size:14px; letter-spacing:2px; border-radius:9px;
+  background:#101708; color:#7a9460; border:1px solid rgba(143,217,74,.2);}
+.tabbtn.on{color:var(--grn); border-color:var(--grn); background:#17240b;}
+.chip{display:inline-flex; align-items:center; gap:2px; padding:2px 7px; margin:2px 5px 0 0;
+  border-radius:8px; font-size:12px; border:1px solid; font-style:normal;}
+.chip.ok{color:var(--grn); border-color:rgba(143,217,74,.45); background:rgba(143,217,74,.08);}
+.chip.no{color:var(--red); border-color:rgba(224,74,58,.45); background:rgba(224,74,58,.08);}
+.locked{opacity:.45;}
 body.night #tint{background:radial-gradient(ellipse at 50% 45%, rgba(40,10,10,.18) 0%, rgba(2,3,2,.72) 100%);}
 body.night .leaflet-tile-pane{filter:invert(1) hue-rotate(120deg) brightness(.42) contrast(1.25) saturate(.28) sepia(.2);}
 #drawbtn{position:fixed; right:12px; bottom:calc(env(safe-area-inset-bottom,0px) + 12px); z-index:21;
@@ -290,6 +299,11 @@ body.night .leaflet-tile-pane{filter:invert(1) hue-rotate(120deg) brightness(.42
 <div class="overlay" id="base">
   <h2>BASE CAMP</h2>
   <button class="ovclose" data-close="base">✕</button>
+  <div class="tabbar">
+    <button class="tabbtn on" data-tab="chest">CHEST</button>
+    <button class="tabbtn" data-tab="craft">CRAFT</button>
+    <button class="tabbtn" data-tab="build">BUILD</button>
+  </div>
   <div id="baselist"></div>
 </div>
 
@@ -331,9 +345,13 @@ const CFG = {
   },
   noise: { radius: 300 },                     // gunshot pull
   night: { start: 20, end: 6, speed: 1.25, detect: 1.3, extra: 4 },
-  base: { radius: 50, wallSlowPer: 0.4, maxWalls: 3,
+  base: { radii: [50, 75, 100], maxWalls: 3,
+          wallHpPerLevel: 150,
+          wallDps: { walker: 0.8, runner: 1, screamer: 0.5 },  // brutes walk straight through
           workbenchCost: {wood:4, metal:4, cloth:2},
-          gardenCost: {wood:3, cloth:2} },
+          gardenCost: {wood:3, cloth:2},
+          expandCosts: [ {wood:6, metal:4, cloth:2}, {wood:10, metal:8, cloth:4} ] },
+  weight: { base: 20, perLevel: 1.5 },  // carry cap in kg; chest is unlimited
   garden: { msPer: 30*60*1000, cap: 3 },      // 1 produce per 30min of game time
   rarityBoostPerDay: { uncommon: 0.15, rare: 0.25, capDays: 7 },
   drop: { bubble: 3000, ringMin: 700, ringMax: 2000,   // one somewhere out there, always
@@ -368,26 +386,28 @@ const SHOTGUN_SVG = '<svg viewBox="0 0 40 14" width="24" height="9"><path d="M1 
 const RIFLE_SVG = '<svg viewBox="0 0 44 14" width="26" height="9"><path d="M1 4h28l2-3h3l-1 3h10v2H32v2h-5l-2 6h-5l2-6h-8l-1 3H9l1-3H1z" fill="#cfd6c6"/></svg>';
 
 const ITEMS = {
-  water:    { name:"Water Bottle", icon:"💧", rarity:"common",   w:20, use:{thirst:50} },
-  canned:   { name:"Canned Food",  icon:"🥫", rarity:"common",   w:18, use:{hunger:40} },
-  snack:    { name:"Snack Bar",    icon:"🍫", rarity:"common",   w:10, use:{hunger:15} },
-  soda:     { name:"Soda",         icon:"🥤", rarity:"common",   w:8,  use:{thirst:25,hunger:10} },
-  cloth:    { name:"Cloth",        icon:"🧵", rarity:"common",   w:12, mat:true },
-  wood:     { name:"Wood",         icon:"🪵", rarity:"common",   w:12, mat:true },
-  metal:    { name:"Metal Scrap",  icon:"⚙️", rarity:"uncommon", w:9,  mat:true },
-  bandage:  { name:"Bandage",      icon:"🩹", rarity:"uncommon", w:6,  use:{hp:10} },
-  meds:     { name:"Meds",         icon:"💊", rarity:"uncommon", w:5,  use:{hp:30} },
-  ammo9:    { name:"9mm Round",    icon:AMMO_SVG("#e0b34a"), rarity:"uncommon", w:4, mat:true, grant:6 },
-  shells:   { name:"Shotgun Shell",icon:AMMO_SVG("#e04a3a"), rarity:"uncommon", w:3, mat:true, grant:4 },
-  rifleammo:{ name:"Rifle Round",  icon:AMMO_SVG("#9fb0c0"), rarity:"uncommon", w:3, mat:true, grant:5 },
-  bat:      { name:"Baseball Bat", icon:"🏏", rarity:"uncommon", w:5, melee:{dmg:12,rate:900,range:6} },
-  machete:  { name:"Machete",      icon:"🔪", rarity:"rare",     w:2, melee:{dmg:20,rate:800,range:6} },
-  pistol:   { name:"Pistol",       icon:PISTOL_SVG,  rarity:"rare", w:2, gun:{dmg:15,rate:700, range:40, ammo:"ammo9"} },
-  shotgun:  { name:"Shotgun",      icon:SHOTGUN_SVG, rarity:"rare", w:1, gun:{dmg:40,rate:1200,range:15, ammo:"shells"} },
-  rifle:    { name:"Rifle",        icon:RIFLE_SVG,   rarity:"rare", w:1, gun:{dmg:30,rate:1000,range:80, ammo:"rifleammo"} },
-  spear:    { name:"Spear",        icon:"🔱", rarity:"uncommon", w:0, melee:{dmg:15,rate:850,range:8} }, // craft-only
-  barricade:{ name:"Barricade Kit",icon:"🧱", rarity:"uncommon", w:0, mat:true },                        // craft-only
-  produce:  { name:"Garden Produce",icon:"🥕", rarity:"common",  w:0, use:{hunger:20} },                 // garden-only
+  water:    { name:"Water Bottle", icon:"💧", rarity:"common",   w:20, wt:1,   use:{thirst:50} },
+  canned:   { name:"Canned Food",  icon:"🥫", rarity:"common",   w:18, wt:0.8, use:{hunger:40} },
+  snack:    { name:"Snack Bar",    icon:"🍫", rarity:"common",   w:10, wt:0.2, use:{hunger:15} },
+  soda:     { name:"Soda",         icon:"🥤", rarity:"common",   w:8,  wt:0.6, use:{thirst:25,hunger:10} },
+  cloth:    { name:"Cloth",        icon:"🧵", rarity:"common",   w:12, wt:0.3, mat:true },
+  wood:     { name:"Wood",         icon:"🪵", rarity:"common",   w:12, wt:1.5, mat:true },
+  metal:    { name:"Metal Scrap",  icon:"⚙️", rarity:"uncommon", w:9,  wt:1,   mat:true },
+  bandage:  { name:"Bandage",      icon:"🩹", rarity:"uncommon", w:6,  wt:0.2, use:{hp:10} },
+  meds:     { name:"Meds",         icon:"💊", rarity:"uncommon", w:5,  wt:0.2, use:{hp:30} },
+  medkit:   { name:"Medkit",       icon:"🧰", rarity:"uncommon", w:0,  wt:0.8, use:{hp:60} },            // craft-only
+  repairkit:{ name:"Repair Kit",   icon:"🔧", rarity:"uncommon", w:3,  wt:0.7, repair:true },
+  ammo9:    { name:"9mm Round",    icon:AMMO_SVG("#e0b34a"), rarity:"uncommon", w:4, wt:0.05, mat:true, grant:6 },
+  shells:   { name:"Shotgun Shell",icon:AMMO_SVG("#e04a3a"), rarity:"uncommon", w:3, wt:0.08, mat:true, grant:4 },
+  rifleammo:{ name:"Rifle Round",  icon:AMMO_SVG("#9fb0c0"), rarity:"uncommon", w:3, wt:0.06, mat:true, grant:5 },
+  bat:      { name:"Baseball Bat", icon:"🏏", rarity:"uncommon", w:5, wt:1.2, melee:{dmg:12,rate:900,range:6,dur:80} },
+  machete:  { name:"Machete",      icon:"🔪", rarity:"rare",     w:2, wt:1,   melee:{dmg:20,rate:800,range:6,dur:50} },
+  pistol:   { name:"Pistol",       icon:PISTOL_SVG,  rarity:"rare", w:2, wt:1.4, gun:{dmg:15,rate:700, range:40, ammo:"ammo9"} },
+  shotgun:  { name:"Shotgun",      icon:SHOTGUN_SVG, rarity:"rare", w:1, wt:3,   gun:{dmg:40,rate:1200,range:15, ammo:"shells"} },
+  rifle:    { name:"Rifle",        icon:RIFLE_SVG,   rarity:"rare", w:1, wt:3.4, gun:{dmg:30,rate:1000,range:80, ammo:"rifleammo"} },
+  spear:    { name:"Spear",        icon:"🔱", rarity:"uncommon", w:0, wt:1.5, melee:{dmg:15,rate:850,range:8,dur:60} }, // craft-only
+  barricade:{ name:"Barricade Kit",icon:"🧱", rarity:"uncommon", w:0, wt:3,   mat:true },                              // craft-only
+  produce:  { name:"Garden Produce",icon:"🥕", rarity:"common",  w:0, wt:0.3, use:{hunger:20} },                       // garden-only
 };
 const WEAPON_IDS = ["spear","bat","machete","pistol","shotgun","rifle"];
 const FISTS = { dmg:5, rate:1100, range:6 };
@@ -396,6 +416,9 @@ const RECIPES = {
   bandage:  { name:"Bandage",        out:{bandage:1},  cost:{cloth:2} },
   spear:    { name:"Spear",          out:{spear:1},    cost:{wood:2, metal:1} },
   barricade:{ name:"Barricade Kit",  out:{barricade:1},cost:{wood:3, metal:2} },
+  repairkit:{ name:"Repair Kit",     out:{repairkit:1},cost:{metal:1, cloth:1} },
+  machete:  { name:"Machete",        out:{machete:1},  cost:{metal:3, wood:1}, bench:true },
+  medkit:   { name:"Medkit",         out:{medkit:1},   cost:{cloth:3, meds:1}, bench:true },
   ammo9:    { name:"9mm ×6",         out:{ammo9:6},    cost:{metal:2}, bench:true },
   shells:   { name:"Shells ×4",      out:{shells:4},   cost:{metal:3}, bench:true },
   rifleammo:{ name:"Rifle Rounds ×5",out:{rifleammo:5},cost:{metal:3}, bench:true },
@@ -406,7 +429,7 @@ const K_STATE="dz_state", K_GT="dz_gt", K_WORLD="dz_world", K_V="dz_v";
 const SAVE_VERSION=3;
 function freshState(){
   return { hp:100, maxHp:100, hunger:100, thirst:100, xp:0, level:1,
-           inv:{}, chest:{}, weapon:"fists", base:null, mute:false,
+           inv:{}, chest:{}, dur:{}, weapon:"fists", base:null, mute:false,
            pos:null, start:Date.now(), lastSeen:Date.now(),
            deaths:0, scavenged:0, kills:0 };
 }
@@ -432,6 +455,11 @@ try { const raw=localStorage.getItem(K_STATE); if(raw) S=Object.assign(freshStat
   }
   localStorage.setItem(K_V, String(SAVE_VERSION));
 })();
+if(!S.dur) S.dur={};
+if(S.base){ // pre-siege saves: give existing walls their HP pool
+  if(S.base.wallHp==null) S.base.wallHp=(S.base.walls||0)*CFG.base.wallHpPerLevel;
+  if(S.base.expand==null) S.base.expand=0;
+}
 
 /* ---- game clock: the world runs on ITS OWN time ----
    gt() only advances while the game is started AND visible.
@@ -486,6 +514,12 @@ function bearingBetween(a,b){
 }
 const COMPASS=["N","NE","E","SE","S","SW","W","NW"];
 const compass=b=>COMPASS[Math.round(b/45)%8];
+function baseRadius(){ return CFG.base.radii[(S.base&&S.base.expand)||0]; }
+function invWeight(){ let w=0; for(const [id,n] of Object.entries(S.inv)) if(ITEMS[id]) w+=ITEMS[id].wt*n; return w; }
+function weightCap(){ return CFG.weight.base+(S.level-1)*CFG.weight.perLevel; }
+function canCarry(add){ return invWeight()+add<=weightCap()+1e-9; }
+function lootWt(item){ return ITEMS[item].wt*(ITEMS[item].grant||1); }
+function durLeft(id){ return (S.dur&&S.dur[id]!=null)?S.dur[id]:ITEMS[id].melee.dur; }
 
 /* ---------------- globals ---------------- */
 let map=null, playerMarker=null, playerPos=null, devMode=false, gpsAcc=null;
@@ -559,16 +593,16 @@ function drawBase(){
   if(baseMarker){ map.removeLayer(baseMarker); baseMarker=null; }
   if(baseCircle){ map.removeLayer(baseCircle); baseCircle=null; }
   if(!S.base) return;
-  baseCircle=L.circle([S.base.lat,S.base.lng],{radius:CFG.base.radius,
+  baseCircle=L.circle([S.base.lat,S.base.lng],{radius:baseRadius(),
     color:"#8fd94a", weight:1, opacity:0.6, fillColor:"#8fd94a", fillOpacity:0.06}).addTo(map);
   baseMarker=L.marker([S.base.lat,S.base.lng],{icon:L.divIcon({className:"",
     html:'<div class="mk player" style="width:32px;height:32px">🏕️</div>',
     iconSize:[32,32], iconAnchor:[16,16]})}).addTo(map);
   baseMarker.on("click",()=>openBase());
 }
-function atBase(){ return S.base && playerPos && haversine(playerPos,S.base)<=CFG.base.radius+15; }
+function atBase(){ return S.base && playerPos && haversine(playerPos,S.base)<=baseRadius()+15; }
 function setBaseHere(){
-  if(!S.base) S.base={lat:playerPos.lat,lng:playerPos.lng,walls:0,workbench:false,garden:false,gardenLast:gt()};
+  if(!S.base) S.base={lat:playerPos.lat,lng:playerPos.lng,walls:0,wallHp:0,expand:0,workbench:false,garden:false,gardenLast:gt()};
   drawBase(); sfx("craft");
   toast("🏕️ Base set. The chest here survives death.");
   save();
@@ -692,6 +726,7 @@ function cancelChannel(msg){
 function completeChannel(){
   const p=channel.loot, d=ITEMS[p.item], qty=d.grant||1;
   channel=null; $("actbtn").querySelector(".fill").style.transform="scaleX(0)";
+  if(!canCarry(lootWt(p.item))){ toast("⚖️ Too heavy — stash something first"); return; }
   S.inv[p.item]=(S.inv[p.item]||0)+qty; S.scavenged++;
   removeLoot(p);
   grantXp(d.rarity==="rare"?25:d.rarity==="uncommon"?12:6);
@@ -753,7 +788,18 @@ setInterval(()=>{ // needs tick 1s
 },1000);
 
 function useItem(id){
-  const d=ITEMS[id]; if(!d||!d.use||!(S.inv[id]>0)) return;
+  const d=ITEMS[id]; if(!d||!(S.inv[id]>0)) return;
+  if(d.repair){
+    const wid=S.weapon;
+    if(wid!=="fists" && ITEMS[wid] && ITEMS[wid].melee && S.inv[wid]>0){
+      S.inv[id]--; if(S.inv[id]<=0) delete S.inv[id];
+      delete S.dur[wid];
+      sfx("craft"); toast("🔧 "+ITEMS[wid].name+" restored to full");
+      save(); renderInv(); refreshHud();
+    } else toast("Equip a melee weapon first (weapon button cycles)");
+    return;
+  }
+  if(!d.use) return;
   S.inv[id]--; if(S.inv[id]<=0) delete S.inv[id];
   if(d.use.hunger) S.hunger=Math.min(100,S.hunger+d.use.hunger);
   if(d.use.thirst) S.thirst=Math.min(100,S.thirst+d.use.thirst);
@@ -798,7 +844,9 @@ function refreshHud(){
   setBar("hpBar",S.hp,S.maxHp,"HP");
   setBar("huBar",S.hunger,100,"FOOD");
   setBar("thBar",S.thirst,100,"WATER");
-  $("lvlLine").textContent="LV "+S.level+" · "+S.xp+"/"+(S.level*CFG.xpPerLevel)+" XP";
+  const wcur=invWeight(), wcap=weightCap();
+  $("lvlLine").innerHTML="LV "+S.level+" · "+S.xp+"/"+(S.level*CFG.xpPerLevel)+" XP · "+
+    '<span style="color:'+(wcur>wcap?"var(--red)":"#93b078")+'">⚖️'+wcur.toFixed(1)+"/"+Math.round(wcap)+"</span>";
   const chasing=zombies.filter(z=>z.state==="chase").length;
   const friends=npcs.filter(n=>n.kind==="friend"&&n.befriended).length;
   $("chip").innerHTML="DAY <b>"+dayCount()+"</b> · "+(devMode?"DEV":(gpsAcc!=null?("GPS ±"+Math.round(gpsAcc)+"m"):"GPS…"))+
@@ -807,6 +855,12 @@ function refreshHud(){
     (chasing?' · <b style="color:var(--red)">🧟'+chasing+"</b>":"")+
     (friends?" · 👥"+friends:"");
   document.body.classList.toggle("night",isNight());
+  if(baseCircle&&S.base){
+    const mx=S.base.walls*CFG.base.wallHpPerLevel;
+    const f=mx?S.base.wallHp/mx:1;
+    const col=(S.base.walls>0&&S.base.wallHp<=0)?"#e04a3a":(f>.6?"#8fd94a":(f>.25?"#e0b34a":"#e04a3a"));
+    baseCircle.setStyle({color:col, fillColor:col});
+  }
   $("btnMute").textContent=S.mute?"🔇":"🔊";
   updateCombatBtns();
 }
@@ -822,7 +876,10 @@ function refreshAction(){
   if(!n){ $("nearline").textContent="no loot nearby — keep moving"; lbl.textContent="EXPLORE"; btn.disabled=true; return; }
   const d=ITEMS[n.p.item];
   $("nearline").innerHTML="nearest: "+d.icon+" "+d.name+" · "+Math.round(n.d)+"m";
-  if(n.d<=CFG.collectRadius){ lbl.textContent="SCAVENGE"; btn.disabled=false; }
+  if(n.d<=CFG.collectRadius){
+    if(!canCarry(lootWt(n.p.item))){ lbl.textContent="TOO HEAVY — STASH FIRST"; btn.disabled=true; }
+    else { lbl.textContent="SCAVENGE"; btn.disabled=false; }
+  }
   else { lbl.textContent="GET CLOSER"; btn.disabled=true; }
 }
 setInterval(()=>{ if(!paused()&&playerPos&&!dead){ refreshHud(); refreshAction(); } },500);
@@ -843,25 +900,28 @@ $("actbtn").addEventListener("click",()=>{
     return;
   }
   const n=nearestLoot();
-  if(n && n.d<=CFG.collectRadius) startChannel(n.p);
+  if(n && n.d<=CFG.collectRadius && canCarry(lootWt(n.p.item))) startChannel(n.p);
 });
 
 /* ---------------- inventory overlay ---------------- */
-function itemSub(d){
-  if(d.use) return [d.use.hunger?("+"+d.use.hunger+" food"):"",d.use.thirst?("+"+d.use.thirst+" water"):"",d.use.hp?("+"+d.use.hp+" hp"):""].filter(Boolean).join(" · ");
-  if(d.melee) return "melee · "+d.melee.dmg+" dmg · "+d.melee.range+"m";
-  if(d.gun) return "gun · "+d.gun.dmg+" dmg · "+d.gun.range+"m · uses "+ITEMS[d.gun.ammo].name;
-  return "crafting material";
+function itemSub(d,id){
+  const wt=" · "+d.wt+"kg";
+  if(d.use) return [d.use.hunger?("+"+d.use.hunger+" food"):"",d.use.thirst?("+"+d.use.thirst+" water"):"",d.use.hp?("+"+d.use.hp+" hp"):""].filter(Boolean).join(" · ")+wt;
+  if(d.repair) return "restores equipped melee to full"+wt;
+  if(d.melee) return "melee · "+d.melee.dmg+" dmg"+(id?(" · "+durLeft(id)+"/"+d.melee.dur+" uses"):(" · "+d.melee.dur+" uses"))+wt;
+  if(d.gun) return "gun · "+d.gun.dmg+" dmg · "+d.gun.range+"m · uses "+ITEMS[d.gun.ammo].name+wt;
+  return "crafting material"+wt;
 }
 function renderInv(){
   const list=$("invlist"); const ids=Object.keys(S.inv).filter(id=>ITEMS[id]);
   if(!ids.length){ list.innerHTML='<div id="invempty">Empty. Go scavenge — loot glows on the map.</div>'; return; }
-  list.innerHTML=ids.map(id=>{
+  list.innerHTML='<div class="hint">⚖️ Carrying '+invWeight().toFixed(1)+' / '+Math.round(weightCap())+' kg — chest at base has no limit</div>'+
+   ids.map(id=>{
     const d=ITEMS[id];
     return '<div class="invrow"><div class="ic">'+d.icon+'</div>'+
-      '<div class="nm">'+d.name+'<small>'+itemSub(d)+'</small></div>'+
+      '<div class="nm">'+d.name+'<small>'+itemSub(d,id)+'</small></div>'+
       '<div class="ct">×'+S.inv[id]+'</div>'+
-      (d.use?'<button class="usebtn" data-use="'+id+'">USE</button>':"")+
+      ((d.use||d.repair)?'<button class="usebtn" data-use="'+id+'">USE</button>':"")+
       '</div>';
   }).join("");
 }
@@ -884,39 +944,69 @@ function gardenPending(){
   if(!S.base||!S.base.garden) return 0;
   return Math.min(CFG.garden.cap, Math.floor((gt()-S.base.gardenLast)/CFG.garden.msPer));
 }
-function renderBase(){
-  const b=S.base; let hp="";
-  const ids=[...new Set([...Object.keys(S.inv),...Object.keys(S.chest)])].filter(id=>ITEMS[id]);
-  hp+="<h3>CHEST</h3><div class='hint'>stash = safe on death · carry = lost on death</div>";
-  hp+= ids.length? ids.map(id=>{
-    const d=ITEMS[id];
-    return '<div class="invrow"><div class="ic">'+d.icon+'</div><div class="nm">'+d.name+
-      '<small>carry ×'+(S.inv[id]||0)+' · chest ×'+(S.chest[id]||0)+'</small></div>'+
-      ((S.inv[id]||0)>0?'<button class="usebtn" data-stash="'+id+'">STASH</button>':'')+
-      ((S.chest[id]||0)>0?'<button class="usebtn" data-take="'+id+'">TAKE</button>':'')+'</div>';
-  }).join("") : '<div class="hint">Nothing stored or carried yet.</div>';
-  hp+='<div style="margin-top:6px"><button class="usebtn" data-stashall="1">STASH ALL MATERIALS</button></div>';
-  hp+="<h3>CRAFT"+(b.workbench?" · workbench ✓":"")+"</h3>";
-  hp+=Object.entries(RECIPES).map(([rid,r])=>{
-    const needBench=r.bench&&!b.workbench;
-    const ok=!needBench&&canAfford(r.cost);
+let baseTab="chest";
+function costChips(cost){
+  return Object.entries(cost).map(([id,n])=>
+    '<span class="chip '+(have(id)>=n?'ok':'no')+'">'+ITEMS[id].icon+n+'</span>').join("");
+}
+function craftRows(bench){
+  return Object.entries(RECIPES).filter(([,r])=>!!r.bench===bench).map(([rid,r])=>{
+    const locked=bench&&!S.base.workbench;
+    const ok=!locked&&canAfford(r.cost);
     const outId=Object.keys(r.out)[0];
-    return '<div class="invrow"><div class="ic">'+ITEMS[outId].icon+'</div><div class="nm">'+r.name+
-      '<small>'+costText(r.cost)+(needBench?' · needs workbench':'')+'</small></div>'+
+    return '<div class="invrow'+(locked?' locked':'')+'"><div class="ic">'+ITEMS[outId].icon+'</div>'+
+      '<div class="nm">'+r.name+'<small>'+costChips(r.cost)+'</small></div>'+
       '<button class="usebtn" data-craft="'+rid+'" '+(ok?'':'disabled')+'>CRAFT</button></div>';
   }).join("");
-  hp+="<h3>UPGRADES</h3>";
-  hp+='<div class="invrow"><div class="ic">🧱</div><div class="nm">Walls · lvl '+b.walls+"/"+CFG.base.maxWalls+
-    '<small>slows zombies inside base (brutes break through) · 1× Barricade Kit</small></div>'+
-    '<button class="usebtn" data-wall="1" '+((b.walls<CFG.base.maxWalls&&have("barricade")>0)?'':'disabled')+'>UPGRADE</button></div>';
-  hp+='<div class="invrow"><div class="ic">🔨</div><div class="nm">Workbench'+(b.workbench?' · built ✓':'')+
-    '<small>unlocks ammo crafting · '+costText(CFG.base.workbenchCost)+'</small></div>'+
-    (b.workbench?'':'<button class="usebtn" data-build="workbench" '+(canAfford(CFG.base.workbenchCost)?'':'disabled')+'>BUILD</button>')+'</div>';
-  const pend=gardenPending();
-  hp+='<div class="invrow"><div class="ic">🥕</div><div class="nm">Garden'+(b.garden?' · growing':'')+
-    '<small>'+(b.garden?("1 produce / 30min played · ready: "+pend+"/"+CFG.garden.cap):("slow passive food · "+costText(CFG.base.gardenCost)))+'</small></div>'+
-    (b.garden?('<button class="usebtn" data-harvest="1" '+(pend>0?'':'disabled')+'>COLLECT</button>')
-             :('<button class="usebtn" data-build="garden" '+(canAfford(CFG.base.gardenCost)?'':'disabled')+'>BUILD</button>'))+'</div>';
+}
+function renderBase(){
+  const b=S.base; let hp="";
+  if(baseTab==="chest"){
+    const carry=Object.keys(S.inv).filter(id=>ITEMS[id]);
+    const stored=Object.keys(S.chest).filter(id=>ITEMS[id]);
+    hp+='<h3>ON YOU · ⚖️ '+invWeight().toFixed(1)+'/'+Math.round(weightCap())+' kg</h3>';
+    hp+='<div class="hint">Lost on death · STASH moves one into the chest</div>';
+    hp+= carry.length? carry.map(id=>{
+      const d=ITEMS[id];
+      return '<div class="invrow"><div class="ic">'+d.icon+'</div><div class="nm">'+d.name+
+        '<small>'+itemSub(d,id)+'</small></div><div class="ct">×'+S.inv[id]+'</div>'+
+        '<button class="usebtn" data-stash="'+id+'">STASH</button></div>';
+    }).join("") : '<div class="hint">Carrying nothing.</div>';
+    hp+='<div style="margin:8px 0 4px"><button class="usebtn" data-stashall="1">STASH ALL</button></div>';
+    hp+='<h3>IN CHEST</h3>';
+    hp+='<div class="hint">Safe on death · no weight limit</div>';
+    hp+= stored.length? stored.map(id=>{
+      const d=ITEMS[id];
+      return '<div class="invrow"><div class="ic">'+d.icon+'</div><div class="nm">'+d.name+
+        '<small>'+itemSub(d)+'</small></div><div class="ct">×'+S.chest[id]+'</div>'+
+        '<button class="usebtn" data-take="'+id+'">TAKE</button></div>';
+    }).join("") : '<div class="hint">Chest is empty.</div>';
+  } else if(baseTab==="craft"){
+    hp+='<div class="hint">Green chip = you have it (carry + chest counted)</div>';
+    hp+="<h3>FIELD</h3>"+craftRows(false);
+    hp+="<h3>WORKBENCH "+(b.workbench?"✓":"🔒")+"</h3>"+craftRows(true);
+    if(!b.workbench) hp+='<div class="hint">Build the workbench in the BUILD tab to unlock these.</div>';
+  } else {
+    const maxHp=b.walls*CFG.base.wallHpPerLevel;
+    hp+='<div class="invrow"><div class="ic">🧱</div><div class="nm">Walls · lvl '+b.walls+'/'+CFG.base.maxWalls+
+      (b.walls?'<div class="bar" style="height:9px;margin:5px 0"><i style="transform:scaleX('+(maxHp?b.wallHp/maxHp:0)+');background:linear-gradient(90deg,#7a5a14,var(--amber))"></i><span></span></div>':'')+
+      '<small>'+(b.walls?('HP '+Math.round(b.wallHp)+'/'+maxHp+' · '):'')+
+      'block zombies until broken · brutes walk through · '+costChips({barricade:1})+'</small></div>'+
+      (b.walls>0&&b.wallHp<maxHp?'<button class="usebtn" data-repairwall="1" '+(have("barricade")>0?'':'disabled')+'>REPAIR</button>':'')+
+      (b.walls<CFG.base.maxWalls?'<button class="usebtn" data-wall="1" '+(have("barricade")>0?'':'disabled')+'>UPGRADE</button>':'')+'</div>';
+    hp+='<div class="invrow"><div class="ic">🔨</div><div class="nm">Workbench'+(b.workbench?' · built ✓':'')+
+      '<small>unlocks ammo, machete + medkit crafting'+(b.workbench?'':' · '+costChips(CFG.base.workbenchCost))+'</small></div>'+
+      (b.workbench?'':'<button class="usebtn" data-build="workbench" '+(canAfford(CFG.base.workbenchCost)?'':'disabled')+'>BUILD</button>')+'</div>';
+    const pend=gardenPending();
+    hp+='<div class="invrow"><div class="ic">🥕</div><div class="nm">Garden'+(b.garden?' · growing':'')+
+      '<small>'+(b.garden?("1 produce / 30min played · ready "+pend+"/"+CFG.garden.cap):("slow passive food · "+costChips(CFG.base.gardenCost)))+'</small></div>'+
+      (b.garden?('<button class="usebtn" data-harvest="1" '+(pend>0?'':'disabled')+'>COLLECT</button>')
+               :('<button class="usebtn" data-build="garden" '+(canAfford(CFG.base.gardenCost)?'':'disabled')+'>BUILD</button>'))+'</div>';
+    const exp=b.expand||0;
+    hp+='<div class="invrow"><div class="ic">📐</div><div class="nm">Perimeter · '+CFG.base.radii[exp]+'m'+
+      '<small>'+(exp<CFG.base.radii.length-1?('expand to '+CFG.base.radii[exp+1]+'m · '+costChips(CFG.base.expandCosts[exp])):'max size')+'</small></div>'+
+      (exp<CFG.base.radii.length-1?'<button class="usebtn" data-expand="1" '+(canAfford(CFG.base.expandCosts[exp])?'':'disabled')+'>EXPAND</button>':'')+'</div>';
+  }
   $("baselist").innerHTML=hp;
 }
 function openBase(){
@@ -938,12 +1028,19 @@ $("btnBase").addEventListener("click",()=>{
 document.addEventListener("click",e=>{
   const c=e.target.closest("[data-close]"); if(c){ $(c.dataset.close).style.display="none"; return; }
   const u=e.target.closest("[data-use]"); if(u){ useItem(u.dataset.use); return; }
+  const tb=e.target.closest("[data-tab]");
+  if(tb){
+    baseTab=tb.dataset.tab;
+    document.querySelectorAll(".tabbtn").forEach(x=>x.classList.toggle("on",x.dataset.tab===baseTab));
+    renderBase(); return;
+  }
   const by=e.target.closest("[data-buy]");
   if(by){
     const m=npcs.find(n=>n.kind==="merchant");
     if(!m || haversine(playerPos,m)>CFG.collectRadius){ toast("The trader wandered off"); $("trade").style.display="none"; return; }
     const t=TRADE[+by.dataset.buy];
     if(t && (S.inv.metal||0)>=t.cost){
+      if(!canCarry(ITEMS[t.id].wt*t.qty)){ toast("⚖️ Too heavy to carry"); return; }
       S.inv.metal-=t.cost; if(S.inv.metal<=0) delete S.inv.metal;
       S.inv[t.id]=(S.inv[t.id]||0)+t.qty;
       sfx("craft"); toast("Bought "+ITEMS[t.id].name+(t.qty>1?" ×"+t.qty:""));
@@ -951,7 +1048,9 @@ document.addEventListener("click",e=>{
     }
     return;
   }
-  if(!atBase()) return; // everything below requires standing at base
+  const baseAct=e.target.closest("[data-stash],[data-take],[data-stashall],[data-craft],[data-build],[data-wall],[data-repairwall],[data-expand],[data-harvest]");
+  if(!baseAct) return;
+  if(!atBase()){ toast("You've drifted outside the base radius — step back in"); return; }
   const st=e.target.closest("[data-stash]");
   if(st){ const id=st.dataset.stash;
     if(S.inv[id]>0){ S.inv[id]--; if(S.inv[id]<=0) delete S.inv[id]; S.chest[id]=(S.chest[id]||0)+1; save(); renderBase(); } return; }
@@ -959,9 +1058,15 @@ document.addEventListener("click",e=>{
   if(tk){ const id=tk.dataset.take;
     if(S.chest[id]>0){ S.chest[id]--; if(S.chest[id]<=0) delete S.chest[id]; S.inv[id]=(S.inv[id]||0)+1; save(); renderBase(); } return; }
   if(e.target.closest("[data-stashall]")){
+    const w=currentWeapon();
+    const keep=new Set(["fists", w.id]); if(w.ammo) keep.add(w.ammo);
+    let moved=0;
     for(const id of Object.keys(S.inv)){
-      if(ITEMS[id]&&ITEMS[id].mat){ S.chest[id]=(S.chest[id]||0)+S.inv[id]; delete S.inv[id]; }
+      if(!ITEMS[id]||keep.has(id)) continue;
+      moved+=S.inv[id];
+      S.chest[id]=(S.chest[id]||0)+S.inv[id]; delete S.inv[id];
     }
+    toast(moved?("Stashed "+moved+" item"+(moved>1?"s":"")+(w.id!=="fists"?" — kept your "+w.name+(w.ammo?" + ammo":""):"")):"Nothing to stash",2800);
     save(); renderBase(); return;
   }
   const cr=e.target.closest("[data-craft]");
@@ -985,7 +1090,23 @@ document.addEventListener("click",e=>{
   if(e.target.closest("[data-wall]")){
     if(S.base.walls<CFG.base.maxWalls && have("barricade")>0){
       consume({barricade:1}); S.base.walls++;
-      grantXp(10); sfx("craft"); toast("Walls level "+S.base.walls);
+      S.base.wallHp=Math.min(S.base.walls*CFG.base.wallHpPerLevel, S.base.wallHp+CFG.base.wallHpPerLevel);
+      grantXp(10); sfx("craft"); toast("🧱 Walls level "+S.base.walls+" · HP "+Math.round(S.base.wallHp));
+      save(); renderBase();
+    } return; }
+  if(e.target.closest("[data-repairwall]")){
+    const maxHp=S.base.walls*CFG.base.wallHpPerLevel;
+    if(S.base.walls>0 && S.base.wallHp<maxHp && have("barricade")>0){
+      consume({barricade:1});
+      S.base.wallHp=Math.min(maxHp, S.base.wallHp+CFG.base.wallHpPerLevel);
+      sfx("craft"); toast("🧱 Walls repaired · "+Math.round(S.base.wallHp)+"/"+maxHp);
+      save(); renderBase();
+    } return; }
+  if(e.target.closest("[data-expand]")){
+    const exp=S.base.expand||0;
+    if(exp<CFG.base.radii.length-1 && canAfford(CFG.base.expandCosts[exp])){
+      consume(CFG.base.expandCosts[exp]); S.base.expand=exp+1;
+      drawBase(); grantXp(20); sfx("craft"); toast("📐 Perimeter expanded to "+baseRadius()+"m");
       save(); renderBase();
     } return; }
   if(e.target.closest("[data-harvest]")){
@@ -1056,9 +1177,16 @@ function moveZombie(z,toward,speed,dt){
   const pt=offsetPoint(z.lat,z.lng,step,bearingBetween(z,toward));
   z.lat=pt.lat; z.lng=pt.lng; z.marker.setLatLng([z.lat,z.lng]);
 }
-function wallFactor(z){
-  if(!S.base||!S.base.walls||z.kind==="brute") return 1;
-  return haversine(z,S.base)<=CFG.base.radius ? 1/(1+CFG.base.wallSlowPer*S.base.walls) : 1;
+let lastWallWarn=0;
+function damageWalls(dmg){
+  if(!S.base||S.base.wallHp<=0) return;
+  S.base.wallHp=Math.max(0,S.base.wallHp-dmg);
+  const maxHp=S.base.walls*CFG.base.wallHpPerLevel;
+  if(S.base.wallHp<=0){ sfx("scream"); toast("🧱 WALLS DOWN — they're inside!",4200); }
+  else if(gt()-lastWallWarn>6000){
+    lastWallWarn=gt();
+    toast("🧱 They're at the walls · "+Math.round(S.base.wallHp)+"/"+maxHp,2400);
+  }
 }
 function alertZombie(z,vic){
   if(z.state!=="chase"){
@@ -1125,16 +1253,26 @@ setInterval(()=>{
         z.state="wander"; z.wp=null; z.vic=null; refreshZombIcon(z); continue;
       }
       if(d<=det) z.lastSense=now;
-      if(d<=t.range){
+      const bR=S.base?baseRadius():0;
+      const wallsUp=S.base && S.base.walls>0 && S.base.wallHp>0;
+      const blocked=wallsUp && z.kind!=="brute" && haversine(vpos,S.base)<bR && haversine(z,S.base)>=bR-1;
+      if(!blocked && d<=t.range){
         if(vn) damageNpc(vn, t.dps*0.2);
         else if(!inGrace) hurtPlayer(t.dps*0.2);
+      } else if(blocked && haversine(z,S.base)<=bR+5){
+        damageWalls((CFG.base.wallDps[z.kind]!=null?CFG.base.wallDps[z.kind]:0.8)*0.2);
+      } else {
+        moveZombie(z, vpos, t.chase*nm.speed, 0.2);
+        if(blocked && haversine(z,S.base)<bR){ // never phase through a standing wall
+          const ep=offsetPoint(S.base.lat,S.base.lng,bR+1,bearingBetween(S.base,z));
+          z.lat=ep.lat; z.lng=ep.lng; z.marker.setLatLng([z.lat,z.lng]);
+        }
       }
-      else moveZombie(z, vpos, t.chase*nm.speed*wallFactor(z), 0.2);
     } else if(z.state==="investigate"){
       if(!z.noiseTgt){ z.state="wander"; refreshZombIcon(z); continue; }
       const nd=haversine(z,z.noiseTgt);
       if(nd<8){ z.state="wander"; z.noiseTgt=null; refreshZombIcon(z); }
-      else moveZombie(z, z.noiseTgt, t.chase*nm.speed*wallFactor(z), 0.2);
+      else moveZombie(z, z.noiseTgt, t.chase*nm.speed, 0.2);
     }
   }
 },200);
@@ -1386,7 +1524,7 @@ function currentWeapon(){
 }
 function updateCombatBtns(){
   const w=currentWeapon();
-  $("wpnbtn").innerHTML=w.icon+(w.ammo?'<b class="ammoct">'+(S.inv[w.ammo]||0)+'</b>':"");
+  $("wpnbtn").innerHTML=w.icon+(w.ammo?'<b class="ammoct">'+(S.inv[w.ammo]||0)+'</b>':(w.type==="melee"&&w.id!=="fists"?'<b class="ammoct">'+durLeft(w.id)+'</b>':""));
   $("drawbtn").classList.toggle("on",drawn);
   $("drawbtn").innerHTML=drawn?(w.icon+"<br>HOLSTER"):"✊<br>DRAW";
 }
@@ -1395,7 +1533,7 @@ function cycleWeapon(){
   const i=owned.indexOf(ownsWeapon(S.weapon)?S.weapon:"fists");
   S.weapon=owned[(i+1)%owned.length];
   const w=currentWeapon();
-  toast("Weapon: "+w.name+(w.ammo?(" · "+(S.inv[w.ammo]||0)+" rounds"):""));
+  toast("Weapon: "+w.name+(w.ammo?(" · "+(S.inv[w.ammo]||0)+" rounds"):(w.type==="melee"&&w.id!=="fists"?(" · "+durLeft(w.id)+" uses left"):"")));
   save(); updateCombatBtns();
 }
 $("wpnbtn").addEventListener("click",cycleWeapon);
@@ -1406,6 +1544,18 @@ $("drawbtn").addEventListener("click",()=>{
 function tracer(a,b){
   const l=L.polyline([[a.lat,a.lng],[b.lat,b.lng]],{color:"#ffd24a",weight:2,opacity:0.9}).addTo(map);
   setTimeout(()=>map.removeLayer(l),90);
+}
+function applyMeleeWear(w){
+  if(w.type!=="melee"||w.id==="fists") return;
+  const max=ITEMS[w.id].melee.dur;
+  S.dur[w.id]=(S.dur[w.id]==null?max:S.dur[w.id])-1;
+  if(S.dur[w.id]<=0){
+    delete S.dur[w.id];
+    S.inv[w.id]--; if(S.inv[w.id]<=0) delete S.inv[w.id];
+    sfx("hurt");
+    toast("💥 Your "+ITEMS[w.id].name+" broke!"+((S.inv[w.id]||0)>0?" Grabbed a spare.":""),3000);
+    updateCombatBtns();
+  }
 }
 setInterval(()=>{ // attack scheduler 100ms
   if(paused()||!drawn||!playerPos||dead) return;
@@ -1429,6 +1579,7 @@ setInterval(()=>{ // attack scheduler 100ms
     noiseEvent(playerPos.lat,playerPos.lng); // guns are LOUD — the horde-maker
   } else sfx("hit");
   lastSwing=now;
+  if(w.type==="melee") applyMeleeWear(w);
   tgt.hp-=w.dmg;
   dmgNum([tgt.lat,tgt.lng],"-"+w.dmg);
   if(tgt.isNpc){ tgt.state="chase"; tgt.lastSense=now; }  // shooting a hostile enrages him
