@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>STREETCASH</title>
+<title>The Streets</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <style>
@@ -137,11 +137,19 @@
   #fightBtn.drawn{border-color:var(--danger);color:var(--danger);
     box-shadow:0 0 16px rgba(224,74,74,.45);animation:pulse 1.2s infinite}
 
-  .npc{width:28px;height:28px;border-radius:50%;
+  .npc{width:28px;height:28px;border-radius:50%;position:relative;
     display:flex;align-items:center;justify-content:center;font-size:14px;
     background:#12140f;border:2px solid #6a7a6a}
   .npc-dealer{border-color:#b04ae0;box-shadow:0 0 8px rgba(176,74,224,.4)}
   .npc-buyer{border-color:#e0c84a;box-shadow:0 0 8px rgba(224,200,74,.4)}
+  #gangPanel{position:absolute;inset:0;z-index:2100;display:none;
+    background:rgba(13,15,13,.96);padding:calc(env(safe-area-inset-top,0px) + 30px) 24px 24px;
+    flex-direction:column;gap:14px;align-items:center;justify-content:center;text-align:center}
+  #gangPanel h2{font-size:34px;font-weight:900;letter-spacing:2px}
+  #gangPanel p{color:var(--muted);font-size:14px;max-width:300px}
+  .gangBtn{width:100%;max-width:300px;padding:16px;border-radius:12px;
+    background:transparent;font-family:inherit;font-size:19px;font-weight:900;
+    letter-spacing:2px;border:2px solid}
   #dpad{position:absolute;left:10px;bottom:calc(env(safe-area-inset-bottom,0px) + 118px);
     z-index:1000;display:none;grid-template-columns:repeat(3,46px);
     grid-template-rows:repeat(2,46px);gap:5px}
@@ -199,12 +207,32 @@
     display:none;white-space:nowrap}
 
   /* ---------- overlays ---------- */
-  #splash{position:absolute;inset:0;z-index:2000;background:var(--bg);
+  #splash{position:absolute;inset:0;z-index:2000;
+    background:radial-gradient(ellipse at 50% 30%, #101710 0%, var(--bg) 65%);
     display:flex;flex-direction:column;align-items:center;justify-content:center;
-    gap:18px;padding:32px;text-align:center}
-  #splash h1{font-size:52px;font-weight:900;letter-spacing:3px;color:var(--cash);
-    text-shadow:0 0 24px rgba(74,224,74,.5)}
-  #splash p{color:var(--muted);font-size:15px;max-width:300px;line-height:1.5}
+    gap:16px;padding:32px;text-align:center}
+  #splash h1{font-size:54px;font-weight:900;letter-spacing:4px;color:var(--cash);
+    animation:titleglow 2.4s ease-in-out infinite}
+  @keyframes titleglow{
+    0%,100%{text-shadow:0 0 18px rgba(74,224,74,.35)}
+    50%{text-shadow:0 0 34px rgba(74,224,74,.75), 0 0 60px rgba(74,224,74,.25)}}
+  #menuStats{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;
+    max-width:320px;margin:6px 0}
+  .ms{background:rgba(22,26,22,.9);border:1px solid #232b23;border-radius:8px;
+    padding:8px 14px;display:flex;flex-direction:column;gap:2px;min-width:70px}
+  .ms i{font-style:normal;font-size:10px;letter-spacing:1.5px;color:var(--muted)}
+  .ms b{font-size:16px}
+  .msNew{color:var(--muted);font-size:13px;font-style:italic;padding:6px 0}
+  #devRow{position:absolute;bottom:calc(env(safe-area-inset-bottom,0px) + 14px);
+    right:14px;display:flex;align-items:center;gap:8px}
+  #devLink{background:none;border:none;color:#333d33;font-family:inherit;
+    font-size:12px;font-weight:700;letter-spacing:1px;padding:8px}
+  #devCode{width:76px;padding:8px;border-radius:8px;border:2px solid #2a332a;
+    background:var(--panel);color:var(--cash);font-family:inherit;font-size:16px;
+    font-weight:900;letter-spacing:6px;text-align:center;outline:none}
+  #devGo{padding:8px 12px;border-radius:8px;border:2px solid var(--cash);
+    background:transparent;color:var(--cash);font-family:inherit;
+    font-size:13px;font-weight:900}
   .btn{padding:14px 28px;border-radius:10px;border:2px solid var(--cash);
     background:transparent;color:var(--cash);font-family:inherit;
     font-size:17px;font-weight:900;letter-spacing:1px}
@@ -244,6 +272,12 @@
 
 <div id="stars"></div>
 <div id="toast"></div>
+
+<div id="gangPanel">
+  <h2>PICK YOUR SET</h2>
+  <p>Your colors are for life. Your crew fights beside you, their turf hides your crimes, and everyone else's blocks are there to be taken.</p>
+  <div id="gangBtns" style="width:100%;display:flex;flex-direction:column;gap:10px;align-items:center"></div>
+</div>
 
 <div id="busted">
   <h2>BUSTED</h2>
@@ -286,16 +320,47 @@
 </div>
 
 <div id="splash">
-  <h1>STREETCASH</h1>
-  <p>Jobs spawn around your real location. Walk within 50 m of one and collect the cash. That's it — for now.</p>
-  <button class="btn solid" id="startGps">START (USE GPS)</button>
-  <button class="btn" id="startDev">DEV MODE (tap to move)</button>
+  <h1>THE STREETS</h1>
+  <div id="menuStats"></div>
+  <button class="btn solid" id="startGps">START</button>
   <button id="resetBtn">RESET SAVE</button>
   <div id="err"></div>
+  <div id="devRow">
+    <span id="devEntry" style="display:none;align-items:center;gap:8px">
+      <input id="devCode" inputmode="numeric" maxlength="4" placeholder="····" autocomplete="off">
+      <button id="devGo">GO</button>
+    </span>
+    <button id="devLink">dev</button>
+  </div>
 </div>
 
 <script>
 "use strict";
+
+// ---------- storage (survives sandboxed environments) ----------
+// real localStorage when available; silent in-memory fallback when blocked,
+// so the game always boots — it just won't persist in that environment.
+const store = (() => {
+  try {
+    window.localStorage.setItem("__t", "1");
+    window.localStorage.removeItem("__t");
+    const ls = window.localStorage;
+    return {
+      getItem: k => ls.getItem(k),
+      setItem: (k, v) => ls.setItem(k, v),
+      removeItem: k => ls.removeItem(k),
+      allKeys: () => Object.keys(ls),
+    };
+  } catch (e) {
+    const m = {};
+    return {
+      getItem: k => (k in m ? m[k] : null),
+      setItem: (k, v) => { m[k] = String(v); },
+      removeItem: k => { delete m[k]; },
+      allKeys: () => Object.keys(m),
+    };
+  }
+})();
 
 // ---------- config ----------
 const CFG = {
@@ -359,7 +424,7 @@ function rollCar(){
 // ---------- game clock ----------
 // The world runs on its OWN time. Closing the game freezes everything —
 // cooldowns, restocks, car cooling, chases. You pick up exactly where you left.
-let gameTime = Number(localStorage.getItem("sc_gt") || 0);
+let gameTime = Number(store.getItem("sc_gt") || 0);
 const gt = () => gameTime;
 let started = false;
 setInterval(() => {
@@ -370,23 +435,35 @@ const paused = () => !started || document.visibilityState !== "visible";
 // ---------- state ----------
 let map, playerMarker, playerPos = null;
 let jobs = [];            // {id, lat, lng, payout, type, marker, circle, cooldownUntil}
-let money = Number(localStorage.getItem("sc_money") || 0);
-let safehouse = JSON.parse(localStorage.getItem("sc_safehouse") || "null");
-let garage    = JSON.parse(localStorage.getItem("sc_garage") || "[]");
-let cargo     = JSON.parse(localStorage.getItem("sc_cargo") || "null");
-let safehouseMarker = null, safehouseCircle = null, destMarker = null, destCircle = null;
-const saveMoney  = () => localStorage.setItem("sc_money", money);
-const saveGarage = () => localStorage.setItem("sc_garage", JSON.stringify(garage));
-const saveCargo  = () => localStorage.setItem("sc_cargo", JSON.stringify(cargo));
+let money = Number(store.getItem("sc_money") || 0);
+let houses = JSON.parse(store.getItem("sc_houses") || "null");
+if (!houses){
+  const legacy = JSON.parse(store.getItem("sc_safehouse") || "null");
+  houses = legacy ? [legacy] : []; // your old safehouse becomes house #1, free
+}
+let garage    = JSON.parse(store.getItem("sc_garage") || "[]");
+let cargo     = JSON.parse(store.getItem("sc_cargo") || "null");
+let houseMarkers = [], destMarker = null, destCircle = null;
+let fullWarnAt = 0;
+const saveHouses = () => store.setItem("sc_houses", JSON.stringify(houses));
+// first safehouse is free; each one after costs double: $1K, $2K, $4K...
+const housePrice = () => houses.length === 0 ? 0 : 1000 * Math.pow(2, houses.length - 1);
+// garage slots per house: #1 holds 1, #2-3 hold 2, #4-6 hold 3, #7-10 hold 4, ...
+function houseCap(i){ let k = 1, c = 0; while (c + k < i + 1){ c += k; k++; } return k; }
+function totalCapacity(){ let t = 0; for (let i = 0; i < houses.length; i++) t += houseCap(i); return t; }
+const nearAnyHouse = r => !!playerPos && houses.some(h => haversine(playerPos, h) <= r);
+const saveMoney  = () => store.setItem("sc_money", money);
+const saveGarage = () => store.setItem("sc_garage", JSON.stringify(garage));
+const saveCargo  = () => store.setItem("sc_cargo", JSON.stringify(cargo));
 
 // ---------- level & health ----------
-let level  = Number(localStorage.getItem("sc_level")  || 1);
-let xp     = Number(localStorage.getItem("sc_xp")     || 0);
+let level  = Number(store.getItem("sc_level")  || 1);
+let xp     = Number(store.getItem("sc_xp")     || 0);
 const maxHealth = () => 100 + CFG.hpPerLevel*(level-1);
-let health = Number(localStorage.getItem("sc_health") || maxHealth());
+let health = Number(store.getItem("sc_health") || maxHealth());
 let lastDamageAt = 0;
-const saveProg = () => { localStorage.setItem("sc_level", level);
-  localStorage.setItem("sc_xp", xp); localStorage.setItem("sc_health", Math.round(health)); };
+const saveProg = () => { store.setItem("sc_level", level);
+  store.setItem("sc_xp", xp); store.setItem("sc_health", Math.round(health)); };
 
 const payMult = () => 1 + CFG.payoutPerLevel*(level-1);
 const xpNeed  = () => CFG.xpBase + CFG.xpStep*(level-1);
@@ -488,7 +565,7 @@ function initMap(center){
     map.on("click", e => { if (tapMove) setPlayerPos({lat:e.latlng.lat, lng:e.latlng.lng}); });
   }
 
-  if (safehouse) drawSafehouse();
+  houses.forEach(drawHouse);
   if (cargo && cargo.kind === "package") addDestMarker();
   shops.forEach(drawShop);
   restoreWorld();
@@ -508,6 +585,27 @@ function initMap(center){
       ? currentWeapon().name + " out — auto-engaging anything in range."
       : "Holstered." + (stars > 0 ? " If they reach you now, you're cuffed." : ""));
   });
+
+  // first run: choose your gang
+  if (myGang === null){
+    const box = $("gangBtns");
+    GANGS.forEach((g, i) => {
+      const b = document.createElement("button");
+      b.className = "gangBtn";
+      b.style.borderColor = g.color;
+      b.style.color = g.color;
+      b.style.boxShadow = `0 0 14px ${g.color}44`;
+      b.textContent = g.name.toUpperCase();
+      b.addEventListener("click", () => {
+        myGang = i;
+        store.setItem("sc_gang", i);
+        $("gangPanel").style.display = "none";
+        toast(`${g.name} for life. Their turf is your turf now.`);
+      });
+      box.appendChild(b);
+    });
+    $("gangPanel").style.display = "flex";
+  }
 }
 
 // ---------- jobs ----------
@@ -551,6 +649,7 @@ function maintainJobs(){
   while (jobs.length < CFG.jobCount) spawnOneJob(playerPos);
   maintainShops();
   maintainNpcs();
+  maintainTerritory();
 }
 
 function jobIcon(emoji, cls){
@@ -581,20 +680,20 @@ const SHOP_RANGE = 60;          // m — must be this close to trade
 const SHOP_NEAR  = 3000;        // one dealer somewhere within this bubble; leave it and a new one spawns
 const RESTOCK_MS = 20*60*1000;  // game-time between restocks
 
-let shops = JSON.parse(localStorage.getItem("sc_shops") || "[]"); // {lat,lng,stock,restockAt}
-let inv   = JSON.parse(localStorage.getItem("sc_inv")   || "{}"); // id -> count
-let equipped = localStorage.getItem("sc_equip") || "";
-const saveShops = () => localStorage.setItem("sc_shops",
+let shops = JSON.parse(store.getItem("sc_shops") || "[]"); // {lat,lng,stock,restockAt}
+let inv   = JSON.parse(store.getItem("sc_inv")   || "{}"); // id -> count
+let equipped = store.getItem("sc_equip") || "";
+const saveShops = () => store.setItem("sc_shops",
   JSON.stringify(shops.map(s => ({lat:s.lat, lng:s.lng, stock:s.stock, restockAt:s.restockAt}))));
 
 // migrate old saves (timers used to be wall-clock; game time starts near 0)
-if (localStorage.getItem("sc_v") !== "2"){
+if (store.getItem("sc_v") !== "2"){
   garage.forEach(c => c.readyAt = 0);   // any old cars: cooled
   shops.forEach(s => s.restockAt = 0);  // any old shops: restock now
-  localStorage.setItem("sc_v", "2");
+  store.setItem("sc_v", "2");
 }
-const saveInv = () => { localStorage.setItem("sc_inv", JSON.stringify(inv));
-  localStorage.setItem("sc_equip", equipped); };
+const saveInv = () => { store.setItem("sc_inv", JSON.stringify(inv));
+  store.setItem("sc_equip", equipped); };
 
 function rollStock(){
   const n = 3 + Math.floor(Math.random()*3);
@@ -722,6 +821,193 @@ document.addEventListener("click", e => {
 
 const isArmedGun = () => { const w = weaponById(equipped); return !!(w && w.type !== "melee"); };
 
+// ---------- gangs & territory ----------
+const GANGS = [
+  {name:"Reapers", color:"#e04a4a"},
+  {name:"Cobras",  color:"#4a8ae0"},
+  {name:"Vipers",  color:"#3ec46a"},
+  {name:"Jackals", color:"#e08a4a"},
+];
+let myGang = store.getItem("sc_gang") === null ? null : Number(store.getItem("sc_gang"));
+let territory = {};   // cellKey -> gang index (restored from world save)
+const terRects = {};  // cellKey -> leaflet rect (render cache)
+const CELL = 0.0015;  // ~150m grid
+const CAP_MS = 45000; // hold an enemy block this long to take it
+
+const cellKey = (lat, lng) => Math.floor(lat/CELL) + "_" + Math.floor(lng/CELL);
+function cellCenter(k){
+  const [a, b] = k.split("_").map(Number);
+  return {lat:(a+0.5)*CELL, lng:(b+0.5)*CELL};
+}
+const cellDist = k => playerPos ? haversine(playerPos, cellCenter(k)) : Infinity;
+function territoryAt(pos){
+  const k = cellKey(pos.lat, pos.lng);
+  return (k in territory) ? territory[k] : null;
+}
+// snitch factor: on any gang's turf, people don't call it in as often
+const snitchFactor = () => (playerPos && territoryAt(playerPos) !== null) ? 0.4 : 1;
+
+function drawCell(k){
+  const [a, b] = k.split("_").map(Number);
+  const g = GANGS[territory[k]];
+  terRects[k] = L.rectangle([[a*CELL, b*CELL], [(a+1)*CELL, (b+1)*CELL]], {
+    color:g.color, weight:1, opacity:.5, fillColor:g.color, fillOpacity:.12,
+    interactive:false
+  }).addTo(map);
+}
+
+let lastTerToast = 0, lastTurfWarn = 0;
+function claimCell(k, g){
+  territory[k] = g;
+  if (terRects[k]) terRects[k].setStyle({color:GANGS[g].color, fillColor:GANGS[g].color});
+  else if (cellDist(k) < 2200) drawCell(k);
+}
+
+function maintainTerritory(){
+  if (!playerPos) return;
+  // your gang's colors fly over every safehouse you own
+  if (myGang !== null){
+    for (const h of houses){
+      const k = cellKey(h.lat, h.lng);
+      if (!(k in territory)) claimCell(k, myGang);
+    }
+  }
+  // every gang keeps a foothold somewhere near the player
+  for (let g = 0; g < GANGS.length; g++){
+    const has = Object.keys(territory).some(k => territory[k] === g && cellDist(k) < 3000);
+    if (!has){
+      const p = offsetPoint(playerPos.lat, playerPos.lng,
+        500 + Math.random()*1000, Math.random()*Math.PI*2);
+      claimCell(cellKey(p.lat, p.lng), g);
+    }
+  }
+  // render cells near the player, cull rects far away (data persists)
+  for (const k of Object.keys(territory)){
+    const d = cellDist(k);
+    if (d < 2200 && !terRects[k]) drawCell(k);
+    else if (d > 2600 && terRects[k]){ map.removeLayer(terRects[k]); delete terRects[k]; }
+  }
+}
+
+// gangs expand on their own - watch the borders move
+setInterval(() => {
+  if (paused() || !playerPos) return;
+  for (let g = 0; g < GANGS.length; g++){
+    const near = Object.keys(territory).filter(k => territory[k] === g && cellDist(k) < 2500);
+    if (!near.length) continue;
+    const [a, b] = near[Math.floor(Math.random()*near.length)].split("_").map(Number);
+    const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+    const [dx, dy] = dirs[Math.floor(Math.random()*4)];
+    const nk = (a+dx) + "_" + (b+dy);
+    const cur = (nk in territory) ? territory[nk] : null;
+    if (cur === g) continue;
+    if (Math.random() < (cur === null ? 0.6 : 0.25)){
+      claimCell(nk, g);
+      if (cellDist(nk) < 400 && gt() - lastTerToast > 60000){
+        lastTerToast = gt();
+        toast(`The ${GANGS[g].name} just ${cur === null ? "claimed" : "took"} a block nearby.`);
+      }
+    }
+  }
+}, 60000);
+
+// ---------- block capture: stand your ground on enemy turf ----------
+let capture = null; // {cell, gang, ms, nextReinf}
+const statusIdle = () => $("status").textContent = devMode ? "dev mode" : "GPS locked";
+
+function spawnGangReinforcement(g){
+  const p = offsetPoint(playerPos.lat, playerPos.lng,
+    120 + Math.random()*100, Math.random()*Math.PI*2);
+  attachNpc({uid:npcSeq++, kind:"gang", gang:g, lat:p.lat, lng:p.lng,
+    wp:null, robbed:false, hp:60, aggro:true, speed:1.5, wep: rollGangWeapon(true)});
+}
+
+setInterval(() => {
+  if (paused() || !playerPos || myGang === null) return;
+  const ck = cellKey(playerPos.lat, playerPos.lng);
+  const owner = (ck in territory) ? territory[ck] : null;
+  if (owner === null || owner === myGang){
+    if (capture){ capture = null; statusIdle(); }
+    return;
+  }
+  if (!capture || capture.cell !== ck){
+    capture = {cell:ck, gang:owner, ms:0, nextReinf:8000};
+    toast(`${GANGS[owner].name} turf - hold this block to take it.`);
+  }
+  capture.ms += 500;
+  $("status").textContent = `TAKING BLOCK ${Math.min(99, Math.round(100*capture.ms/CAP_MS))}%`;
+  if (capture.ms >= capture.nextReinf){
+    capture.nextReinf += 8000;
+    spawnGangReinforcement(capture.gang);
+    toast(`${GANGS[capture.gang].name} rolling up on you!`);
+  }
+  if (capture.ms >= CAP_MS){
+    const g = capture.gang;
+    const [a, b] = ck.split("_").map(Number);
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++){
+      const k2 = (a+dx) + "_" + (b+dy);
+      if (k2 === ck || territory[k2] === g) claimCell(k2, myGang);
+    }
+    addXp(150);
+    toast(`Block seized for the ${GANGS[myGang].name}!`);
+    capture = null;
+    statusIdle();
+  }
+}, 500);
+
+// ---------- gang combat ----------
+let lastAttacker = null; // who beat you down, for the death screen
+
+// what a gang member carries: always strapped on their own turf,
+// only 40% carrying anywhere else — and it's a random piece either way
+function rollGangWeapon(alwaysArmed){
+  if (!alwaysArmed && Math.random() < 0.6) return null;
+  const weights = CATALOG.map(w => 1/Math.sqrt(w.price));
+  let r = Math.random() * weights.reduce((a,b)=>a+b,0), k = 0;
+  for (; k < CATALOG.length-1; k++){ if ((r -= weights[k]) < 0) break; }
+  return CATALOG[k].id;
+}
+
+// how they fight with what they've got: guns engage at range, hands don't
+function gangCombat(n){
+  const w = n.wep ? weaponById(n.wep) : null;
+  const melee = !w || w.type === "melee";
+  return {
+    range: melee ? 8 : Math.min(w.range, 60),
+    dps: 4 + (w ? w.dmg : 8) * 0.08
+  };
+}
+
+function strikeNpc(n){
+  const w = currentWeapon();
+  const now = gt();
+  if (now < nextShotAt || !playerPos) return;
+  const d = haversine(playerPos, n);
+  if (d > w.range){
+    toast(`Out of reach - ${Math.round(d)}m. ${w.name} works inside ${w.range}m.`);
+    return;
+  }
+  nextShotAt = now + Math.max(150, 60000 / (w.rpm || 120));
+  violence = Math.max(violence, w.type === "melee" ? 1 : 2);
+  n.aggro = true;
+  // his crew saw that
+  for (const o of npcs)
+    if (o.kind === "gang" && o.gang === n.gang && haversine(n, o) < 200) o.aggro = true;
+  n.hp -= w.dmg;
+  floatDamage(n, w.dmg);
+  if (n.hp <= 0){
+    removeNpc(n);
+    addXp(40);
+    toast(`${GANGS[n.gang].name} soldier down.`);
+  } else {
+    n.marker.setIcon(npcIcon(n));
+  }
+  // gunfire sometimes reaches the police - rarely on gang turf
+  const base = w.type === "melee" ? 0.1 : 0.35;
+  if (Math.random() < base * snitchFactor())
+    applyHeat(1, "Shots reported to police!");
+}
+
 // ---------- drugs ----------
 const DRUGS = [
   {id:"weed",  name:"Weed",   base:40},
@@ -730,10 +1016,10 @@ const DRUGS = [
   {id:"her",   name:"Heroin", base:400},
 ];
 const drugById = id => DRUGS.find(d => d.id === id);
-let onDrugs = JSON.parse(localStorage.getItem("sc_drugs") || "{}"); // pockets
-let stash   = JSON.parse(localStorage.getItem("sc_stash") || "{}"); // safehouse
-const saveDrugs = () => { localStorage.setItem("sc_drugs", JSON.stringify(onDrugs));
-  localStorage.setItem("sc_stash", JSON.stringify(stash)); };
+let onDrugs = JSON.parse(store.getItem("sc_drugs") || "{}"); // pockets
+let stash   = JSON.parse(store.getItem("sc_stash") || "{}"); // safehouse
+const saveDrugs = () => { store.setItem("sc_drugs", JSON.stringify(onDrugs));
+  store.setItem("sc_stash", JSON.stringify(stash)); };
 const pocketsEmpty = () => !Object.values(onDrugs).some(q => q > 0);
 
 // ---------- NPCs (wandering pedestrians) ----------
@@ -746,8 +1032,16 @@ const NPC_KINDS = {
   buyer:  {icon:"💰", cls:"npc-buyer",  w:2},
 };
 
-function npcIcon(kind){
-  const k = NPC_KINDS[kind];
+function npcIcon(n){
+  if (n.kind === "gang"){
+    const c = GANGS[n.gang].color;
+    const pct = Math.max(0, Math.round(100 * n.hp / 60));
+    const bar = pct < 100 ? `<div class="uhp"><i style="width:${pct}%"></i></div>` : "";
+    return L.divIcon({className:"", html:
+      `<div class="npc npc-gang" style="border-color:${c};box-shadow:0 0 8px ${c}">🧍${bar}</div>`,
+      iconSize:[28,28], iconAnchor:[14,14]});
+  }
+  const k = NPC_KINDS[n.kind];
   return L.divIcon({className:"", html:`<div class="npc ${k.cls}">${k.icon}</div>`,
     iconSize:[28,28], iconAnchor:[14,14]});
 }
@@ -759,8 +1053,14 @@ function rollNpcKind(){
 }
 
 function attachNpc(n){
-  n.marker = L.marker([n.lat, n.lng], {icon: npcIcon(n.kind), zIndexOffset: 400}).addTo(map);
-  if (n.kind === "civ") n.marker.on("click", () => robCivilian(n));
+  n.marker = L.marker([n.lat, n.lng], {icon: npcIcon(n), zIndexOffset: 400}).addTo(map);
+  if (n.kind === "gang"){
+    n.marker.on("click", () => {
+      if (n.gang === myGang) toast(GANGS[myGang].name + " for life.");
+      else strikeNpc(n);
+    });
+  }
+  else if (n.kind === "civ") n.marker.on("click", () => robCivilian(n));
   else n.marker.bindPopup(() => npcTradeHtml(n));
   npcs.push(n);
 }
@@ -768,6 +1068,20 @@ function attachNpc(n){
 function spawnNpc(){
   const dist = 150 + Math.random()*450;
   const p = offsetPoint(playerPos.lat, playerPos.lng, dist, Math.random()*Math.PI*2);
+  // gang members hold their turf; occasionally roam anywhere
+  const owner = territoryAt(p);
+  if (owner !== null && Math.random() < 0.6){
+    attachNpc({uid:npcSeq++, kind:"gang", gang:owner, lat:p.lat, lng:p.lng,
+      wp:null, robbed:false, hp:60, aggro:false, speed:1.2+Math.random()*0.4,
+      wep: rollGangWeapon(true)}); // on their turf: strapped
+    return;
+  }
+  if (owner === null && Math.random() < 0.1){
+    attachNpc({uid:npcSeq++, kind:"gang", gang:Math.floor(Math.random()*GANGS.length),
+      lat:p.lat, lng:p.lng, wp:null, robbed:false, hp:60, aggro:false,
+      speed:1.2+Math.random()*0.4, wep: rollGangWeapon(false)}); // roaming: maybe carrying
+    return;
+  }
   const kind = rollNpcKind();
   const n = {uid:npcSeq++, kind, lat:p.lat, lng:p.lng, wp:null, robbed:false, speed:1.2+Math.random()*0.5};
   if (kind === "dealer"){
@@ -802,10 +1116,57 @@ function maintainNpcs(){
   while (npcs.length < NPC_COUNT) spawnNpc();
 }
 
-// NPCs wander on their own
+// NPCs wander on their own; gang members fight
 setInterval(() => {
   if (paused() || !playerPos || !npcs.length) return;
   for (const n of npcs){
+    // enemy soldier standing on his own block does not tolerate you close
+    if (n.kind === "gang" && myGang !== null && n.gang !== myGang && !n.aggro
+        && territoryAt(n) === n.gang && haversine(n, playerPos) < 45){
+      n.aggro = true;
+      if (gt() - lastTurfWarn > 15000){
+        lastTurfWarn = gt();
+        toast(`${GANGS[n.gang].name} don't want you here.`);
+      }
+    }
+    // enemy gang member on your case: fight with whatever he's carrying
+    if (n.kind === "gang" && myGang !== null && n.gang !== myGang && n.aggro){
+      const d = haversine(n, playerPos);
+      const offTurf = territoryAt(playerPos) !== n.gang;
+      if (!drawn && (d > 250 || (offTurf && d > 120))){ n.aggro = false; continue; }
+      const gc = gangCombat(n);
+      if (d <= gc.range){
+        lastAttacker = GANGS[n.gang].name;
+        damage(gc.dps * 0.4);
+      } else {
+        const step = Math.min(1.7 * 0.4, d);
+        const p = offsetPoint(n.lat, n.lng, step, bearingBetween(n, playerPos));
+        n.lat = p.lat; n.lng = p.lng;
+        n.marker.setLatLng([n.lat, n.lng]);
+      }
+      continue;
+    }
+    // your soldier backs you up against anyone aggroed
+    if (n.kind === "gang" && myGang !== null && n.gang === myGang){
+      const tgt = npcs.find(e => e.kind === "gang" && e.gang !== myGang && e.aggro
+        && haversine(n, e) < 80);
+      if (tgt){
+        const d = haversine(n, tgt);
+        const gc = gangCombat(n);
+        if (d <= gc.range){
+          tgt.hp -= gc.dps * 0.4;
+          if (tgt.hp <= 0){ removeNpc(tgt); toast("Your crew dropped one."); }
+          else tgt.marker.setIcon(npcIcon(tgt));
+        } else {
+          const step = Math.min(1.6 * 0.4, d);
+          const p = offsetPoint(n.lat, n.lng, step, bearingBetween(n, tgt));
+          n.lat = p.lat; n.lng = p.lng;
+          n.marker.setLatLng([n.lat, n.lng]);
+        }
+        continue;
+      }
+    }
+    // everyone else wanders
     if (!n.wp || haversine(n, n.wp) < 8){
       const range = n.robbed ? 600 : 60 + Math.random()*140;
       n.wp = offsetPoint(n.lat, n.lng, range, Math.random()*Math.PI*2);
@@ -830,8 +1191,12 @@ function robCivilian(n){
   addXp(take);
   n.robbed = true;
   n.wp = null; // they bolt
-  applyHeat(Math.random() < 0.5 ? 1 : 2, "Street robbery called in!");
-  toast(`They handed over ${fmtMoney(take)} and ran.`);
+  if (territoryAt(playerPos) !== null && Math.random() < 0.6)
+    toast(`They handed over ${fmtMoney(take)} and ran. Nobody on this block talks to cops.`);
+  else {
+    applyHeat(Math.random() < 0.5 ? 1 : 2, "Street robbery called in!");
+    toast(`They handed over ${fmtMoney(take)} and ran.`);
+  }
 }
 
 function npcTradeHtml(n){
@@ -889,43 +1254,56 @@ document.addEventListener("click", e => {
     addXp(total);
     saveDrugs();
     n.marker.setPopupContent(npcTradeHtml(n));
-    if (Math.random() < 0.15) applyHeat(1, "Someone saw the deal go down…");
+    if (Math.random() < 0.15 * snitchFactor()) applyHeat(1, "Someone saw the deal go down…");
     else toast(`Moved ${have} for ${fmtMoney(total)}.`);
   }
   if (t.id === "stashAllBtn" || t.id === "takeAllBtn"){
-    if (!safehouse || !playerPos || haversine(playerPos, safehouse) > CFG.safeRadius) return;
+    if (!playerPos || !nearAnyHouse(CFG.safeRadius)) return;
     const [from, to] = t.id === "stashAllBtn" ? [onDrugs, stash] : [stash, onDrugs];
     for (const id of Object.keys(from)){
       to[id] = (to[id] || 0) + from[id];
       from[id] = 0;
     }
     saveDrugs();
-    if (safehouseMarker) safehouseMarker.setPopupContent(garageHtml());
+    refreshHousePopups();
     toast(t.id === "stashAllBtn" ? "Product stashed — safe from the law." : "Pockets loaded up.");
   }
 });
 
 // ---------- safehouse / garage / cargo ----------
-function drawSafehouse(){
-  if (safehouseMarker){ map.removeLayer(safehouseMarker); map.removeLayer(safehouseCircle); }
-  safehouseMarker = L.marker([safehouse.lat, safehouse.lng], {
+function drawHouse(h){
+  const m = L.marker([h.lat, h.lng], {
     icon: L.divIcon({className:"", html:'<div class="safehouse">🏠</div>',
       iconSize:[34,34], iconAnchor:[17,17]}),
     zIndexOffset: 900
   }).addTo(map).bindPopup(garageHtml);
-  safehouseCircle = L.circle([safehouse.lat, safehouse.lng], {
+  L.circle([h.lat, h.lng], {
     radius: CFG.safeRadius, color:"#e0c84a", weight:1,
     fillColor:"#e0c84a", fillOpacity:0.08
   }).addTo(map);
+  houseMarkers.push(m);
 }
 
-function setSafehouseHere(){
+const refreshHousePopups = () => houseMarkers.forEach(m => m.setPopupContent(garageHtml()));
+const updateShBtn = () => $("shBtn").textContent =
+  houses.length === 0 ? "🏠 FREE SAFEHOUSE" : `🏠 BUY ${fmtMoney(housePrice())}`;
+
+function buySafehouseHere(){
   if (!playerPos){ toast("No position yet."); return; }
-  safehouse = {lat: playerPos.lat, lng: playerPos.lng};
-  localStorage.setItem("sc_safehouse", JSON.stringify(safehouse));
-  drawSafehouse();
-  toast("Safehouse set. Stolen cars go here.");
-  $("shBtn").textContent = "🏠 MOVE";
+  const price = housePrice();
+  if (price > 0 && money < price){ toast(`Your next safehouse runs ${fmtMoney(price)}.`); return; }
+  if (price > 0){ money -= price; saveMoney(); renderMoney(true); }
+  const h = {lat: playerPos.lat, lng: playerPos.lng};
+  houses.push(h); saveHouses(); drawHouse(h);
+  // your colors fly over your property
+  if (myGang !== null){
+    const k = cellKey(h.lat, h.lng);
+    if (!(k in territory)) claimCell(k, myGang);
+  }
+  updateShBtn();
+  toast(price === 0
+    ? "First safehouse — on the house. Stolen cars go here."
+    : `Safehouse #${houses.length} — yours for good. Garage now holds ${totalCapacity()}.`);
 }
 
 function garageHtml(){
@@ -943,6 +1321,7 @@ function garageHtml(){
         background:#4ae04a;color:#052405;border:none;border-radius:6px;font-family:inherit">
         SELL ${cooled.length} — ${fmtMoney(cooled.reduce((s,c)=>s+c.value,0))}</button>`
     : "";
+  const capLine = `${garage.length}/${totalCapacity()} cars`;
   const stashRows = DRUGS.map(d => {
     const s = stash[d.id]||0, p = onDrugs[d.id]||0;
     return (s || p) ? `${d.name}: ${s} stashed / ${p} on you` : "";
@@ -952,7 +1331,7 @@ function garageHtml(){
   const btnCss = ok => `margin-top:6px;margin-right:6px;padding:6px 10px;font-weight:900;
     font-family:inherit;border:none;border-radius:6px;
     background:${ok?"#e0c84a":"#2a332a"};color:${ok?"#241d05":"#556055"}`;
-  return `<b>Safehouse garage</b><br>${carRows}${sellBtn}
+  return `<b>Safehouse garage</b> <span style="font-size:11px;color:#7a877a">${capLine}</span><br>${carRows}${sellBtn}
     <hr style="border-color:#232b23;margin:8px 0"><b>Stash</b><br>${stashRows}<br>
     <button id="stashAllBtn" ${canStash?"":"disabled"} style="${btnCss(canStash)}">STASH ALL</button>
     <button id="takeAllBtn" ${canTake?"":"disabled"} style="${btnCss(canTake)}">TAKE ALL</button>`;
@@ -972,6 +1351,7 @@ function sellCooled(){
   money += sum; saveMoney(); renderMoney(true); showGain(sum);
   addXp(Math.round(sum/2));
   map.closePopup();
+  refreshHousePopups();
   toast("Cars fenced — clean money.");
 }
 
@@ -995,6 +1375,7 @@ function removeDestMarker(){
 function storeCar(){
   garage.push({model: cargo.model, value: cargo.value, readyAt: gt() + CFG.carCoolMs});
   saveGarage();
+  refreshHousePopups();
   addXp(Math.round(cargo.value/2)); // half now, half when it sells
   cargo = null; saveCargo(); renderCargo();
   toast("Car stashed — let the heat die before you sell.");
@@ -1027,6 +1408,7 @@ function setPlayerPos(pos, keepView){
   playerMarker.setLatLng([pos.lat, pos.lng]);
   if (first){
     map.setView([pos.lat, pos.lng], 16);
+    restorePursuit(pos);
     $("status").textContent = devMode ? "dev mode" : "GPS locked";
   } else if (!keepView){
     map.panTo([pos.lat, pos.lng], {animate:true, duration:.25});
@@ -1042,7 +1424,13 @@ function update(){
 
   // arriving with cargo
   if (cargo){
-    if (cargo.kind === "car" && safehouse && haversine(playerPos, safehouse) <= CFG.safeRadius) storeCar();
+    if (cargo.kind === "car" && nearAnyHouse(CFG.safeRadius)){
+      if (garage.length < totalCapacity()) storeCar();
+      else if (gt() - fullWarnAt > 10000){
+        fullWarnAt = gt();
+        toast(`Garage full (${garage.length}/${totalCapacity()}) — buy another safehouse.`);
+      }
+    }
     else if (cargo.kind === "package" && haversine(playerPos, cargo.dest) <= CFG.collectRadius) deliverPackage();
   }
   renderCargo();
@@ -1087,7 +1475,7 @@ $("collect").addEventListener("click", () => {
   if (channel || !nearestJob) return;
   const j = nearestJob;
   if (j.type.kind !== "cash" && cargo){ toast("Hands full — make your delivery first."); return; }
-  if (j.type.kind === "car" && !safehouse){ toast("Set a safehouse first — hit the 🏠 button."); return; }
+  if (j.type.kind === "car" && !houses.length){ toast("Buy a safehouse first — hit the 🏠 button."); return; }
   const isCar = j.type.kind === "car";
   const lo = isCar ? CFG.carMinS : CFG.collectMinS;
   const hi = isCar ? CFG.carMaxS : CFG.collectMaxS;
@@ -1095,10 +1483,11 @@ $("collect").addEventListener("click", () => {
   const now = gt();
   // how many witnesses spot you? louder crimes draw more eyes
   const wp = isCar ? 300 : j.type.kind === "package" ? 120 : j.payout;
+  const sf = snitchFactor(); // gang turf: fewer eyes talk to cops
   let witnesses = 0;
-  if (Math.random() < 0.5 + wp/1000) witnesses++;
-  if (Math.random() < wp/400)        witnesses++;
-  if (Math.random() < wp/800)        witnesses++;
+  if (Math.random() < (0.5 + wp/1000) * sf) witnesses++;
+  if (Math.random() < (wp/400) * sf)        witnesses++;
+  if (Math.random() < (wp/800) * sf)        witnesses++;
   const calls = Array.from({length: witnesses},
     () => now + dur*(0.2 + Math.random()*0.7)).sort((a,b)=>a-b);
   const armed = j.type.kind === "cash" && isArmedGun();
@@ -1318,7 +1707,12 @@ function busted(){
   bustedUntil = gt() + 8000; // brief immunity
   const extras = [hadCargo && "your cargo", hadDrugs && "everything in your pockets"]
     .filter(Boolean).join(" and ");
-  $("bustedMsg").textContent = `The cops took ${fmtMoney(lost)}` + (extras ? ` and ${extras}` : "");
+  const byGang = lastAttacker;
+  lastAttacker = null;
+  document.querySelector("#busted h2").textContent = byGang ? "DROPPED" : "BUSTED";
+  $("bustedMsg").textContent = byGang
+    ? `${byGang} left you bleeding — you lost ${fmtMoney(lost)}` + (extras ? ` and ${extras}` : "")
+    : `The cops took ${fmtMoney(lost)}` + (extras ? ` and ${extras}` : "");
   const o = $("busted");
   o.style.display = "flex";
   setTimeout(() => o.style.display = "none", 2600);
@@ -1387,15 +1781,20 @@ function shootAt(unit){
   attack(unit);
 }
 
-// drawn = auto-engage the nearest unit that enters your weapon's range
+// drawn = auto-engage the nearest hostile in your weapon's range (cops + gang enemies on you)
 setInterval(() => {
-  if (paused() || !drawn || !playerPos || !cops.length) return;
+  if (paused() || !drawn || !playerPos) return;
+  const hostiles = cops.concat(
+    npcs.filter(n => n.kind === "gang" && myGang !== null && n.gang !== myGang && n.aggro));
+  if (!hostiles.length) return;
   let best = null, bd = Infinity;
-  for (const c of cops){
+  for (const c of hostiles){
     const d = haversine(playerPos, c);
     if (d < bd){ bd = d; best = c; }
   }
-  if (best) attack(best);
+  if (!best) return;
+  if (best.kind === "gang") strikeNpc(best);
+  else attack(best);
 }, 150);
 
 function killUnit(unit){
@@ -1454,6 +1853,7 @@ setInterval(() => {
       if (d <= CFG.copCatchRadius && !drawn){ busted(); return; }
       // force matching: they answer what you brought
       if (violence >= 2 && u.dps && d <= u.fire){
+        lastAttacker = null;
         damage(u.dps * HEAT_TICK/1000);
         if (gt() < bustedUntil) return; // dropped by gunfire
       } else if (violence >= 1 && drawn && u.meleeDps && d <= CFG.copMeleeRange){
@@ -1544,15 +1944,22 @@ setInterval(() => {
 }, TICK);
 
 // ---------- world persistence: pick up exactly where you left off ----------
+// Places (jobs, NPCs, shops) save at absolute positions. PURSUERS (cops, and
+// gangs later) save RELATIVE to the player — closing the app and traveling
+// doesn't shake a chase; they reopen just as close as when you left.
 function saveWorld(){
-  if (!started) return;
-  localStorage.setItem("sc_gt", Math.round(gameTime));
-  localStorage.setItem("sc_world", JSON.stringify({
+  if (!started || !playerPos) return;
+  store.setItem("sc_gt", Math.round(gameTime));
+  store.setItem("sc_world", JSON.stringify({
     jobs: jobs.map(j => ({lat:j.lat, lng:j.lng, t:j.typeIdx, p:j.payout, cd:j.cooldownUntil})),
     npcs: npcs.map(n => ({uid:n.uid, kind:n.kind, lat:n.lat, lng:n.lng,
-      robbed:n.robbed, speed:n.speed, stock:n.stock, wants:n.wants})),
-    cops: cops.map(c => ({kind:c.kind, lat:c.lat, lng:c.lng, hp:c.hp})),
-    stars, seen, lkp, hiddenMs, violence, npcSeq
+      robbed:n.robbed, speed:n.speed, stock:n.stock, wants:n.wants,
+      gang:n.gang, hp:n.hp, aggro:n.aggro, wep:n.wep})),
+    terr: territory,
+    copsRel: cops.map(c => ({kind:c.kind, dLat:c.lat - playerPos.lat,
+      dLng:c.lng - playerPos.lng, hp:c.hp})),
+    lkpOff: lkp ? {dLat: lkp.lat - playerPos.lat, dLng: lkp.lng - playerPos.lng} : null,
+    stars, seen, hiddenMs, violence, npcSeq
   }));
 }
 setInterval(saveWorld, 3000);
@@ -1561,21 +1968,41 @@ document.addEventListener("visibilitychange", () => {
 });
 window.addEventListener("pagehide", saveWorld);
 
+let pendingPursuit = null;
+
 function restoreWorld(){
-  const w = JSON.parse(localStorage.getItem("sc_world") || "null");
+  const w = JSON.parse(store.getItem("sc_world") || "null");
   if (!w) return;
   for (const j of w.jobs || []) createJob(j.lat, j.lng, j.t ?? 0, j.p || 0, j.cd || 0);
   for (const n of w.npcs || []) attachNpc({uid:n.uid, kind:n.kind, lat:n.lat, lng:n.lng,
-    wp:null, robbed:!!n.robbed, speed:n.speed || 1.4, stock:n.stock, wants:n.wants});
+    wp:null, robbed:!!n.robbed, speed:n.speed || 1.4, stock:n.stock, wants:n.wants,
+    gang:n.gang, hp:n.hp ?? 60, aggro:!!n.aggro, wep:n.wep || null});
+  territory = w.terr || {};
   npcSeq = w.npcSeq || npcSeq;
   stars = w.stars || 0;
   seen = !!w.seen;
-  lkp = w.lkp || null;
   hiddenMs = w.hiddenMs || 0;
   violence = w.violence || 0;
-  for (const c of w.cops || []) addUnit(c.kind, c.lat, c.lng, c.hp || UNIT_DEFS[c.kind].hp);
+  // pursuers restore RELATIVE to wherever the player reopens — held until first fix
+  pendingPursuit = {copsRel: w.copsRel || [], lkpOff: w.lkpOff || null};
   renderStars();
-  if (stars > 0 && !seen && lkp) drawSearchZone();
+}
+
+// called once on the first position fix: the chase resumes AROUND you,
+// no matter how far you traveled with the game closed
+function restorePursuit(pos){
+  if (!pendingPursuit) return;
+  const p = pendingPursuit;
+  pendingPursuit = null;
+  for (const c of p.copsRel)
+    addUnit(c.kind, pos.lat + c.dLat, pos.lng + c.dLng, c.hp || UNIT_DEFS[c.kind].hp);
+  if (stars > 0){
+    lkp = p.lkpOff
+      ? {lat: pos.lat + p.lkpOff.dLat, lng: pos.lng + p.lkpOff.dLng}
+      : {lat: pos.lat, lng: pos.lng};
+    if (!seen) drawSearchZone();
+    syncCops(); // tops up the force if the save predates this format
+  }
 }
 
 // ---------- startup ----------
@@ -1585,8 +2012,8 @@ function start(useGps){
   $("splash").style.display = "none";
   if (devMode){ $("devbadge").style.display = "block"; $("speeds").style.display = "flex";
     $("dpad").classList.add("show"); }
-  $("shBtn").addEventListener("click", setSafehouseHere);
-  if (safehouse) $("shBtn").textContent = "🏠 MOVE";
+  $("shBtn").addEventListener("click", buySafehouseHere);
+  updateShBtn();
 
   if (devMode){
     // start centered somewhere neutral; tap to move
@@ -1617,8 +2044,39 @@ function fail(msg){
   err.textContent = msg;
 }
 
+function renderMenu(){
+  const hasSave = money > 0 || level > 1 || houses.length > 0 || myGang !== null;
+  if (hasSave){
+    const rows = [
+      `<div class="ms"><i>CASH</i><b>${fmtMoney(money)}</b></div>`,
+      `<div class="ms"><i>LEVEL</i><b>${level}</b></div>`,
+      `<div class="ms"><i>HOUSES</i><b>${houses.length}</b></div>`,
+    ];
+    if (myGang !== null) rows.splice(2, 0,
+      `<div class="ms"><i>SET</i><b style="color:${GANGS[myGang].color}">${GANGS[myGang].name.toUpperCase()}</b></div>`);
+    $("menuStats").innerHTML = rows.join("");
+    $("startGps").textContent = "CONTINUE";
+  } else {
+    $("menuStats").innerHTML = `<div class="msNew">fresh start — the streets don't know you yet</div>`;
+    $("startGps").textContent = "START";
+  }
+}
+renderMenu();
+
 $("startGps").addEventListener("click", () => start(true));
-$("startDev").addEventListener("click", () => start(false));
+
+// dev mode is gated behind a code
+$("devLink").addEventListener("click", () => {
+  const e = $("devEntry");
+  e.style.display = e.style.display === "none" ? "inline-flex" : "none";
+  if (e.style.display !== "none") $("devCode").focus();
+});
+function tryDevCode(){
+  if ($("devCode").value === "0627") start(false);
+  else { $("devCode").value = ""; $("devCode").placeholder = "nope"; }
+}
+$("devGo").addEventListener("click", tryDevCode);
+$("devCode").addEventListener("keydown", e => { if (e.key === "Enter") tryDevCode(); });
 
 // reset save: arm on first tap, wipe on second (disarms after 3s)
 let resetArmed = false, resetTimer = null;
@@ -1635,9 +2093,9 @@ $("resetBtn").addEventListener("click", () => {
     return;
   }
   clearTimeout(resetTimer);
-  Object.keys(localStorage)
+  store.allKeys()
     .filter(k => k.startsWith("sc_"))
-    .forEach(k => localStorage.removeItem(k));
+    .forEach(k => store.removeItem(k));
   location.reload();
 });
 
