@@ -127,6 +127,8 @@ button{
   border-radius:6px; padding:0 3px; color:#fff; font-style:normal;}
 .usebtn[disabled]{opacity:.35;}
 #baselist{overflow-y:auto; flex:1; -webkit-overflow-scrolling:touch;}
+#tradelist{overflow-y:auto; flex:1; -webkit-overflow-scrolling:touch;}
+#tradehint{font-size:12px; color:#7a9460; margin-bottom:6px;}
 #baselist h3{color:var(--amber); letter-spacing:2px; font-size:15px; margin:16px 0 4px;}
 #baselist .hint{font-size:12px; color:#7a9460; margin-bottom:4px;}
 body.night #tint{background:radial-gradient(ellipse at 50% 45%, rgba(40,10,10,.18) 0%, rgba(2,3,2,.72) 100%);}
@@ -151,6 +153,8 @@ body.night .leaflet-tile-pane{filter:invert(1) hue-rotate(120deg) brightness(.42
 .mk.player{border:2px solid var(--grn); box-shadow:0 0 12px rgba(143,217,74,.8); animation:pulse 1.6s infinite;}
 .mk.common{border:2px solid #7c8f6c; box-shadow:0 0 7px rgba(150,170,130,.5);}
 .mk.uncommon{border:2px solid var(--amber); box-shadow:0 0 9px rgba(224,179,74,.6);}
+.mk.dropcache{border:3px solid var(--amber); box-shadow:0 0 16px rgba(224,179,74,.9);
+  font-size:20px; animation:pulse 1s infinite;}
 .mk.rare{border:2px solid var(--red); box-shadow:0 0 11px rgba(224,74,58,.75); animation:pulse 1.2s infinite;}
 @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
 .leaflet-popup-content-wrapper{background:var(--panel); color:var(--txt); border:1px solid var(--line); border-radius:10px;}
@@ -224,6 +228,13 @@ body.night .leaflet-tile-pane{filter:invert(1) hue-rotate(120deg) brightness(.42
   <div id="baselist"></div>
 </div>
 
+<div class="overlay" id="trade">
+  <h2>TRADER</h2>
+  <button class="ovclose" data-close="trade">✕</button>
+  <div id="tradehint"></div>
+  <div id="tradelist"></div>
+</div>
+
 <div class="overlay" id="death">
   <h2>YOU DIED</h2>
   <p id="deathmsg"></p>
@@ -260,6 +271,17 @@ const CFG = {
           gardenCost: {wood:3, cloth:2} },
   garden: { msPer: 30*60*1000, cap: 3 },      // 1 produce per 30min of game time
   rarityBoostPerDay: { uncommon: 0.15, rare: 0.25, capDays: 7 },
+  drop: { bubble: 3000, ringMin: 700, ringMax: 2000,   // one somewhere out there, always
+          channelMs: 10000, guards: 3, guardMin: 40, guardMax: 140 },
+  npc: {
+    cull: 1500, befriendRange: 30,
+    groupRollMs: [600000, 1200000],   // 10-20 min of play between survivor-group rolls
+    goodChance: 0.55, groupMin: 1, groupMax: 5, spawnMin: 300, spawnMax: 800,
+    friend:   { hp:60, dmg:8, rate:1200, range:25, speed:1.7, followDist:12, hangLeg:60 },
+    hostile:  { hp:50, dmg:6, rate:1300, range:30, detect:80, lose:120, loseMs:20000, speed:1.4, zPriority:15 },
+    merchant: { hp:70, dmg:6, rate:1000, range:10, flee:80, speed:1.3, bubble:2500, ringMin:400, ringMax:1200 },
+    noiseChance: 0.25, noiseRadius: 120,
+  },
   devSpeeds: [1.5, 4, 8, 20],
   defaultPos: [44.7631, -85.6206],
   autosaveMs: 3000,
@@ -365,6 +387,12 @@ function save(){
       localStorage.setItem(K_WORLD, JSON.stringify({
         loot: lootPoints.map(p=>({lat:p.lat,lng:p.lng,item:p.item})),
         zombies: zombies.map(z=>({kind:z.kind,lat:z.lat,lng:z.lng,hp:z.hp,state:z.state,lastSense:z.lastSense,noiseTgt:z.noiseTgt||null})),
+        drop: drop?{lat:drop.lat,lng:drop.lng}:null,
+        npcs: npcs.map(n=>({kind:n.kind,lat:n.lat,lng:n.lng,hp:n.hp,group:n.group,
+          befriended:n.befriended,follow:n.follow,
+          anchor:n.anchor?{lat:n.anchor.lat,lng:n.anchor.lng}:null})),
+        nextGroupRoll: nextGroupRoll,
+        pAnchor: {lat:playerPos.lat, lng:playerPos.lng},
         graceUntil: graceUntil,
       }));
     }
@@ -399,6 +427,7 @@ let baseMarker=null, baseCircle=null;
 let lootPoints=[]; let lootSeq=1;
 let zombies=[]; let zombSeq=1; let graceUntil=0;
 let channel=null, dead=false;
+let drop=null;
 let drawn=false, manualTarget=null, lastSwing=0, lastDryToast=0, lastHurtSfx=0;
 const $=id=>document.getElementById(id);
 
@@ -458,7 +487,7 @@ function setPos(lat,lng){
   playerPos={lat,lng};
   playerMarker.setLatLng(playerPos);
   map.setView(playerPos, map.getZoom(), {animate:true});
-  maintainLoot(); maintainZombies();
+  maintainLoot(); maintainZombies(); maintainDrop(); maintainNpcs();
 }
 function drawBase(){
   if(baseMarker){ map.removeLayer(baseMarker); baseMarker=null; }
@@ -528,6 +557,58 @@ function maintainLoot(){
   save();
 }
 
+/* ---------------- supply drop: bubble/ring rare location ----------------
+   Rule: cull beyond the bubble; if none in the bubble, spawn exactly one
+   on the ring. No timers, no expiry state — saves/restores/culls like
+   everything else. */
+function createDrop(lat,lng){ // builder
+  drop={lat,lng};
+  drop.marker=L.marker([lat,lng],{icon:L.divIcon({className:"",
+    html:'<div class="mk dropcache" style="width:38px;height:38px">📦</div>',
+    iconSize:[38,38], iconAnchor:[19,19]})}).addTo(map);
+  drop.marker.on("click",()=>{
+    const d=Math.round(haversine(playerPos,drop));
+    toast("📦 Supply drop · "+(d>=1000?(d/1000).toFixed(1)+"km":d+"m")+" "+compass(bearingBetween(playerPos,drop)));
+  });
+  return drop;
+}
+function removeDrop(){ if(drop){ if(drop.marker) map.removeLayer(drop.marker); drop=null; } }
+function spawnDrop(){ // random spawner -> builder (guards roll only on fresh spawns)
+  const ang=Math.random()*360;
+  const dist=CFG.drop.ringMin+Math.random()*(CFG.drop.ringMax-CFG.drop.ringMin);
+  const pt=offsetPoint(playerPos.lat,playerPos.lng,dist,ang);
+  createDrop(pt.lat,pt.lng);
+  for(let i=0;i<CFG.drop.guards;i++){
+    const g=offsetPoint(pt.lat,pt.lng,CFG.drop.guardMin+Math.random()*(CFG.drop.guardMax-CFG.drop.guardMin),Math.random()*360);
+    addZombie(pickKind(),g.lat,g.lng);
+  }
+  const d=Math.round(haversine(playerPos,drop));
+  toast("📦 Supply drop spotted "+(d/1000).toFixed(1)+"km "+compass(bearingBetween(playerPos,drop))+" — it won't be unguarded",3600);
+}
+function maintainDrop(){
+  if(!playerPos) return;
+  if(drop && haversine(playerPos,drop)>CFG.drop.bubble) removeDrop();
+  if(!drop) spawnDrop();
+}
+function openDrop(){
+  const got={};
+  const add=(id,n)=>{ got[id]=(got[id]||0)+n; S.inv[id]=(S.inv[id]||0)+n; };
+  if(Math.random()<0.3){
+    const g=["pistol","pistol","shotgun","rifle"][Math.floor(Math.random()*4)];
+    add(g,1); add(ITEMS[g].gun.ammo,6);
+  } else {
+    const cal=["ammo9","shells","rifleammo"][Math.floor(Math.random()*3)];
+    add(cal, 12+Math.floor(Math.random()*7));
+  }
+  add("meds",2); add("canned",2); add("water",2); add("metal",1+Math.floor(Math.random()*2));
+  grantXp(40); S.scavenged++;
+  sfx("level");
+  toast("📦 "+Object.entries(got).map(([id,n])=>ITEMS[id].icon+"×"+n).join(" "),4200);
+  removeDrop();
+  save();
+  maintainDrop(); // exactly one, always somewhere out there
+}
+
 /* ---------------- scavenge channel ---------------- */
 function nearestLoot(){
   let best=null,bd=1e12;
@@ -554,10 +635,12 @@ function completeChannel(){
 }
 setInterval(()=>{ // channel tick 100ms
   if(paused()||!channel||!playerPos) return;
-  if(haversine(playerPos,channel.loot)>CFG.collectRadius){ cancelChannel("Left the area — scavenge cancelled"); return; }
+  const chTgt=channel.drop?drop:channel.loot;
+  if(!chTgt){ cancelChannel(); return; }
+  if(haversine(playerPos,chTgt)>CFG.collectRadius){ cancelChannel("Left the area — cancelled"); return; }
   const pct=Math.min(1,(gt()-channel.start)/channel.dur);
   $("actbtn").querySelector(".fill").style.transform="scaleX("+pct+")";
-  $("actbtn").querySelector(".lbl").textContent="SCAVENGING… "+Math.floor(pct*100)+"%";
+  $("actbtn").querySelector(".lbl").textContent=(channel.drop?"OPENING… ":"SCAVENGING… ")+Math.floor(pct*100)+"%";
   if(Math.random()<CFG.channelAggro.perSec*0.1){
     let best=null,bd=1e12;
     for(const z of zombies){
@@ -567,7 +650,10 @@ setInterval(()=>{ // channel tick 100ms
     }
     if(best){ alertZombie(best); toast("⚠️ Something heard you scavenging…",2600); }
   }
-  if(pct>=1) completeChannel();
+  if(pct>=1){
+    if(channel.drop){ channel=null; $("actbtn").querySelector(".fill").style.transform="scaleX(0)"; openDrop(); }
+    else completeChannel();
+  }
 },100);
 
 /* ---------------- XP / level ---------------- */
@@ -629,7 +715,8 @@ $("btnRespawn").addEventListener("click",()=>{
   dead=false;
   S.hp=S.maxHp; S.hunger=CFG.respawn.hunger; S.thirst=CFG.respawn.thirst;
   graceUntil=gt()+CFG.grace;
-  for(const z of zombies){ if(z.state!=="wander"){ z.state="wander"; z.wp=null; z.noiseTgt=null; refreshZombIcon(z); } }
+  for(const z of zombies){ if(z.state!=="wander"){ z.state="wander"; z.wp=null; z.noiseTgt=null; z.vic=null; refreshZombIcon(z); } }
+  for(const n of npcs){ if(n.kind==="hostile") n.state="wander"; }
   if(devMode && S.base) setPos(S.base.lat,S.base.lng);
   save(); $("death").style.display="none"; refreshHud();
   toast("Back on your feet — "+(CFG.grace/1000)+"s grace."+(S.base?" Your chest is at base.":""),3200);
@@ -647,10 +734,12 @@ function refreshHud(){
   setBar("thBar",S.thirst,100,"WATER");
   $("lvlLine").textContent="LV "+S.level+" · "+S.xp+"/"+(S.level*CFG.xpPerLevel)+" XP";
   const chasing=zombies.filter(z=>z.state==="chase").length;
+  const friends=npcs.filter(n=>n.kind==="friend"&&n.befriended).length;
   $("chip").innerHTML="DAY <b>"+dayCount()+"</b> · "+(devMode?"DEV":(gpsAcc!=null?("GPS ±"+Math.round(gpsAcc)+"m"):"GPS…"))+
     (isNight()?" · 🌙":"")+
     (gt()<graceUntil?" · <b>GRACE</b>":"")+
-    (chasing?' · <b style="color:var(--red)">🧟'+chasing+"</b>":"");
+    (chasing?' · <b style="color:var(--red)">🧟'+chasing+"</b>":"")+
+    (friends?" · 👥"+friends:"");
   document.body.classList.toggle("night",isNight());
   $("btnMute").textContent=S.mute?"🔇":"🔊";
   updateCombatBtns();
@@ -659,6 +748,10 @@ function refreshAction(){
   if(!playerPos) return;
   const btn=$("actbtn"), lbl=btn.querySelector(".lbl");
   if(channel) return;
+  if(drop && haversine(playerPos,drop)<=CFG.collectRadius){
+    $("nearline").innerHTML="📦 SUPPLY DROP — right here";
+    lbl.textContent="OPEN SUPPLY DROP"; btn.disabled=false; return;
+  }
   const n=nearestLoot();
   if(!n){ $("nearline").textContent="no loot nearby — keep moving"; lbl.textContent="EXPLORE"; btn.disabled=true; return; }
   const d=ITEMS[n.p.item];
@@ -679,6 +772,10 @@ window.addEventListener("beforeunload",()=>{ if(started) save(); });
 $("actbtn").addEventListener("click",()=>{
   if(dead) return;
   if(channel){ cancelChannel("Scavenge cancelled"); refreshAction(); return; }
+  if(drop && haversine(playerPos,drop)<=CFG.collectRadius){
+    channel={drop:true, start:gt(), dur:CFG.drop.channelMs};
+    return;
+  }
   const n=nearestLoot();
   if(n && n.d<=CFG.collectRadius) startChannel(n.p);
 });
@@ -775,6 +872,19 @@ $("btnBase").addEventListener("click",()=>{
 document.addEventListener("click",e=>{
   const c=e.target.closest("[data-close]"); if(c){ $(c.dataset.close).style.display="none"; return; }
   const u=e.target.closest("[data-use]"); if(u){ useItem(u.dataset.use); return; }
+  const by=e.target.closest("[data-buy]");
+  if(by){
+    const m=npcs.find(n=>n.kind==="merchant");
+    if(!m || haversine(playerPos,m)>CFG.collectRadius){ toast("The trader wandered off"); $("trade").style.display="none"; return; }
+    const t=TRADE[+by.dataset.buy];
+    if(t && (S.inv.metal||0)>=t.cost){
+      S.inv.metal-=t.cost; if(S.inv.metal<=0) delete S.inv.metal;
+      S.inv[t.id]=(S.inv[t.id]||0)+t.qty;
+      sfx("craft"); toast("Bought "+ITEMS[t.id].name+(t.qty>1?" ×"+t.qty:""));
+      save(); renderTrade();
+    }
+    return;
+  }
   if(!atBase()) return; // everything below requires standing at base
   const st=e.target.closest("[data-stash]");
   if(st){ const id=st.dataset.stash;
@@ -884,11 +994,11 @@ function wallFactor(z){
   if(!S.base||!S.base.walls||z.kind==="brute") return 1;
   return haversine(z,S.base)<=CFG.base.radius ? 1/(1+CFG.base.wallSlowPer*S.base.walls) : 1;
 }
-function alertZombie(z){
+function alertZombie(z,vic){
   if(z.state!=="chase"){
-    z.state="chase"; z.noiseTgt=null; z.lastSense=gt(); refreshZombIcon(z);
+    z.state="chase"; z.noiseTgt=null; z.vic=vic||{p:true}; z.lastSense=gt(); refreshZombIcon(z);
     if(z.kind==="screamer") doScream(z);
-  } else z.lastSense=gt();
+  } else { z.lastSense=gt(); if(vic) z.vic=vic; }
 }
 function doScream(z){
   if(gt()-(z.lastScream||0)<CFG.zombies.screamCd) return;
@@ -901,15 +1011,16 @@ function doScream(z){
     }
   }
 }
-function noiseEvent(lat,lng){ // gunshots pull everything in radius toward the shot
+function noiseEvent(lat,lng,radius,quiet){ // pulls everything in radius toward the sound
+  radius=radius||CFG.noise.radius;
   let n=0;
   for(const z of zombies){
     if(z.state==="chase") continue;
-    if(haversine(z,{lat,lng})<=CFG.noise.radius){
+    if(haversine(z,{lat,lng})<=radius){
       z.state="investigate"; z.noiseTgt={lat,lng}; refreshZombIcon(z); n++;
     }
   }
-  if(n>=3) toast("⚠️ The shot echoed — "+n+" heard it",2600);
+  if(!quiet && n>=3) toast("⚠️ The shot echoed — "+n+" heard it",2600);
 }
 function hurtPlayer(dmg){
   S.hp=Math.max(0,S.hp-dmg);
@@ -933,15 +1044,26 @@ setInterval(()=>{
   const nm=isNight()?{speed:CFG.night.speed,detect:CFG.night.detect}:{speed:1,detect:1};
   for(const z of zombies){
     const t=ZTYPES[z.kind], det=t.detect*nm.detect;
-    const d=haversine(z,playerPos);
-    if(!inGrace && d<=det) alertZombie(z);
+    // nearest warm body: player (unless grace) or any NPC
+    let vic=null, vd=1e12;
+    if(!inGrace){ vd=haversine(z,playerPos); vic={p:true}; }
+    for(const n of npcs){ const nd2=haversine(z,n); if(nd2<vd){vd=nd2; vic={n};} }
+    if(vic && vd<=det) alertZombie(z,vic);
     if(z.state==="chase"){
+      if(!z.vic) z.vic={p:true};
+      const vn=z.vic.n && npcs.includes(z.vic.n) ? z.vic.n : null;
+      const vpos=vn ? vn : (z.vic.p ? playerPos : null);
+      if(!vpos){ z.state="wander"; z.vic=null; refreshZombIcon(z); continue; }
+      const d=haversine(z,vpos);
       if(d>det*CFG.zombies.loseFactor && now-z.lastSense>CFG.zombies.loseAfterMs){
-        z.state="wander"; z.wp=null; refreshZombIcon(z); continue;
+        z.state="wander"; z.wp=null; z.vic=null; refreshZombIcon(z); continue;
       }
       if(d<=det) z.lastSense=now;
-      if(d<=t.range){ if(!inGrace) hurtPlayer(t.dps*0.2); }
-      else moveZombie(z, playerPos, t.chase*nm.speed*wallFactor(z), 0.2);
+      if(d<=t.range){
+        if(vn) damageNpc(vn, t.dps*0.2);
+        else if(!inGrace) hurtPlayer(t.dps*0.2);
+      }
+      else moveZombie(z, vpos, t.chase*nm.speed*wallFactor(z), 0.2);
     } else if(z.state==="investigate"){
       if(!z.noiseTgt){ z.state="wander"; refreshZombIcon(z); continue; }
       const nd=haversine(z,z.noiseTgt);
@@ -963,6 +1085,177 @@ setInterval(()=>{
     moveZombie(z,z.wp,t.wander,0.4);
   }
 },400);
+
+/* ---------------- NPCs: survivors (good/bad) + merchant ---------------- */
+let npcs=[], npcSeq=1, nextGroupRoll=0;
+function makeNpcIcon(n){
+  const wounded=n.hp<n.maxHp;
+  let ring="#4ac0e0", ic="🧑", badge="";
+  if(n.kind==="hostile"){ ring="var(--red)"; badge="✖"; }
+  else if(n.kind==="merchant"){ ring="var(--amber)"; ic="🛒"; badge="$"; }
+  else if(n.befriended){ ring="var(--grn)"; badge=n.follow?"➤":"♥"; }
+  const html='<div class="mk zomb" style="width:30px;height:30px;border-color:'+ring+'">'+ic+
+    (badge?'<b class="zbadge">'+badge+'</b>':'')+
+    (wounded?'<div class="zhp"><i style="width:'+Math.max(0,n.hp/n.maxHp*100)+'%"></i></div>':'')+'</div>';
+  return L.divIcon({className:"",html,iconSize:[30,30],iconAnchor:[15,15]});
+}
+function refreshNpcIcon(n){ n.marker.setIcon(makeNpcIcon(n)); }
+function addNpc(kind,lat,lng,hp,opts){ // builder
+  opts=opts||{};
+  const st=CFG.npc[kind]||CFG.npc.friend;
+  const n={id:"N"+(npcSeq++), isNpc:true, kind, lat, lng,
+           hp:(hp==null?st.hp:hp), maxHp:st.hp,
+           group:opts.group||null, befriended:!!opts.befriended, follow:!!opts.follow,
+           anchor:opts.anchor||{lat,lng}, wp:null, state:"wander", lastSense:0, lastShot:0};
+  n.marker=L.marker([lat,lng],{icon:makeNpcIcon(n)}).addTo(map);
+  n.marker.on("click",()=>{
+    const d=haversine(playerPos,n);
+    if(n.kind==="hostile"){ manualTarget=n; toast("Target locked ✖ hostile · "+Math.round(d)+"m"); return; }
+    if(n.kind==="merchant"){
+      if(d<=CFG.collectRadius){ renderTrade(); $("trade").style.display="flex"; }
+      else toast("🛒 Trader · "+Math.round(d)+"m "+compass(bearingBetween(playerPos,n)));
+      return;
+    }
+    if(!n.befriended){
+      if(d<=CFG.npc.befriendRange){
+        const grp=npcs.filter(x=>x.group===n.group);
+        grp.forEach(x=>{x.befriended=true; refreshNpcIcon(x);});
+        sfx("level"); toast("👥 "+grp.length+" survivor"+(grp.length>1?"s":"")+" joined you. Tap them to toggle FOLLOW.",3600);
+        save();
+      } else toast("Survivors · "+Math.round(d)+"m — get closer to talk");
+    } else {
+      const grp=npcs.filter(x=>x.group===n.group&&x.befriended);
+      const f=!n.follow;
+      grp.forEach(x=>{x.follow=f; if(!f) x.anchor={lat:x.lat,lng:x.lng}; refreshNpcIcon(x);});
+      toast(f?"👥 Following you":"👥 Holding this area");
+      save();
+    }
+  });
+  npcs.push(n);
+  return n;
+}
+function removeNpc(n){
+  if(n.marker) map.removeLayer(n.marker);
+  npcs=npcs.filter(x=>x!==n);
+  if(manualTarget===n) manualTarget=null;
+}
+function npcDie(n){ // killed by zombies
+  removeNpc(n);
+  const d=playerPos?haversine(playerPos,n):1e9;
+  if(n.kind==="friend"&&n.befriended) toast("☠ Your friend didn't make it.",4000);
+  else if(n.kind==="merchant"&&d<400) toast("The trader was overrun.",3000);
+}
+function damageNpc(n,dmg){
+  n.hp-=dmg;
+  if(n.hp<=0){ dmgNum([n.lat,n.lng],"☠"); npcDie(n); }
+  else refreshNpcIcon(n);
+}
+function spawnSurvivorGroup(){ // random spawner
+  const good=Math.random()<CFG.npc.goodChance;
+  const size=CFG.npc.groupMin+Math.floor(Math.random()*(CFG.npc.groupMax-CFG.npc.groupMin+1));
+  const ang=Math.random()*360, dist=CFG.npc.spawnMin+Math.random()*(CFG.npc.spawnMax-CFG.npc.spawnMin);
+  const c=offsetPoint(playerPos.lat,playerPos.lng,dist,ang);
+  const gid="G"+(npcSeq++);
+  for(let i=0;i<size;i++){
+    const p=offsetPoint(c.lat,c.lng,Math.random()*30,Math.random()*360);
+    addNpc(good?"friend":"hostile", p.lat, p.lng, null, {group:gid, anchor:{lat:c.lat,lng:c.lng}});
+  }
+}
+function spawnMerchant(){ // random spawner (exactly-one bubble/ring, like the drop)
+  const st=CFG.npc.merchant;
+  const ang=Math.random()*360, dist=st.ringMin+Math.random()*(st.ringMax-st.ringMin);
+  const p=offsetPoint(playerPos.lat,playerPos.lng,dist,ang);
+  addNpc("merchant",p.lat,p.lng,null,{});
+  toast("🛒 A trader is wandering somewhere "+compass(ang)+" of you",3200);
+}
+function maintainNpcs(){
+  if(!playerPos) return;
+  for(const n of npcs.slice()){
+    if(n.befriended) continue;                      // friends never despawn
+    const lim=n.kind==="merchant"?CFG.npc.merchant.bubble:CFG.npc.cull;
+    if(haversine(playerPos,n)>lim) removeNpc(n);
+  }
+  if(!npcs.some(n=>n.kind==="merchant")) spawnMerchant();
+  const wild=npcs.filter(n=>n.kind!=="merchant"&&!n.befriended).length;
+  if(wild===0 && gt()>=nextGroupRoll){
+    spawnSurvivorGroup();
+    nextGroupRoll=gt()+CFG.npc.groupRollMs[0]+Math.random()*(CFG.npc.groupRollMs[1]-CFG.npc.groupRollMs[0]);
+  }
+}
+function npcWander(n,leash){
+  if(!n.wp || haversine(n,n.wp)<4){
+    if(n.anchor && haversine(n,n.anchor)>leash) n.wp={lat:n.anchor.lat,lng:n.anchor.lng};
+    else { const pt=offsetPoint(n.lat,n.lng,15+Math.random()*50,Math.random()*360); n.wp={lat:pt.lat,lng:pt.lng}; }
+  }
+  moveZombie(n,n.wp,0.8,0.4);
+}
+function npcAttack(n,st){ // everyone can fight zombies at close range
+  if(gt()-n.lastShot<st.rate) return false;
+  let tgt=null,bd=1e12;
+  for(const z of zombies){ const d=haversine(n,z); if(d<=st.range&&d<bd){bd=d;tgt=z;} }
+  if(!tgt) return false;
+  n.lastShot=gt();
+  if(st.range>12) tracer(n,tgt);
+  tgt.hp-=st.dmg; dmgNum([tgt.lat,tgt.lng],"-"+st.dmg);
+  alertZombie(tgt,{n});                              // the zombie turns on its attacker
+  if(Math.random()<CFG.npc.noiseChance) noiseEvent(n.lat,n.lng,CFG.npc.noiseRadius,true);
+  if(tgt.hp<=0){ dmgNum([tgt.lat,tgt.lng],"☠"); removeZombie(tgt); maintainZombies(); }
+  else refreshZombIcon(tgt);
+  return true;
+}
+/* NPC AI — 400ms */
+setInterval(()=>{
+  if(paused()||!playerPos||dead) return;
+  const now=gt(), inGrace=now<graceUntil;
+  for(const n of npcs.slice()){
+    if(n.kind==="friend"){
+      const st=CFG.npc.friend;
+      if(n.follow){ if(haversine(n,playerPos)>st.followDist) moveZombie(n,playerPos,st.speed,0.4); }
+      else npcWander(n,st.hangLeg);
+      npcAttack(n,st);
+    } else if(n.kind==="hostile"){
+      const st=CFG.npc.hostile;
+      const busy=npcAttack(n,{dmg:st.dmg,rate:st.rate,range:st.zPriority}); // zombies first when close
+      const d=haversine(n,playerPos);
+      if(!inGrace && d<=st.detect){ n.state="chase"; n.lastSense=now; }
+      if(n.state==="chase" && !inGrace){
+        if(d>st.lose && now-n.lastSense>st.loseMs){ n.state="wander"; }
+        else if(d<=st.range){
+          if(!busy && now-n.lastShot>=st.rate){
+            n.lastShot=now; tracer(n,playerPos); sfx("shot");
+            hurtPlayer(st.dmg);
+            if(Math.random()<CFG.npc.noiseChance) noiseEvent(n.lat,n.lng,CFG.npc.noiseRadius,true);
+          }
+        } else moveZombie(n,playerPos,st.speed,0.4);
+      } else if(n.state!=="chase") npcWander(n,80);
+    } else { // merchant: constantly moving, walks away from zombies
+      const st=CFG.npc.merchant;
+      let nz=null,bd=1e12;
+      for(const z of zombies){ const d=haversine(n,z); if(d<bd){bd=d;nz=z;} }
+      if(nz && bd<=st.flee){
+        const pt=offsetPoint(n.lat,n.lng,st.speed*0.4,bearingBetween(nz,n));
+        n.lat=pt.lat; n.lng=pt.lng; n.marker.setLatLng([n.lat,n.lng]);
+      } else npcWander(n,1e9);
+      npcAttack(n,st);
+    }
+  }
+},400);
+
+/* ---------------- trader shop (pays in metal scrap) ---------------- */
+const TRADE=[
+  {id:"water",qty:1,cost:1},{id:"canned",qty:1,cost:1},{id:"bandage",qty:1,cost:1},
+  {id:"meds",qty:1,cost:2},{id:"ammo9",qty:6,cost:2},{id:"shells",qty:4,cost:2},{id:"rifleammo",qty:5,cost:2},
+  {id:"bat",qty:1,cost:3},{id:"machete",qty:1,cost:5},{id:"pistol",qty:1,cost:8},
+];
+function renderTrade(){
+  $("tradehint").textContent="Pays in ⚙️ Metal Scrap — you have "+(S.inv.metal||0);
+  $("tradelist").innerHTML=TRADE.map((t,i)=>{
+    const d=ITEMS[t.id];
+    return '<div class="invrow"><div class="ic">'+d.icon+'</div><div class="nm">'+d.name+(t.qty>1?" ×"+t.qty:"")+
+      '<small>'+itemSub(d)+'</small></div><div class="ct">⚙️'+t.cost+'</div>'+
+      '<button class="usebtn" data-buy="'+i+'" '+((S.inv.metal||0)>=t.cost?'':'disabled')+'>BUY</button></div>';
+  }).join("");
+}
 
 /* ---------------- combat: weapon select + DRAW auto-attack ---------------- */
 function ownsWeapon(id){ return id==="fists" || S.inv[id]>0; }
@@ -1001,11 +1294,12 @@ setInterval(()=>{ // attack scheduler 100ms
   if(paused()||!drawn||!playerPos||dead) return;
   const w=currentWeapon(), now=gt();
   if(now-lastSwing<w.rate) return;
+  const candidates=[...zombies, ...npcs.filter(n=>n.kind==="hostile")];
   let tgt=null;
-  if(manualTarget && zombies.includes(manualTarget) && haversine(playerPos,manualTarget)<=w.range) tgt=manualTarget;
+  if(manualTarget && candidates.includes(manualTarget) && haversine(playerPos,manualTarget)<=w.range) tgt=manualTarget;
   if(!tgt){
     let bd=1e12;
-    for(const z of zombies){ const d=haversine(playerPos,z); if(d<=w.range && d<bd){bd=d; tgt=z;} }
+    for(const c of candidates){ const d=haversine(playerPos,c); if(d<=w.range && d<bd){bd=d; tgt=c;} }
   }
   if(!tgt) return;
   if(w.ammo){
@@ -1020,17 +1314,25 @@ setInterval(()=>{ // attack scheduler 100ms
   lastSwing=now;
   tgt.hp-=w.dmg;
   dmgNum([tgt.lat,tgt.lng],"-"+w.dmg);
-  alertZombie(tgt);
+  if(tgt.isNpc){ tgt.state="chase"; tgt.lastSense=now; }  // shooting a hostile enrages him
+  else alertZombie(tgt);
   if(tgt.hp<=0){
     dmgNum([tgt.lat,tgt.lng],"☠");
-    grantXp(ZTYPES[tgt.kind].xp); S.kills++;
-    if(Math.random()<CFG.zombies.dropChance){
-      createLoot(tgt.lat, tgt.lng, weightedItem());
-      toast("It dropped something.");
+    if(tgt.isNpc){
+      grantXp(30); S.kills++;
+      if(Math.random()<0.6) createLoot(tgt.lat, tgt.lng, weightedItem());
+      removeNpc(tgt);
+    } else {
+      grantXp(ZTYPES[tgt.kind].xp); S.kills++;
+      if(Math.random()<CFG.zombies.dropChance){
+        createLoot(tgt.lat, tgt.lng, weightedItem());
+        toast("It dropped something.");
+      }
+      removeZombie(tgt);
+      maintainZombies();
     }
-    removeZombie(tgt);
-    save(); maintainZombies();
-  } else refreshZombIcon(tgt);
+    save();
+  } else (tgt.isNpc?refreshNpcIcon:refreshZombIcon)(tgt);
 },100);
 
 /* ---------------- dev mode movement ---------------- */
@@ -1079,8 +1381,30 @@ function restoreWorld(){ // rebuild every saved entity via the builders
   try{
     const raw=localStorage.getItem(K_WORLD); if(!raw) return;
     const w=JSON.parse(raw);
+    /* Things that MOVE (zombies, NPCs, their targets) restore RELATIVE to the
+       player: same bearing + distance from you as when you closed the game.
+       Closing the app and reopening across town drags the horde with you —
+       escape happens by walking, not by force-quitting. Static things
+       (loot, base, drop) stay world-anchored. */
+    const A=w.pAnchor;
+    const tr=pt=>{
+      if(!A||!pt) return pt;
+      const d=haversine(A,pt);
+      if(d<0.5) return {lat:playerPos.lat,lng:playerPos.lng};
+      return offsetPoint(playerPos.lat,playerPos.lng,d,bearingBetween(A,pt));
+    };
     for(const p of (w.loot||[])) if(ITEMS[p.item]&&ITEMS[p.item].w>0||p.item==="produce") createLoot(p.lat,p.lng,p.item);
-    for(const z of (w.zombies||[])) addZombie(z.kind||"walker", z.lat, z.lng, z.hp, z.state, z.lastSense, z.noiseTgt);
+    for(const z of (w.zombies||[])){
+      const zp=tr({lat:z.lat,lng:z.lng});
+      addZombie(z.kind||"walker", zp.lat, zp.lng, z.hp, z.state, z.lastSense, z.noiseTgt?tr(z.noiseTgt):null);
+    }
+    for(const n of (w.npcs||[])){
+      const np=tr({lat:n.lat,lng:n.lng});
+      addNpc(n.kind, np.lat, np.lng, n.hp,
+        {group:n.group, befriended:n.befriended, follow:n.follow, anchor:n.anchor?tr(n.anchor):null});
+    }
+    nextGroupRoll=w.nextGroupRoll||0;
+    if(w.drop) createDrop(w.drop.lat, w.drop.lng);
     graceUntil=w.graceUntil||0;
   }catch(e){}
 }
@@ -1094,6 +1418,8 @@ function initWorld(lat,lng){
   drawBase();
   maintainLoot();     // ...or culls + respawns naturally if you moved far
   maintainZombies();
+  maintainDrop();
+  maintainNpcs();
   $("drawbtn").style.display="block";
   $("wpnbtn").style.display="block";
   $("start").style.display="none";
