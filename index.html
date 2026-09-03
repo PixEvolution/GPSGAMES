@@ -1,0 +1,1136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>DEADZONE</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{
+  --grn:#8fd94a; --grn-dim:#4c7a2a; --red:#e04a3a; --amber:#e0b34a; --blue:#5ab0e0;
+  --panel:rgba(12,16,10,.88); --line:rgba(143,217,74,.35); --txt:#cfe6b8;
+}
+*{box-sizing:border-box; margin:0; padding:0;}
+html,body{
+  height:100%; overflow:hidden; background:#070a06; color:var(--txt);
+  font-family:"Avenir Next Condensed","Arial Narrow",system-ui,sans-serif;
+  -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
+}
+button{
+  font-family:inherit; -webkit-user-select:none; user-select:none;
+  -webkit-touch-callout:none; touch-action:manipulation; cursor:pointer;
+}
+#map{position:fixed; inset:0; z-index:1; background:#070a06;}
+.leaflet-tile-pane{filter:invert(1) hue-rotate(120deg) brightness(.6) contrast(1.2) saturate(.32) sepia(.15);}
+#tint{position:fixed; inset:0; z-index:2; pointer-events:none;
+  background:radial-gradient(ellipse at 50% 45%, rgba(50,90,30,.05) 0%, rgba(4,8,3,.42) 100%);}
+
+/* ---- start screen ---- */
+#start{position:fixed; inset:0; z-index:100; background:#070a06;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:24px;}
+#start h1{font-size:52px; letter-spacing:6px; color:var(--grn);
+  text-shadow:0 0 18px rgba(143,217,74,.5); font-weight:700;}
+#start .sub{font-size:14px; color:#7a9460; letter-spacing:2px; margin-bottom:18px; text-align:center;}
+.bigbtn{width:min(320px,86vw); padding:15px 0; font-size:18px; letter-spacing:2px;
+  background:#101708; color:var(--grn); border:1px solid var(--line); border-radius:10px;}
+.bigbtn:active{background:#1b2a0e;}
+.bigbtn.warn{color:var(--red); border-color:rgba(224,74,58,.4);}
+#gpsmsg{font-size:13px; color:var(--red); min-height:18px; text-align:center; max-width:86vw;}
+#start .foot{position:absolute; bottom:14px; font-size:11px; color:#4a5a3c;}
+
+/* ---- HUD ---- */
+.hud{position:fixed; z-index:20; pointer-events:none;}
+#stats{top:calc(env(safe-area-inset-top,0px) + 8px); left:8px; width:150px;
+  background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:8px 9px;}
+.bar{height:13px; border-radius:6px; background:#141a10; margin:5px 0 2px;
+  position:relative; overflow:hidden; border:1px solid rgba(255,255,255,.07);}
+.bar>i{position:absolute; inset:0; width:100%; transform-origin:left; transition:transform .4s;}
+.bar span{position:absolute; inset:0; font-size:10px; line-height:13px; text-align:center;
+  color:#eaf5dc; text-shadow:0 1px 2px #000; font-style:normal; letter-spacing:1px;}
+#hpBar>i{background:linear-gradient(90deg,#7a1d14,var(--red));}
+#huBar>i{background:linear-gradient(90deg,#7a5a14,var(--amber));}
+#thBar>i{background:linear-gradient(90deg,#14507a,var(--blue));}
+#lvlLine{font-size:11px; color:#93b078; margin-top:5px; letter-spacing:1px;}
+#chip{top:calc(env(safe-area-inset-top,0px) + 8px); right:8px; background:var(--panel);
+  border:1px solid var(--line); border-radius:20px; padding:6px 12px; font-size:12px; letter-spacing:1px;}
+#chip b{color:var(--grn);}
+
+/* left feature buttons */
+#featcol{left:8px; top:38%; display:flex; flex-direction:column; gap:10px; pointer-events:auto;}
+.featbtn{width:46px; height:46px; border-radius:12px; background:var(--panel);
+  border:1px solid var(--line); font-size:21px; color:var(--txt);}
+.featbtn:active{background:#1b2a0e;}
+
+/* bottom action */
+#actionwrap{left:0; right:0; bottom:calc(env(safe-area-inset-bottom,0px) + 10px);
+  display:flex; flex-direction:column; align-items:center; gap:6px; pointer-events:none;}
+#nearline{font-size:13px; color:#a8c48c; background:rgba(10,14,8,.75);
+  padding:3px 12px; border-radius:12px; letter-spacing:.5px;}
+#actbtn{pointer-events:auto; width:min(260px,62vw); padding:16px 0; font-size:19px; letter-spacing:2px;
+  border-radius:14px; border:1px solid var(--line); background:#101708; color:var(--grn);
+  position:relative; overflow:hidden;}
+#actbtn:disabled{color:#5a6b4a; border-color:rgba(143,217,74,.15);}
+#actbtn .fill{position:absolute; inset:0; background:rgba(143,217,74,.28);
+  transform-origin:left; transform:scaleX(0); pointer-events:none;}
+#actbtn .lbl{position:relative; z-index:1;}
+
+/* toast */
+#toast{top:calc(env(safe-area-inset-top,0px) + 66px); left:50%; transform:translateX(-50%);
+  background:rgba(16,23,8,.95); border:1px solid var(--line); color:var(--txt);
+  padding:8px 18px; border-radius:20px; font-size:14px; letter-spacing:.5px;
+  opacity:0; transition:opacity .25s; max-width:86vw; text-align:center; z-index:60;}
+
+/* dev controls */
+#dpad{right:12px; bottom:calc(env(safe-area-inset-bottom,0px) + 150px);
+  display:none; grid-template-columns:repeat(3,52px); grid-template-rows:repeat(2,52px);
+  gap:6px; pointer-events:auto;}
+.dbtn{border-radius:12px; background:var(--panel); border:1px solid var(--line);
+  font-size:20px; color:var(--grn);}
+.dbtn:active{background:#1b2a0e;}
+.dspacer{visibility:hidden;}
+#speedcol{right:12px; top:30%; display:none; flex-direction:column; gap:8px; pointer-events:auto;}
+.spdbtn{width:56px; padding:8px 0; font-size:11px; letter-spacing:1px; border-radius:10px;
+  background:var(--panel); border:1px solid var(--line); color:var(--txt);}
+.spdbtn.on{background:#233a10; color:var(--grn); border-color:var(--grn);}
+#tpbtn.on{background:#3a1a10; color:var(--amber); border-color:var(--amber);}
+
+/* overlays */
+.overlay{position:fixed; inset:0; z-index:80; background:rgba(5,8,4,.94);
+  display:none; flex-direction:column; padding:calc(env(safe-area-inset-top,0px) + 18px) 18px 18px;}
+.overlay h2{color:var(--grn); letter-spacing:3px; font-size:24px; margin-bottom:12px;}
+.ovclose{position:absolute; top:calc(env(safe-area-inset-top,0px) + 12px); right:14px;
+  width:40px; height:40px; border-radius:10px; background:#101708; color:var(--red);
+  border:1px solid rgba(224,74,58,.4); font-size:18px;}
+#invlist{overflow-y:auto; flex:1; -webkit-overflow-scrolling:touch;}
+.invrow{display:flex; align-items:center; gap:12px; padding:11px 6px;
+  border-bottom:1px solid rgba(143,217,74,.12);}
+.invrow .ic{font-size:24px; width:34px; text-align:center;}
+.invrow .nm{flex:1; font-size:16px;}
+.invrow .nm small{display:block; color:#7a9460; font-size:11px; letter-spacing:.5px;}
+.invrow .ct{font-size:16px; color:var(--grn); min-width:34px; text-align:right;}
+.usebtn{padding:8px 16px; border-radius:9px; background:#14260c; color:var(--grn);
+  border:1px solid var(--line); font-size:13px; letter-spacing:1px;}
+.usebtn:active{background:#234012;}
+#invempty{color:#66794f; font-size:15px; padding:30px 6px; text-align:center;}
+
+/* death */
+#death{z-index:90; align-items:center; justify-content:center; background:rgba(20,4,2,.96);}
+#death h2{color:var(--red); font-size:46px; letter-spacing:8px; text-shadow:0 0 22px rgba(224,74,58,.6);}
+#death p{color:#c49a8c; margin:14px 0 26px; font-size:15px; text-align:center; line-height:1.5;}
+
+#wpnbtn{position:fixed; right:18px; bottom:calc(env(safe-area-inset-bottom,0px) + 86px); z-index:21;
+  width:52px; height:52px; border-radius:50%; background:var(--panel); border:2px solid var(--line);
+  color:var(--txt); font-size:20px; display:none; line-height:1;}
+.ammoct{position:absolute; bottom:-4px; right:-6px; font-size:10px; background:#000;
+  border-radius:7px; padding:1px 4px; color:var(--amber); font-style:normal;}
+.zbadge{position:absolute; top:-7px; right:-7px; font-size:9px; font-weight:700; background:#000;
+  border-radius:6px; padding:0 3px; color:#fff; font-style:normal;}
+.usebtn[disabled]{opacity:.35;}
+#baselist{overflow-y:auto; flex:1; -webkit-overflow-scrolling:touch;}
+#baselist h3{color:var(--amber); letter-spacing:2px; font-size:15px; margin:16px 0 4px;}
+#baselist .hint{font-size:12px; color:#7a9460; margin-bottom:4px;}
+body.night #tint{background:radial-gradient(ellipse at 50% 45%, rgba(40,10,10,.18) 0%, rgba(2,3,2,.72) 100%);}
+body.night .leaflet-tile-pane{filter:invert(1) hue-rotate(120deg) brightness(.42) contrast(1.25) saturate(.28) sepia(.2);}
+#drawbtn{position:fixed; right:12px; bottom:calc(env(safe-area-inset-bottom,0px) + 12px); z-index:21;
+  width:64px; height:64px; border-radius:50%; background:var(--panel); border:2px solid var(--line);
+  color:var(--grn); font-size:11px; letter-spacing:1px; line-height:1.25; display:none;}
+#drawbtn.on{background:#3a1208; border-color:var(--red); color:var(--red); box-shadow:0 0 14px rgba(224,74,58,.5);}
+.dmgnum{position:absolute; z-index:700; font-weight:700; font-size:15px; color:#ffd24a;
+  text-shadow:0 1px 2px #000; pointer-events:none; animation:dmgrise .9s forwards;}
+@keyframes dmgrise{0%{opacity:1; transform:translateY(0)}100%{opacity:0; transform:translateY(-34px)}}
+.mk.zomb{border:2px solid #6fae3a; box-shadow:0 0 9px rgba(111,174,58,.6); position:relative;}
+.mk.zomb.chasing{border-color:var(--red); box-shadow:0 0 12px rgba(224,74,58,.85); animation:pulse .9s infinite;}
+.zhp{position:absolute; left:2px; right:2px; bottom:-7px; height:4px; background:#26140f; border-radius:2px; overflow:hidden;}
+.zhp i{display:block; height:100%; background:var(--red);}
+#hitflash{position:fixed; inset:0; z-index:15; pointer-events:none;
+  background:radial-gradient(ellipse at center, transparent 55%, rgba(224,40,20,.45)); opacity:0; transition:opacity .12s;}
+
+/* markers */
+.mk{display:flex; align-items:center; justify-content:center; border-radius:50%;
+  background:rgba(10,14,8,.85); font-size:17px; line-height:1;}
+.mk.player{border:2px solid var(--grn); box-shadow:0 0 12px rgba(143,217,74,.8); animation:pulse 1.6s infinite;}
+.mk.common{border:2px solid #7c8f6c; box-shadow:0 0 7px rgba(150,170,130,.5);}
+.mk.uncommon{border:2px solid var(--amber); box-shadow:0 0 9px rgba(224,179,74,.6);}
+.mk.rare{border:2px solid var(--red); box-shadow:0 0 11px rgba(224,74,58,.75); animation:pulse 1.2s infinite;}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
+.leaflet-popup-content-wrapper{background:var(--panel); color:var(--txt); border:1px solid var(--line); border-radius:10px;}
+.leaflet-popup-tip{background:var(--panel);}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="tint"></div>
+<div id="hitflash"></div>
+
+<div id="start">
+  <h1>DEADZONE</h1>
+  <div class="sub">GPS ZOMBIE SURVIVAL<br>the map is the real world. so are the hordes.</div>
+  <button class="bigbtn" id="btnGps">START — USE GPS</button>
+  <button class="bigbtn" id="btnDev">DEV MODE — NO GPS</button>
+  <button class="bigbtn warn" id="btnReset">RESET SAVE</button>
+  <div id="gpsmsg"></div>
+  <div class="foot">v1.0 — full loop · GPS needs HTTPS</div>
+</div>
+
+<div class="hud" id="stats">
+  <div class="bar" id="hpBar"><i></i><span></span></div>
+  <div class="bar" id="huBar"><i></i><span></span></div>
+  <div class="bar" id="thBar"><i></i><span></span></div>
+  <div id="lvlLine"></div>
+</div>
+<div class="hud" id="chip"></div>
+
+<div class="hud" id="featcol">
+  <button class="featbtn" id="btnInv">🎒</button>
+  <button class="featbtn" id="btnBase">🏕️</button>
+  <button class="featbtn" id="btnMute">🔊</button>
+</div>
+
+<div class="hud" id="actionwrap">
+  <div id="nearline">scanning…</div>
+  <button id="actbtn" disabled><div class="fill"></div><div class="lbl">…</div></button>
+</div>
+
+<div class="hud" id="toast"></div>
+
+<button id="wpnbtn">✊</button>
+<button id="drawbtn">✊<br>DRAW</button>
+
+<div class="hud" id="dpad">
+  <button class="dbtn dspacer"></button>
+  <button class="dbtn" data-k="up">▲</button>
+  <button class="dbtn dspacer"></button>
+  <button class="dbtn" data-k="left">◀</button>
+  <button class="dbtn" data-k="down">▼</button>
+  <button class="dbtn" data-k="right">▶</button>
+</div>
+<div class="hud" id="speedcol">
+  <button class="spdbtn" data-s="1.5">WALK</button>
+  <button class="spdbtn" data-s="4">RUN</button>
+  <button class="spdbtn" data-s="8">BIKE</button>
+  <button class="spdbtn" data-s="20">CAR</button>
+  <button class="spdbtn" id="tpbtn">TAP-TP<br>OFF</button>
+</div>
+
+<div class="overlay" id="inv">
+  <h2>INVENTORY</h2>
+  <button class="ovclose" data-close="inv">✕</button>
+  <div id="invlist"></div>
+</div>
+
+<div class="overlay" id="base">
+  <h2>BASE CAMP</h2>
+  <button class="ovclose" data-close="base">✕</button>
+  <div id="baselist"></div>
+</div>
+
+<div class="overlay" id="death">
+  <h2>YOU DIED</h2>
+  <p id="deathmsg"></p>
+  <button class="bigbtn" id="btnRespawn">RESPAWN</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+"use strict";
+/* ============ DEADZONE v1.0 — full loop ============ */
+
+/* ---------------- CFG: every tunable lives here ---------------- */
+const CFG = {
+  collectRadius: 50,
+  loot: { target: 12, minDist: 100, maxDist: 600, cull: 1200 },
+  needs: {
+    hungerPerHr: 3, thirstPerHr: 3.5,
+    drainHpPerMin: 2, offlineFloor: 20,
+  },
+  scavengeMs: { common: 3000, uncommon: 5000, rare: 8000 },
+  xpPerLevel: 100, hpPerLevel: 5,
+  respawn: { hunger: 60, thirst: 60 },
+  grace: 45000,
+  channelAggro: { perSec: 0.05, radius: 150 },
+  zombies: {
+    base: 8, cap: 22, minDist: 120, maxDist: 600, cull: 1200,
+    loseFactor: 1.5, loseAfterMs: 30000, wanderLeg: 80,
+    dropChance: 0.35, screamRadius: 200, screamCd: 60000,
+  },
+  noise: { radius: 300 },                     // gunshot pull
+  night: { start: 20, end: 6, speed: 1.25, detect: 1.3, extra: 4 },
+  base: { radius: 50, wallSlowPer: 0.4, maxWalls: 3,
+          workbenchCost: {wood:4, metal:4, cloth:2},
+          gardenCost: {wood:3, cloth:2} },
+  garden: { msPer: 30*60*1000, cap: 3 },      // 1 produce per 30min of game time
+  rarityBoostPerDay: { uncommon: 0.15, rare: 0.25, capDays: 7 },
+  devSpeeds: [1.5, 4, 8, 20],
+  defaultPos: [44.7631, -85.6206],
+  autosaveMs: 3000,
+};
+
+/* zombie types — the cop/SWAT/heli escalation table, undead edition */
+const ZTYPES = {
+  walker:   { hp:30, wander:0.6, chase:1.2, detect:60,  dps:4,  range:6, xp:15, ring:"#6fae3a", badge:"",  size:30 },
+  runner:   { hp:20, wander:0.8, chase:2.5, detect:70,  dps:4,  range:6, xp:20, ring:"#e0b34a", badge:"R", size:30 },
+  brute:    { hp:90, wander:0.5, chase:0.9, detect:55,  dps:10, range:6, xp:40, ring:"#e04a3a", badge:"B", size:36 },
+  screamer: { hp:25, wander:0.7, chase:1.0, detect:120, dps:3,  range:6, xp:25, ring:"#b06ae0", badge:"S", size:30 },
+};
+
+/* ---------------- items ---------------- */
+const AMMO_SVG = (c)=>'<svg viewBox="0 0 20 20" width="17" height="17"><g fill="'+c+'"><rect x="3.5" y="8" width="4" height="9" rx="1"/><path d="M3.5 8V6a2 2 0 0 1 4 0v2z"/><rect x="12.5" y="8" width="4" height="9" rx="1"/><path d="M12.5 8V6a2 2 0 0 1 4 0v2z"/></g></svg>';
+const PISTOL_SVG = '<svg viewBox="0 0 32 20" width="19" height="13"><path d="M2 3h28v6h-4v3h-3l-1-3h-6l-3 9h-7l3-9H4a2 2 0 0 1-2-2V3z" fill="#cfd6c6"/></svg>';
+const SHOTGUN_SVG = '<svg viewBox="0 0 40 14" width="24" height="9"><path d="M1 4h30v3h-8l-2 6h-5l2-6h-6l-1 3H7l1-3H1zM31 4h8v2h-8z" fill="#cfd6c6"/></svg>';
+const RIFLE_SVG = '<svg viewBox="0 0 44 14" width="26" height="9"><path d="M1 4h28l2-3h3l-1 3h10v2H32v2h-5l-2 6h-5l2-6h-8l-1 3H9l1-3H1z" fill="#cfd6c6"/></svg>';
+
+const ITEMS = {
+  water:    { name:"Water Bottle", icon:"💧", rarity:"common",   w:20, use:{thirst:50} },
+  canned:   { name:"Canned Food",  icon:"🥫", rarity:"common",   w:18, use:{hunger:40} },
+  snack:    { name:"Snack Bar",    icon:"🍫", rarity:"common",   w:10, use:{hunger:15} },
+  soda:     { name:"Soda",         icon:"🥤", rarity:"common",   w:8,  use:{thirst:25,hunger:10} },
+  cloth:    { name:"Cloth",        icon:"🧵", rarity:"common",   w:12, mat:true },
+  wood:     { name:"Wood",         icon:"🪵", rarity:"common",   w:12, mat:true },
+  metal:    { name:"Metal Scrap",  icon:"⚙️", rarity:"uncommon", w:9,  mat:true },
+  bandage:  { name:"Bandage",      icon:"🩹", rarity:"uncommon", w:6,  use:{hp:10} },
+  meds:     { name:"Meds",         icon:"💊", rarity:"uncommon", w:5,  use:{hp:30} },
+  ammo9:    { name:"9mm Round",    icon:AMMO_SVG("#e0b34a"), rarity:"uncommon", w:4, mat:true, grant:6 },
+  shells:   { name:"Shotgun Shell",icon:AMMO_SVG("#e04a3a"), rarity:"uncommon", w:3, mat:true, grant:4 },
+  rifleammo:{ name:"Rifle Round",  icon:AMMO_SVG("#9fb0c0"), rarity:"uncommon", w:3, mat:true, grant:5 },
+  bat:      { name:"Baseball Bat", icon:"🏏", rarity:"uncommon", w:5, melee:{dmg:12,rate:900,range:6} },
+  machete:  { name:"Machete",      icon:"🔪", rarity:"rare",     w:2, melee:{dmg:20,rate:800,range:6} },
+  pistol:   { name:"Pistol",       icon:PISTOL_SVG,  rarity:"rare", w:2, gun:{dmg:15,rate:700, range:40, ammo:"ammo9"} },
+  shotgun:  { name:"Shotgun",      icon:SHOTGUN_SVG, rarity:"rare", w:1, gun:{dmg:40,rate:1200,range:15, ammo:"shells"} },
+  rifle:    { name:"Rifle",        icon:RIFLE_SVG,   rarity:"rare", w:1, gun:{dmg:30,rate:1000,range:80, ammo:"rifleammo"} },
+  spear:    { name:"Spear",        icon:"🔱", rarity:"uncommon", w:0, melee:{dmg:15,rate:850,range:8} }, // craft-only
+  barricade:{ name:"Barricade Kit",icon:"🧱", rarity:"uncommon", w:0, mat:true },                        // craft-only
+  produce:  { name:"Garden Produce",icon:"🥕", rarity:"common",  w:0, use:{hunger:20} },                 // garden-only
+};
+const WEAPON_IDS = ["spear","bat","machete","pistol","shotgun","rifle"];
+const FISTS = { dmg:5, rate:1100, range:6 };
+
+const RECIPES = {
+  bandage:  { name:"Bandage",        out:{bandage:1},  cost:{cloth:2} },
+  spear:    { name:"Spear",          out:{spear:1},    cost:{wood:2, metal:1} },
+  barricade:{ name:"Barricade Kit",  out:{barricade:1},cost:{wood:3, metal:2} },
+  ammo9:    { name:"9mm ×6",         out:{ammo9:6},    cost:{metal:2}, bench:true },
+  shells:   { name:"Shells ×4",      out:{shells:4},   cost:{metal:3}, bench:true },
+  rifleammo:{ name:"Rifle Rounds ×5",out:{rifleammo:5},cost:{metal:3}, bench:true },
+};
+
+/* ---------------- persistence (all keys dz_) ---------------- */
+const K_STATE="dz_state", K_GT="dz_gt", K_WORLD="dz_world", K_V="dz_v";
+const SAVE_VERSION=3;
+function freshState(){
+  return { hp:100, maxHp:100, hunger:100, thirst:100, xp:0, level:1,
+           inv:{}, chest:{}, weapon:"fists", base:null, mute:false,
+           pos:null, start:Date.now(), lastSeen:Date.now(),
+           deaths:0, scavenged:0, kills:0 };
+}
+let S = freshState();
+try { const raw=localStorage.getItem(K_STATE); if(raw) S=Object.assign(freshState(), JSON.parse(raw)); } catch(e){}
+
+/* one-time save-format migrations, keyed off dz_v */
+(function migrate(){
+  const v=Number(localStorage.getItem(K_V)||1);
+  if(v<2){ // v1 kept loot in its own dz_loot key; fold it into the world blob
+    try{
+      const raw=localStorage.getItem("dz_loot");
+      if(raw){
+        const loot=JSON.parse(raw).map(p=>({lat:p.lat,lng:p.lng,item:p.item}));
+        localStorage.setItem(K_WORLD, JSON.stringify({loot, zombies:[], graceUntil:0}));
+      }
+    }catch(e){}
+    localStorage.removeItem("dz_loot");
+  }
+  if(v<3){ // ammo9 used to count boxes-of-6; now counts rounds
+    if(S.inv && S.inv.ammo9) S.inv.ammo9*=6;
+    try{ localStorage.setItem(K_STATE, JSON.stringify(S)); }catch(e){}
+  }
+  localStorage.setItem(K_V, String(SAVE_VERSION));
+})();
+
+/* ---- game clock: the world runs on ITS OWN time ----
+   gt() only advances while the game is started AND visible.
+   Wall clock (Date.now) is reserved for: offline hunger/thirst decay
+   and the real-world day counter / night mode. */
+let started=false;
+let gameTime=Number(localStorage.getItem(K_GT)||0);
+const gt=()=>gameTime;
+const paused=()=>!started || document.visibilityState!=="visible";
+setInterval(()=>{ if(started && document.visibilityState==="visible") gameTime+=250; },250);
+
+function save(){
+  S.lastSeen=Date.now(); // wall clock on purpose: drives capped offline decay
+  if(playerPos) S.pos=[playerPos.lat,playerPos.lng];
+  try{
+    localStorage.setItem(K_STATE, JSON.stringify(S));
+    if(started){
+      localStorage.setItem(K_GT, String(gameTime));
+      localStorage.setItem(K_WORLD, JSON.stringify({
+        loot: lootPoints.map(p=>({lat:p.lat,lng:p.lng,item:p.item})),
+        zombies: zombies.map(z=>({kind:z.kind,lat:z.lat,lng:z.lng,hp:z.hp,state:z.state,lastSense:z.lastSense,noiseTgt:z.noiseTgt||null})),
+        graceUntil: graceUntil,
+      }));
+    }
+  }catch(e){}
+}
+
+/* ---------------- geo math ---------------- */
+const R=6371000, D2R=Math.PI/180;
+function haversine(a,b){
+  const dLat=(b.lat-a.lat)*D2R, dLng=(b.lng-a.lng)*D2R;
+  const s=Math.sin(dLat/2)**2 + Math.cos(a.lat*D2R)*Math.cos(b.lat*D2R)*Math.sin(dLng/2)**2;
+  return 2*R*Math.asin(Math.sqrt(s));
+}
+function offsetPoint(lat,lng,dist,bearing){
+  const br=bearing*D2R, la1=lat*D2R, lo1=lng*D2R, dr=dist/R;
+  const la2=Math.asin(Math.sin(la1)*Math.cos(dr)+Math.cos(la1)*Math.sin(dr)*Math.cos(br));
+  const lo2=lo1+Math.atan2(Math.sin(br)*Math.sin(dr)*Math.cos(la1), Math.cos(dr)-Math.sin(la1)*Math.sin(la2));
+  return {lat:la2/D2R, lng:lo2/D2R};
+}
+function bearingBetween(a,b){
+  const la1=a.lat*D2R, la2=b.lat*D2R, dLng=(b.lng-a.lng)*D2R;
+  const y=Math.sin(dLng)*Math.cos(la2);
+  const x=Math.cos(la1)*Math.sin(la2)-Math.sin(la1)*Math.cos(la2)*Math.cos(dLng);
+  return (Math.atan2(y,x)/D2R+360)%360;
+}
+const COMPASS=["N","NE","E","SE","S","SW","W","NW"];
+const compass=b=>COMPASS[Math.round(b/45)%8];
+
+/* ---------------- globals ---------------- */
+let map=null, playerMarker=null, playerPos=null, devMode=false, gpsAcc=null;
+let baseMarker=null, baseCircle=null;
+let lootPoints=[]; let lootSeq=1;
+let zombies=[]; let zombSeq=1; let graceUntil=0;
+let channel=null, dead=false;
+let drawn=false, manualTarget=null, lastSwing=0, lastDryToast=0, lastHurtSfx=0;
+const $=id=>document.getElementById(id);
+
+/* ---------------- toast + sfx ---------------- */
+let toastT=null;
+function toast(msg,ms=2200){
+  const t=$("toast"); t.innerHTML=msg; t.style.opacity=1;
+  clearTimeout(toastT); toastT=setTimeout(()=>t.style.opacity=0,ms);
+}
+let AC=null;
+function ac(){
+  if(!AC){ try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
+  if(AC && AC.state==="suspended") AC.resume();
+  return AC;
+}
+function tone(f,dur,type,vol,slide){
+  const a=ac(); if(!a||S.mute) return;
+  try{
+    const o=a.createOscillator(), g=a.createGain();
+    o.type=type||"square"; o.frequency.setValueAtTime(f,a.currentTime);
+    if(slide) o.frequency.exponentialRampToValueAtTime(slide,a.currentTime+dur);
+    g.gain.setValueAtTime(vol||0.15,a.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,a.currentTime+dur);
+    o.connect(g).connect(a.destination); o.start(); o.stop(a.currentTime+dur);
+  }catch(e){}
+}
+function sfx(k){
+  if(k==="shot"){ tone(180,0.12,"square",0.25,40); tone(900,0.05,"sawtooth",0.12,200); }
+  else if(k==="hit") tone(140,0.09,"sine",0.2,60);
+  else if(k==="hurt") tone(90,0.15,"sawtooth",0.22,50);
+  else if(k==="pickup"){ tone(520,0.07,"square",0.12); setTimeout(()=>tone(780,0.09,"square",0.12),70); }
+  else if(k==="craft"){ tone(440,0.08,"triangle",0.16); setTimeout(()=>tone(660,0.1,"triangle",0.16),80); }
+  else if(k==="scream"){ tone(700,0.55,"sawtooth",0.2,300); }
+  else if(k==="level"){ [440,554,659,880].forEach((f,i)=>setTimeout(()=>tone(f,0.1,"square",0.15),i*90)); }
+  else if(k==="death"){ [300,220,160,110].forEach((f,i)=>setTimeout(()=>tone(f,0.2,"sawtooth",0.2),i*160)); }
+}
+document.addEventListener("pointerdown",()=>ac(),{once:true});
+
+/* ---------------- night ---------------- */
+function isNight(){ const h=new Date().getHours(); return h>=CFG.night.start||h<CFG.night.end; }
+
+/* ---------------- map + player + base ---------------- */
+function makeMap(center){
+  map=L.map("map",{zoomControl:false,attributionControl:true}).setView(center,17);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+    {maxZoom:19, attribution:"© OpenStreetMap"}).addTo(map);
+  map.on("popupopen",e=>{ // iOS webview fix: close button is <a href="#close">
+    const c=e.popup.getElement().querySelector(".leaflet-popup-close-button");
+    if(c) c.removeAttribute("href");
+  });
+  map.on("click",e=>{ if(devMode && devTeleport){ setPos(e.latlng.lat,e.latlng.lng); } });
+  playerMarker=L.marker(center,{icon:L.divIcon({className:"",
+    html:'<div class="mk player" style="width:26px;height:26px">🧍</div>',
+    iconSize:[26,26], iconAnchor:[13,13]}), zIndexOffset:1000}).addTo(map);
+}
+function setPos(lat,lng){
+  playerPos={lat,lng};
+  playerMarker.setLatLng(playerPos);
+  map.setView(playerPos, map.getZoom(), {animate:true});
+  maintainLoot(); maintainZombies();
+}
+function drawBase(){
+  if(baseMarker){ map.removeLayer(baseMarker); baseMarker=null; }
+  if(baseCircle){ map.removeLayer(baseCircle); baseCircle=null; }
+  if(!S.base) return;
+  baseCircle=L.circle([S.base.lat,S.base.lng],{radius:CFG.base.radius,
+    color:"#8fd94a", weight:1, opacity:0.6, fillColor:"#8fd94a", fillOpacity:0.06}).addTo(map);
+  baseMarker=L.marker([S.base.lat,S.base.lng],{icon:L.divIcon({className:"",
+    html:'<div class="mk player" style="width:32px;height:32px">🏕️</div>',
+    iconSize:[32,32], iconAnchor:[16,16]})}).addTo(map);
+  baseMarker.on("click",()=>openBase());
+}
+function atBase(){ return S.base && playerPos && haversine(playerPos,S.base)<=CFG.base.radius+15; }
+function setBaseHere(){
+  if(!S.base) S.base={lat:playerPos.lat,lng:playerPos.lng,walls:0,workbench:false,garden:false,gardenLast:gt()};
+  drawBase(); sfx("craft");
+  toast("🏕️ Base set. The chest here survives death.");
+  save();
+}
+
+/* ---------------- loot: builder + random spawner ---------------- */
+function boostedWeight(d){
+  const bd=Math.min(Math.max(dayCount()-1,0),CFG.rarityBoostPerDay.capDays);
+  if(d.rarity==="rare") return d.w*(1+CFG.rarityBoostPerDay.rare*bd);
+  if(d.rarity==="uncommon") return d.w*(1+CFG.rarityBoostPerDay.uncommon*bd);
+  return d.w;
+}
+function weightedItem(){
+  const pool=Object.entries(ITEMS).filter(([id,d])=>d.w>0).map(([id,d])=>({id,w:boostedWeight(d)}));
+  const tot=pool.reduce((s,e)=>s+e.w,0);
+  let r=Math.random()*tot;
+  for(const e of pool){ r-=e.w; if(r<=0) return e.id; }
+  return "water";
+}
+function lootIcon(p){
+  const d=ITEMS[p.item];
+  return L.divIcon({className:"", html:'<div class="mk '+d.rarity+'" style="width:30px;height:30px">'+d.icon+'</div>',
+    iconSize:[30,30], iconAnchor:[15,15]});
+}
+function addLootMarker(p){
+  p.marker=L.marker([p.lat,p.lng],{icon:lootIcon(p)}).addTo(map);
+  p.marker.on("click",()=>{
+    const d=ITEMS[p.item], dist=Math.round(haversine(playerPos,p));
+    toast(d.icon+" "+d.name+" · "+dist+"m — "+(dist<=CFG.collectRadius?"in range":"get closer"));
+  });
+}
+function createLoot(lat,lng,item){ // builder: explicit data -> entity + marker + handlers
+  const p={id:"L"+(lootSeq++), item, lat, lng};
+  lootPoints.push(p); addLootMarker(p);
+  return p;
+}
+function spawnLoot(){ // random spawner -> builder
+  const ang=Math.random()*360;
+  const dist=CFG.loot.minDist+Math.random()*(CFG.loot.maxDist-CFG.loot.minDist);
+  const pt=offsetPoint(playerPos.lat,playerPos.lng,dist,ang);
+  createLoot(pt.lat, pt.lng, weightedItem());
+}
+function removeLoot(p){
+  if(p.marker) map.removeLayer(p.marker);
+  lootPoints=lootPoints.filter(x=>x!==p);
+}
+function maintainLoot(){
+  if(!playerPos) return;
+  for(const p of lootPoints.slice()) if(haversine(playerPos,p)>CFG.loot.cull) removeLoot(p);
+  let guard=0;
+  while(lootPoints.length<CFG.loot.target && guard++<40) spawnLoot();
+  save();
+}
+
+/* ---------------- scavenge channel ---------------- */
+function nearestLoot(){
+  let best=null,bd=1e12;
+  for(const p of lootPoints){ const d=haversine(playerPos,p); if(d<bd){bd=d;best=p;} }
+  return best?{p:best,d:bd}:null;
+}
+function startChannel(p){
+  const d=ITEMS[p.item];
+  channel={loot:p, start:gt(), dur:CFG.scavengeMs[d.rarity]};
+}
+function cancelChannel(msg){
+  channel=null; $("actbtn").querySelector(".fill").style.transform="scaleX(0)";
+  if(msg) toast(msg);
+}
+function completeChannel(){
+  const p=channel.loot, d=ITEMS[p.item], qty=d.grant||1;
+  channel=null; $("actbtn").querySelector(".fill").style.transform="scaleX(0)";
+  S.inv[p.item]=(S.inv[p.item]||0)+qty; S.scavenged++;
+  removeLoot(p);
+  grantXp(d.rarity==="rare"?25:d.rarity==="uncommon"?12:6);
+  sfx("pickup");
+  toast("Picked up "+d.icon+" <b>"+d.name+(qty>1?" ×"+qty:"")+"</b>");
+  save(); maintainLoot();
+}
+setInterval(()=>{ // channel tick 100ms
+  if(paused()||!channel||!playerPos) return;
+  if(haversine(playerPos,channel.loot)>CFG.collectRadius){ cancelChannel("Left the area — scavenge cancelled"); return; }
+  const pct=Math.min(1,(gt()-channel.start)/channel.dur);
+  $("actbtn").querySelector(".fill").style.transform="scaleX("+pct+")";
+  $("actbtn").querySelector(".lbl").textContent="SCAVENGING… "+Math.floor(pct*100)+"%";
+  if(Math.random()<CFG.channelAggro.perSec*0.1){
+    let best=null,bd=1e12;
+    for(const z of zombies){
+      if(z.state==="chase") continue;
+      const zd=haversine(playerPos,z);
+      if(zd<=CFG.channelAggro.radius && zd<bd){bd=zd; best=z;}
+    }
+    if(best){ alertZombie(best); toast("⚠️ Something heard you scavenging…",2600); }
+  }
+  if(pct>=1) completeChannel();
+},100);
+
+/* ---------------- XP / level ---------------- */
+function grantXp(n){
+  S.xp+=n;
+  while(S.xp>=S.level*CFG.xpPerLevel){
+    S.xp-=S.level*CFG.xpPerLevel; S.level++;
+    S.maxHp=100+(S.level-1)*CFG.hpPerLevel; S.hp=S.maxHp;
+    sfx("level");
+    toast("LEVEL UP → "+S.level+" · max HP "+S.maxHp,3000);
+  }
+}
+
+/* ---------------- needs / survival ---------------- */
+function applyOfflineDecay(){
+  const hrs=Math.max(0,(Date.now()-(S.lastSeen||Date.now()))/3600000);
+  if(hrs<0.02) return;
+  const f=CFG.needs.offlineFloor;
+  S.hunger=Math.max(Math.min(S.hunger,f), S.hunger-CFG.needs.hungerPerHr*hrs);
+  S.thirst=Math.max(Math.min(S.thirst,f), S.thirst-CFG.needs.thirstPerHr*hrs);
+  if(hrs>1) toast("Away "+hrs.toFixed(1)+"h — you're hungry and thirsty",3200);
+}
+setInterval(()=>{ // needs tick 1s
+  if(paused()||!playerPos||dead) return;
+  S.hunger=Math.max(0,S.hunger-CFG.needs.hungerPerHr/3600);
+  S.thirst=Math.max(0,S.thirst-CFG.needs.thirstPerHr/3600);
+  if(S.hunger<=0||S.thirst<=0){
+    S.hp=Math.max(0,S.hp-CFG.needs.drainHpPerMin/60);
+    if(S.hp<=0) die(S.thirst<=0?"Dehydration got you.":"You starved.");
+  }
+},1000);
+
+function useItem(id){
+  const d=ITEMS[id]; if(!d||!d.use||!(S.inv[id]>0)) return;
+  S.inv[id]--; if(S.inv[id]<=0) delete S.inv[id];
+  if(d.use.hunger) S.hunger=Math.min(100,S.hunger+d.use.hunger);
+  if(d.use.thirst) S.thirst=Math.min(100,S.thirst+d.use.thirst);
+  if(d.use.hp) S.hp=Math.min(S.maxHp,S.hp+d.use.hp);
+  sfx("pickup");
+  toast("Used "+d.icon+" "+d.name);
+  save(); renderInv(); refreshHud();
+}
+
+/* ---------------- death ---------------- */
+function die(reason){
+  if(dead) return;
+  dead=true; cancelChannel(); S.deaths++;
+  drawn=false;
+  const lost=Object.values(S.inv).reduce((a,b)=>a+b,0);
+  $("deathmsg").innerHTML=reason+"<br>Everything you carried is gone ("+lost+" items)"+
+    (S.base?" — your base chest is untouched.":".")+
+    "<br>Kills: "+S.kills+" · Day "+dayCount();
+  S.inv={}; if(!ownsWeapon(S.weapon)) S.weapon="fists";
+  sfx("death");
+  save();
+  $("death").style.display="flex";
+}
+$("btnRespawn").addEventListener("click",()=>{
+  dead=false;
+  S.hp=S.maxHp; S.hunger=CFG.respawn.hunger; S.thirst=CFG.respawn.thirst;
+  graceUntil=gt()+CFG.grace;
+  for(const z of zombies){ if(z.state!=="wander"){ z.state="wander"; z.wp=null; z.noiseTgt=null; refreshZombIcon(z); } }
+  if(devMode && S.base) setPos(S.base.lat,S.base.lng);
+  save(); $("death").style.display="none"; refreshHud();
+  toast("Back on your feet — "+(CFG.grace/1000)+"s grace."+(S.base?" Your chest is at base.":""),3200);
+});
+
+/* ---------------- HUD ---------------- */
+function dayCount(){ return Math.floor((Date.now()-(S.start||Date.now()))/86400000)+1; }
+function setBar(id,val,max,label){
+  const b=$(id); b.querySelector("i").style.transform="scaleX("+Math.max(0,val/max)+")";
+  b.querySelector("span").textContent=label+" "+Math.ceil(val);
+}
+function refreshHud(){
+  setBar("hpBar",S.hp,S.maxHp,"HP");
+  setBar("huBar",S.hunger,100,"FOOD");
+  setBar("thBar",S.thirst,100,"WATER");
+  $("lvlLine").textContent="LV "+S.level+" · "+S.xp+"/"+(S.level*CFG.xpPerLevel)+" XP";
+  const chasing=zombies.filter(z=>z.state==="chase").length;
+  $("chip").innerHTML="DAY <b>"+dayCount()+"</b> · "+(devMode?"DEV":(gpsAcc!=null?("GPS ±"+Math.round(gpsAcc)+"m"):"GPS…"))+
+    (isNight()?" · 🌙":"")+
+    (gt()<graceUntil?" · <b>GRACE</b>":"")+
+    (chasing?' · <b style="color:var(--red)">🧟'+chasing+"</b>":"");
+  document.body.classList.toggle("night",isNight());
+  $("btnMute").textContent=S.mute?"🔇":"🔊";
+  updateCombatBtns();
+}
+function refreshAction(){
+  if(!playerPos) return;
+  const btn=$("actbtn"), lbl=btn.querySelector(".lbl");
+  if(channel) return;
+  const n=nearestLoot();
+  if(!n){ $("nearline").textContent="no loot nearby — keep moving"; lbl.textContent="EXPLORE"; btn.disabled=true; return; }
+  const d=ITEMS[n.p.item];
+  $("nearline").innerHTML="nearest: "+d.icon+" "+d.name+" · "+Math.round(n.d)+"m";
+  if(n.d<=CFG.collectRadius){ lbl.textContent="SCAVENGE"; btn.disabled=false; }
+  else { lbl.textContent="GET CLOSER"; btn.disabled=true; }
+}
+setInterval(()=>{ if(!paused()&&playerPos&&!dead){ refreshHud(); refreshAction(); } },500);
+setInterval(()=>{ if(started) save(); }, CFG.autosaveMs);
+document.addEventListener("visibilitychange",()=>{
+  if(!started) return;
+  if(document.visibilityState==="hidden") save();
+  else { applyOfflineDecay(); refreshHud(); }
+});
+window.addEventListener("pagehide",()=>{ if(started) save(); });
+window.addEventListener("beforeunload",()=>{ if(started) save(); });
+
+$("actbtn").addEventListener("click",()=>{
+  if(dead) return;
+  if(channel){ cancelChannel("Scavenge cancelled"); refreshAction(); return; }
+  const n=nearestLoot();
+  if(n && n.d<=CFG.collectRadius) startChannel(n.p);
+});
+
+/* ---------------- inventory overlay ---------------- */
+function itemSub(d){
+  if(d.use) return [d.use.hunger?("+"+d.use.hunger+" food"):"",d.use.thirst?("+"+d.use.thirst+" water"):"",d.use.hp?("+"+d.use.hp+" hp"):""].filter(Boolean).join(" · ");
+  if(d.melee) return "melee · "+d.melee.dmg+" dmg · "+d.melee.range+"m";
+  if(d.gun) return "gun · "+d.gun.dmg+" dmg · "+d.gun.range+"m · uses "+ITEMS[d.gun.ammo].name;
+  return "crafting material";
+}
+function renderInv(){
+  const list=$("invlist"); const ids=Object.keys(S.inv).filter(id=>ITEMS[id]);
+  if(!ids.length){ list.innerHTML='<div id="invempty">Empty. Go scavenge — loot glows on the map.</div>'; return; }
+  list.innerHTML=ids.map(id=>{
+    const d=ITEMS[id];
+    return '<div class="invrow"><div class="ic">'+d.icon+'</div>'+
+      '<div class="nm">'+d.name+'<small>'+itemSub(d)+'</small></div>'+
+      '<div class="ct">×'+S.inv[id]+'</div>'+
+      (d.use?'<button class="usebtn" data-use="'+id+'">USE</button>':"")+
+      '</div>';
+  }).join("");
+}
+$("btnInv").addEventListener("click",()=>{ renderInv(); $("inv").style.display="flex"; });
+$("btnMute").addEventListener("click",()=>{ S.mute=!S.mute; save(); refreshHud(); });
+
+/* ---------------- base overlay: chest / craft / upgrades ---------------- */
+function costText(cost){ return Object.entries(cost).map(([id,n])=>n+"× "+ITEMS[id].name).join(", "); }
+function have(id){ return (S.inv[id]||0)+(S.chest[id]||0); }
+function canAfford(cost){ return Object.entries(cost).every(([id,n])=>have(id)>=n); }
+function consume(cost){
+  for(const [id,n] of Object.entries(cost)){
+    let left=n;
+    const fromInv=Math.min(S.inv[id]||0,left);
+    if(fromInv){ S.inv[id]-=fromInv; if(S.inv[id]<=0) delete S.inv[id]; left-=fromInv; }
+    if(left){ S.chest[id]-=left; if(S.chest[id]<=0) delete S.chest[id]; }
+  }
+}
+function gardenPending(){
+  if(!S.base||!S.base.garden) return 0;
+  return Math.min(CFG.garden.cap, Math.floor((gt()-S.base.gardenLast)/CFG.garden.msPer));
+}
+function renderBase(){
+  const b=S.base; let hp="";
+  const ids=[...new Set([...Object.keys(S.inv),...Object.keys(S.chest)])].filter(id=>ITEMS[id]);
+  hp+="<h3>CHEST</h3><div class='hint'>stash = safe on death · carry = lost on death</div>";
+  hp+= ids.length? ids.map(id=>{
+    const d=ITEMS[id];
+    return '<div class="invrow"><div class="ic">'+d.icon+'</div><div class="nm">'+d.name+
+      '<small>carry ×'+(S.inv[id]||0)+' · chest ×'+(S.chest[id]||0)+'</small></div>'+
+      ((S.inv[id]||0)>0?'<button class="usebtn" data-stash="'+id+'">STASH</button>':'')+
+      ((S.chest[id]||0)>0?'<button class="usebtn" data-take="'+id+'">TAKE</button>':'')+'</div>';
+  }).join("") : '<div class="hint">Nothing stored or carried yet.</div>';
+  hp+='<div style="margin-top:6px"><button class="usebtn" data-stashall="1">STASH ALL MATERIALS</button></div>';
+  hp+="<h3>CRAFT"+(b.workbench?" · workbench ✓":"")+"</h3>";
+  hp+=Object.entries(RECIPES).map(([rid,r])=>{
+    const needBench=r.bench&&!b.workbench;
+    const ok=!needBench&&canAfford(r.cost);
+    const outId=Object.keys(r.out)[0];
+    return '<div class="invrow"><div class="ic">'+ITEMS[outId].icon+'</div><div class="nm">'+r.name+
+      '<small>'+costText(r.cost)+(needBench?' · needs workbench':'')+'</small></div>'+
+      '<button class="usebtn" data-craft="'+rid+'" '+(ok?'':'disabled')+'>CRAFT</button></div>';
+  }).join("");
+  hp+="<h3>UPGRADES</h3>";
+  hp+='<div class="invrow"><div class="ic">🧱</div><div class="nm">Walls · lvl '+b.walls+"/"+CFG.base.maxWalls+
+    '<small>slows zombies inside base (brutes break through) · 1× Barricade Kit</small></div>'+
+    '<button class="usebtn" data-wall="1" '+((b.walls<CFG.base.maxWalls&&have("barricade")>0)?'':'disabled')+'>UPGRADE</button></div>';
+  hp+='<div class="invrow"><div class="ic">🔨</div><div class="nm">Workbench'+(b.workbench?' · built ✓':'')+
+    '<small>unlocks ammo crafting · '+costText(CFG.base.workbenchCost)+'</small></div>'+
+    (b.workbench?'':'<button class="usebtn" data-build="workbench" '+(canAfford(CFG.base.workbenchCost)?'':'disabled')+'>BUILD</button>')+'</div>';
+  const pend=gardenPending();
+  hp+='<div class="invrow"><div class="ic">🥕</div><div class="nm">Garden'+(b.garden?' · growing':'')+
+    '<small>'+(b.garden?("1 produce / 30min played · ready: "+pend+"/"+CFG.garden.cap):("slow passive food · "+costText(CFG.base.gardenCost)))+'</small></div>'+
+    (b.garden?('<button class="usebtn" data-harvest="1" '+(pend>0?'':'disabled')+'>COLLECT</button>')
+             :('<button class="usebtn" data-build="garden" '+(canAfford(CFG.base.gardenCost)?'':'disabled')+'>BUILD</button>'))+'</div>';
+  $("baselist").innerHTML=hp;
+}
+function openBase(){
+  if(!playerPos) return;
+  if(!atBase()){ const d=Math.round(haversine(playerPos,S.base)); toast("Base is "+d+"m "+compass(bearingBetween(playerPos,S.base))); return; }
+  renderBase(); $("base").style.display="flex";
+}
+let baseArm=0;
+$("btnBase").addEventListener("click",()=>{
+  if(!playerPos||dead) return;
+  if(!S.base){
+    if(gt()-baseArm<4000){ setBaseHere(); baseArm=0; }
+    else { baseArm=gt(); toast("Tap 🏕️ again to set your base HERE"); }
+    return;
+  }
+  openBase();
+});
+
+document.addEventListener("click",e=>{
+  const c=e.target.closest("[data-close]"); if(c){ $(c.dataset.close).style.display="none"; return; }
+  const u=e.target.closest("[data-use]"); if(u){ useItem(u.dataset.use); return; }
+  if(!atBase()) return; // everything below requires standing at base
+  const st=e.target.closest("[data-stash]");
+  if(st){ const id=st.dataset.stash;
+    if(S.inv[id]>0){ S.inv[id]--; if(S.inv[id]<=0) delete S.inv[id]; S.chest[id]=(S.chest[id]||0)+1; save(); renderBase(); } return; }
+  const tk=e.target.closest("[data-take]");
+  if(tk){ const id=tk.dataset.take;
+    if(S.chest[id]>0){ S.chest[id]--; if(S.chest[id]<=0) delete S.chest[id]; S.inv[id]=(S.inv[id]||0)+1; save(); renderBase(); } return; }
+  if(e.target.closest("[data-stashall]")){
+    for(const id of Object.keys(S.inv)){
+      if(ITEMS[id]&&ITEMS[id].mat){ S.chest[id]=(S.chest[id]||0)+S.inv[id]; delete S.inv[id]; }
+    }
+    save(); renderBase(); return;
+  }
+  const cr=e.target.closest("[data-craft]");
+  if(cr){ const r=RECIPES[cr.dataset.craft];
+    if(r && canAfford(r.cost) && !(r.bench&&!S.base.workbench)){
+      consume(r.cost);
+      for(const [id,n] of Object.entries(r.out)) S.inv[id]=(S.inv[id]||0)+n;
+      grantXp(8); sfx("craft"); toast("Crafted "+r.name);
+      save(); renderBase();
+    } return; }
+  const bl=e.target.closest("[data-build]");
+  if(bl){ const what=bl.dataset.build;
+    const cost=what==="workbench"?CFG.base.workbenchCost:CFG.base.gardenCost;
+    if(canAfford(cost)){
+      consume(cost);
+      if(what==="workbench") S.base.workbench=true;
+      else { S.base.garden=true; S.base.gardenLast=gt(); }
+      grantXp(15); sfx("craft"); toast("Built "+what);
+      save(); renderBase();
+    } return; }
+  if(e.target.closest("[data-wall]")){
+    if(S.base.walls<CFG.base.maxWalls && have("barricade")>0){
+      consume({barricade:1}); S.base.walls++;
+      grantXp(10); sfx("craft"); toast("Walls level "+S.base.walls);
+      save(); renderBase();
+    } return; }
+  if(e.target.closest("[data-harvest]")){
+    const pend=gardenPending();
+    if(pend>0){
+      S.inv.produce=(S.inv.produce||0)+pend;
+      S.base.gardenLast=gt()-((gt()-S.base.gardenLast)%CFG.garden.msPer);
+      if(pend>=CFG.garden.cap) S.base.gardenLast=gt();
+      sfx("pickup"); toast("Collected 🥕 ×"+pend);
+      save(); renderBase();
+    } return; }
+});
+
+/* ---------------- zombies: builder + random spawner ---------------- */
+function makeZombIcon(z){
+  const t=ZTYPES[z.kind], wounded=z.hp<z.maxHp, sz=t.size;
+  const border=z.state==="chase"?"var(--red)":z.state==="investigate"?"#e08a3a":t.ring;
+  const html='<div class="mk zomb'+(z.state==="chase"?" chasing":"")+'" style="width:'+sz+'px;height:'+sz+'px;border-color:'+border+'">🧟'+
+    (t.badge?'<b class="zbadge">'+t.badge+'</b>':'')+
+    (wounded?'<div class="zhp"><i style="width:'+Math.max(0,z.hp/z.maxHp*100)+'%"></i></div>':'')+'</div>';
+  return L.divIcon({className:"", html, iconSize:[sz,sz], iconAnchor:[sz/2,sz/2]});
+}
+function refreshZombIcon(z){ z.marker.setIcon(makeZombIcon(z)); }
+function addZombie(kind,lat,lng,hp,state,lastSense,noiseTgt){ // builder
+  kind=ZTYPES[kind]?kind:"walker";
+  const t=ZTYPES[kind];
+  const z={id:"Z"+(zombSeq++), kind, lat, lng,
+           hp:(hp==null?t.hp:hp), maxHp:t.hp, state:state||"wander",
+           wp:null, lastSense:lastSense||0, noiseTgt:noiseTgt||null, lastScream:0};
+  z.marker=L.marker([z.lat,z.lng],{icon:makeZombIcon(z)}).addTo(map);
+  z.marker.on("click",()=>{ manualTarget=z; toast("Target locked 🧟 · "+Math.round(haversine(playerPos,z))+"m"); });
+  zombies.push(z);
+  return z;
+}
+function pickKind(){
+  const day=dayCount(), w={walker:100};
+  w.runner=Math.min(30,5+5*(day-1))+(isNight()?10:0);
+  if(day>=2) w.brute=Math.min(20,4+3*(day-2));
+  if(day>=3) w.screamer=Math.min(15,3+2*(day-3));
+  let tot=0; for(const k in w) tot+=w[k];
+  let r=Math.random()*tot;
+  for(const k in w){ r-=w[k]; if(r<=0) return k; }
+  return "walker";
+}
+function spawnZombie(){ // random spawner
+  const ang=Math.random()*360;
+  const dist=CFG.zombies.minDist+Math.random()*(CFG.zombies.maxDist-CFG.zombies.minDist);
+  const pt=offsetPoint(playerPos.lat,playerPos.lng,dist,ang);
+  addZombie(pickKind(), pt.lat, pt.lng);
+}
+function removeZombie(z){
+  if(z.marker) map.removeLayer(z.marker);
+  zombies=zombies.filter(x=>x!==z);
+  if(manualTarget===z) manualTarget=null;
+}
+function targetZombies(){
+  return Math.min(CFG.zombies.cap, CFG.zombies.base+(dayCount()-1)+(isNight()?CFG.night.extra:0));
+}
+function maintainZombies(){
+  if(!playerPos) return;
+  for(const z of zombies.slice()) if(haversine(playerPos,z)>CFG.zombies.cull) removeZombie(z);
+  let guard=0;
+  while(zombies.length<targetZombies() && guard++<40) spawnZombie();
+}
+function moveZombie(z,toward,speed,dt){
+  const d=haversine(z,toward); if(d<1) return;
+  const step=Math.min(d,speed*dt);
+  const pt=offsetPoint(z.lat,z.lng,step,bearingBetween(z,toward));
+  z.lat=pt.lat; z.lng=pt.lng; z.marker.setLatLng([z.lat,z.lng]);
+}
+function wallFactor(z){
+  if(!S.base||!S.base.walls||z.kind==="brute") return 1;
+  return haversine(z,S.base)<=CFG.base.radius ? 1/(1+CFG.base.wallSlowPer*S.base.walls) : 1;
+}
+function alertZombie(z){
+  if(z.state!=="chase"){
+    z.state="chase"; z.noiseTgt=null; z.lastSense=gt(); refreshZombIcon(z);
+    if(z.kind==="screamer") doScream(z);
+  } else z.lastSense=gt();
+}
+function doScream(z){
+  if(gt()-(z.lastScream||0)<CFG.zombies.screamCd) return;
+  z.lastScream=gt();
+  sfx("scream");
+  toast("🗣 A SCREAMER shrieks — they're coming!",3200);
+  for(const o of zombies){
+    if(o!==z && o.state!=="chase" && haversine(o,z)<=CFG.zombies.screamRadius){
+      o.state="investigate"; o.noiseTgt={lat:playerPos.lat,lng:playerPos.lng}; refreshZombIcon(o);
+    }
+  }
+}
+function noiseEvent(lat,lng){ // gunshots pull everything in radius toward the shot
+  let n=0;
+  for(const z of zombies){
+    if(z.state==="chase") continue;
+    if(haversine(z,{lat,lng})<=CFG.noise.radius){
+      z.state="investigate"; z.noiseTgt={lat,lng}; refreshZombIcon(z); n++;
+    }
+  }
+  if(n>=3) toast("⚠️ The shot echoed — "+n+" heard it",2600);
+}
+function hurtPlayer(dmg){
+  S.hp=Math.max(0,S.hp-dmg);
+  const f=$("hitflash"); f.style.opacity=1; setTimeout(()=>f.style.opacity=0,140);
+  if(gt()-lastHurtSfx>600){ lastHurtSfx=gt(); sfx("hurt"); }
+  if(S.hp<=0) die("The dead tore into you.");
+}
+function dmgNum(latlng,text){
+  const pt=map.latLngToContainerPoint(latlng);
+  const el=document.createElement("div");
+  el.className="dmgnum";
+  el.style.left=(pt.x-8)+"px"; el.style.top=(pt.y-26)+"px";
+  el.textContent=text;
+  map.getContainer().appendChild(el);
+  setTimeout(()=>el.remove(),900);
+}
+/* chase/investigate/attack AI — 200ms */
+setInterval(()=>{
+  if(paused()||!playerPos||dead) return;
+  const now=gt(), inGrace=now<graceUntil;
+  const nm=isNight()?{speed:CFG.night.speed,detect:CFG.night.detect}:{speed:1,detect:1};
+  for(const z of zombies){
+    const t=ZTYPES[z.kind], det=t.detect*nm.detect;
+    const d=haversine(z,playerPos);
+    if(!inGrace && d<=det) alertZombie(z);
+    if(z.state==="chase"){
+      if(d>det*CFG.zombies.loseFactor && now-z.lastSense>CFG.zombies.loseAfterMs){
+        z.state="wander"; z.wp=null; refreshZombIcon(z); continue;
+      }
+      if(d<=det) z.lastSense=now;
+      if(d<=t.range){ if(!inGrace) hurtPlayer(t.dps*0.2); }
+      else moveZombie(z, playerPos, t.chase*nm.speed*wallFactor(z), 0.2);
+    } else if(z.state==="investigate"){
+      if(!z.noiseTgt){ z.state="wander"; refreshZombIcon(z); continue; }
+      const nd=haversine(z,z.noiseTgt);
+      if(nd<8){ z.state="wander"; z.noiseTgt=null; refreshZombIcon(z); }
+      else moveZombie(z, z.noiseTgt, t.chase*nm.speed*wallFactor(z), 0.2);
+    }
+  }
+},200);
+/* wander — 400ms */
+setInterval(()=>{
+  if(paused()||!playerPos||dead) return;
+  for(const z of zombies){
+    if(z.state!=="wander") continue;
+    const t=ZTYPES[z.kind];
+    if(!z.wp || haversine(z,z.wp)<4){
+      const pt=offsetPoint(z.lat,z.lng,20+Math.random()*CFG.zombies.wanderLeg,Math.random()*360);
+      z.wp={lat:pt.lat,lng:pt.lng};
+    }
+    moveZombie(z,z.wp,t.wander,0.4);
+  }
+},400);
+
+/* ---------------- combat: weapon select + DRAW auto-attack ---------------- */
+function ownsWeapon(id){ return id==="fists" || S.inv[id]>0; }
+function currentWeapon(){
+  if(!ownsWeapon(S.weapon)) S.weapon="fists";
+  const meleeBonus=Math.floor((S.level-1)/2); // small melee bonus per 2 levels
+  if(S.weapon==="fists") return {id:"fists",name:"Fists",icon:"✊",type:"melee",dmg:FISTS.dmg+meleeBonus,rate:FISTS.rate,range:FISTS.range};
+  const d=ITEMS[S.weapon];
+  if(d.melee) return {id:S.weapon,name:d.name,icon:d.icon,type:"melee",dmg:d.melee.dmg+meleeBonus,rate:d.melee.rate,range:d.melee.range};
+  return {id:S.weapon,name:d.name,icon:d.icon,type:"gun",dmg:d.gun.dmg,rate:d.gun.rate,range:d.gun.range,ammo:d.gun.ammo};
+}
+function updateCombatBtns(){
+  const w=currentWeapon();
+  $("wpnbtn").innerHTML=w.icon+(w.ammo?'<b class="ammoct">'+(S.inv[w.ammo]||0)+'</b>':"");
+  $("drawbtn").classList.toggle("on",drawn);
+  $("drawbtn").innerHTML=drawn?(w.icon+"<br>HOLSTER"):"✊<br>DRAW";
+}
+function cycleWeapon(){
+  const owned=["fists",...WEAPON_IDS.filter(id=>S.inv[id]>0)];
+  const i=owned.indexOf(ownsWeapon(S.weapon)?S.weapon:"fists");
+  S.weapon=owned[(i+1)%owned.length];
+  const w=currentWeapon();
+  toast("Weapon: "+w.name+(w.ammo?(" · "+(S.inv[w.ammo]||0)+" rounds"):""));
+  save(); updateCombatBtns();
+}
+$("wpnbtn").addEventListener("click",cycleWeapon);
+$("drawbtn").addEventListener("click",()=>{
+  drawn=!drawn; updateCombatBtns();
+  if(drawn) toast("Weapon out: "+currentWeapon().name);
+});
+function tracer(a,b){
+  const l=L.polyline([[a.lat,a.lng],[b.lat,b.lng]],{color:"#ffd24a",weight:2,opacity:0.9}).addTo(map);
+  setTimeout(()=>map.removeLayer(l),90);
+}
+setInterval(()=>{ // attack scheduler 100ms
+  if(paused()||!drawn||!playerPos||dead) return;
+  const w=currentWeapon(), now=gt();
+  if(now-lastSwing<w.rate) return;
+  let tgt=null;
+  if(manualTarget && zombies.includes(manualTarget) && haversine(playerPos,manualTarget)<=w.range) tgt=manualTarget;
+  if(!tgt){
+    let bd=1e12;
+    for(const z of zombies){ const d=haversine(playerPos,z); if(d<=w.range && d<bd){bd=d; tgt=z;} }
+  }
+  if(!tgt) return;
+  if(w.ammo){
+    if((S.inv[w.ammo]||0)<=0){
+      if(now-lastDryToast>2500){ lastDryToast=now; toast("Click — out of "+ITEMS[w.ammo].name+"s"); }
+      return;
+    }
+    S.inv[w.ammo]--; if(S.inv[w.ammo]<=0) delete S.inv[w.ammo];
+    tracer(playerPos,tgt); sfx("shot");
+    noiseEvent(playerPos.lat,playerPos.lng); // guns are LOUD — the horde-maker
+  } else sfx("hit");
+  lastSwing=now;
+  tgt.hp-=w.dmg;
+  dmgNum([tgt.lat,tgt.lng],"-"+w.dmg);
+  alertZombie(tgt);
+  if(tgt.hp<=0){
+    dmgNum([tgt.lat,tgt.lng],"☠");
+    grantXp(ZTYPES[tgt.kind].xp); S.kills++;
+    if(Math.random()<CFG.zombies.dropChance){
+      createLoot(tgt.lat, tgt.lng, weightedItem());
+      toast("It dropped something.");
+    }
+    removeZombie(tgt);
+    save(); maintainZombies();
+  } else refreshZombIcon(tgt);
+},100);
+
+/* ---------------- dev mode movement ---------------- */
+let devTeleport=false, devSpeed=4;
+const held=new Set();
+const KEYMAP={ArrowUp:"up",KeyW:"up",ArrowDown:"down",KeyS:"down",ArrowLeft:"left",KeyA:"left",ArrowRight:"right",KeyD:"right"};
+document.addEventListener("keydown",e=>{ const k=KEYMAP[e.code]; if(k&&devMode){held.add(k); e.preventDefault();} });
+document.addEventListener("keyup",e=>{ const k=KEYMAP[e.code]; if(k) held.delete(k); });
+for(const b of document.querySelectorAll("#dpad .dbtn[data-k]")){
+  const k=b.dataset.k;
+  const on=e=>{e.preventDefault(); held.add(k);};
+  const off=()=>held.delete(k);
+  b.addEventListener("touchstart",on,{passive:false});
+  b.addEventListener("touchend",off); b.addEventListener("touchcancel",off);
+  b.addEventListener("mousedown",on); b.addEventListener("mouseup",off); b.addEventListener("mouseleave",off);
+}
+for(const b of document.querySelectorAll(".spdbtn[data-s]")){
+  b.addEventListener("click",()=>{
+    devSpeed=parseFloat(b.dataset.s);
+    document.querySelectorAll(".spdbtn[data-s]").forEach(x=>x.classList.toggle("on",x===b));
+  });
+}
+$("tpbtn").addEventListener("click",()=>{
+  devTeleport=!devTeleport;
+  $("tpbtn").classList.toggle("on",devTeleport);
+  $("tpbtn").innerHTML="TAP-TP<br>"+(devTeleport?"ON":"OFF");
+});
+setInterval(()=>{ // dev movement 100ms
+  if(paused()||!devMode||!playerPos||dead||!held.size) return;
+  let dx=0,dy=0;
+  if(held.has("up"))dy++; if(held.has("down"))dy--;
+  if(held.has("right"))dx++; if(held.has("left"))dx--;
+  if(!dx&&!dy) return;
+  const bearing=(Math.atan2(dx,dy)/D2R+360)%360;
+  const pt=offsetPoint(playerPos.lat,playerPos.lng,devSpeed*0.1,bearing);
+  setPos(pt.lat,pt.lng);
+},100);
+
+/* ---------------- iOS touch fixes ---------------- */
+document.addEventListener("contextmenu",e=>{
+  if(!e.target.closest(".leaflet-popup")) e.preventDefault();
+});
+
+/* ---------------- restore + boot ---------------- */
+function restoreWorld(){ // rebuild every saved entity via the builders
+  try{
+    const raw=localStorage.getItem(K_WORLD); if(!raw) return;
+    const w=JSON.parse(raw);
+    for(const p of (w.loot||[])) if(ITEMS[p.item]&&ITEMS[p.item].w>0||p.item==="produce") createLoot(p.lat,p.lng,p.item);
+    for(const z of (w.zombies||[])) addZombie(z.kind||"walker", z.lat, z.lng, z.hp, z.state, z.lastSense, z.noiseTgt);
+    graceUntil=w.graceUntil||0;
+  }catch(e){}
+}
+function initWorld(lat,lng){
+  applyOfflineDecay();
+  makeMap([lat,lng]);
+  playerPos={lat,lng};
+  playerMarker.setLatLng(playerPos);
+  restoreWorld();     // world intact if you reopened where you left it
+  started=true;
+  drawBase();
+  maintainLoot();     // ...or culls + respawns naturally if you moved far
+  maintainZombies();
+  $("drawbtn").style.display="block";
+  $("wpnbtn").style.display="block";
+  $("start").style.display="none";
+  if(devMode){ $("dpad").style.display="grid"; $("speedcol").style.display="flex";
+    document.querySelector('.spdbtn[data-s="4"]').classList.add("on"); }
+  refreshHud(); refreshAction(); save();
+  if(S.hp<=0){ S.hp=1; } // never load into an instant death screen
+}
+$("btnGps").addEventListener("click",()=>{
+  $("gpsmsg").textContent="Waiting for GPS fix…";
+  if(!navigator.geolocation){ $("gpsmsg").textContent="No geolocation on this device. Use DEV MODE."; return; }
+  navigator.geolocation.watchPosition(p=>{
+    gpsAcc=p.coords.accuracy;
+    if(!map){ devMode=false; initWorld(p.coords.latitude,p.coords.longitude); }
+    else setPos(p.coords.latitude,p.coords.longitude);
+  },err=>{
+    $("gpsmsg").textContent="GPS error: "+err.message+" — needs HTTPS + location permission. DEV MODE works anywhere.";
+  },{enableHighAccuracy:true, maximumAge:2000, timeout:15000});
+});
+$("btnDev").addEventListener("click",()=>{
+  devMode=true;
+  const p=S.pos||CFG.defaultPos;
+  initWorld(p[0],p[1]);
+  toast("DEV MODE — WASD / D-pad to move");
+});
+let resetArmed=false, resetT=null;
+$("btnReset").addEventListener("click",()=>{
+  if(!resetArmed){
+    resetArmed=true; $("btnReset").textContent="TAP AGAIN TO WIPE";
+    resetT=setTimeout(()=>{resetArmed=false; $("btnReset").textContent="RESET SAVE";},3000);
+    return;
+  }
+  clearTimeout(resetT);
+  for(const k of Object.keys(localStorage)) if(k.startsWith("dz_")) localStorage.removeItem(k);
+  location.reload();
+});
+
+</script>
+</body>
+</html>

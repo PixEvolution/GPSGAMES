@@ -1,0 +1,1649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>STREETCASH</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root{
+    --bg:#0d0f0d;
+    --panel:#161a16;
+    --cash:#4ae04a;
+    --cash-dim:#2a7a2a;
+    --text:#e8f0e8;
+    --muted:#7a877a;
+    --danger:#e04a4a;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;overflow:hidden;background:var(--bg);
+    font-family:"Arial Narrow","Helvetica Neue Condensed",Arial,sans-serif;
+    color:var(--text);
+    -webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+  .leaflet-popup-content{-webkit-user-select:text;user-select:text}
+  button{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;
+    touch-action:manipulation}
+  #map{position:absolute;inset:0;background:var(--bg)}
+  .leaflet-container{background:var(--bg)}
+  .leaflet-tile-pane{
+    filter:invert(1) hue-rotate(180deg) brightness(.7) contrast(1.15) saturate(.4)}
+
+  /* ---------- HUD ---------- */
+  #hud{position:absolute;top:0;left:0;right:0;z-index:1000;
+    padding:calc(env(safe-area-inset-top,0px) + 10px) 14px 0;
+    display:flex;justify-content:space-between;align-items:flex-start;
+    pointer-events:none}
+  #money{
+    font-size:34px;font-weight:900;font-stretch:condensed;
+    color:var(--cash);letter-spacing:1px;
+    text-shadow:0 0 12px rgba(74,224,74,.45), 0 2px 0 #000;
+    font-variant-numeric:tabular-nums;
+    transition:transform .12s ease}
+  #money.pop{transform:scale(1.18)}
+  #hpbar{width:150px;height:8px;background:#1d241d;border:1px solid #2a332a;
+    border-radius:4px;margin-top:6px;overflow:hidden}
+  #hpfill{height:100%;width:100%;background:var(--cash);
+    transition:width .25s,background .25s}
+  #lvl{margin-top:5px;font-size:13px;font-weight:900;color:var(--muted);letter-spacing:1px}
+  #xpbar{width:150px;height:4px;background:#1d241d;border-radius:2px;
+    margin-top:3px;overflow:hidden}
+  #xpfill{height:100%;width:0%;background:#e0c84a;transition:width .3s}
+  #status{
+    background:rgba(13,15,13,.85);border:1px solid #2a332a;border-radius:6px;
+    padding:6px 10px;font-size:12px;color:var(--muted);max-width:52vw;text-align:right}
+
+  /* ---------- bottom action bar ---------- */
+  #bar{position:absolute;left:0;right:0;bottom:0;z-index:1000;
+    padding:10px 14px calc(env(safe-area-inset-bottom,0px) + 12px);
+    background:linear-gradient(transparent, rgba(13,15,13,.92) 40%);
+    display:flex;flex-direction:column;gap:8px}
+  #nearest{font-size:13px;color:var(--muted);text-align:center;min-height:16px}
+  #nearest b{color:var(--text)}
+  #collect{
+    width:100%;padding:16px;border:none;border-radius:10px;
+    font-family:inherit;font-size:20px;font-weight:900;letter-spacing:2px;
+    background:var(--panel);color:var(--muted);
+    border:2px solid #2a332a;
+    transition:background .15s,color .15s,border-color .15s}
+  #collect.ready{
+    background:var(--cash);color:#052405;border-color:var(--cash);
+    box-shadow:0 0 24px rgba(74,224,74,.4);
+    animation:pulse 1.2s infinite}
+  @keyframes pulse{50%{box-shadow:0 0 36px rgba(74,224,74,.65)}}
+
+  /* ---------- floating cash gain ---------- */
+  .gain{position:absolute;z-index:1200;font-size:26px;font-weight:900;
+    color:var(--cash);text-shadow:0 0 10px rgba(74,224,74,.6),0 2px 0 #000;
+    pointer-events:none;animation:rise 1.1s ease-out forwards}
+  @keyframes rise{to{transform:translateY(-70px);opacity:0}}
+
+  /* ---------- markers ---------- */
+  .player-dot{width:18px;height:18px;border-radius:50%;
+    background:#fff;border:3px solid var(--cash);
+    box-shadow:0 0 14px rgba(74,224,74,.8)}
+  .job{width:30px;height:30px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    font-size:15px;background:#101510;border:2px solid var(--cash);
+    box-shadow:0 0 10px rgba(74,224,74,.5)}
+  .job.cooling{border-color:#3a423a;box-shadow:none;filter:grayscale(1);opacity:.55}
+  .job.inrange{animation:jobpulse 1s infinite}
+  @keyframes jobpulse{50%{box-shadow:0 0 22px rgba(74,224,74,.95)}}
+
+  /* ---------- missions ---------- */
+  .safehouse{width:34px;height:34px;border-radius:8px;
+    display:flex;align-items:center;justify-content:center;font-size:18px;
+    background:#171407;border:2px solid #e0c84a;
+    box-shadow:0 0 12px rgba(224,200,74,.5)}
+  .dest{width:34px;height:34px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;font-size:18px;
+    background:#0d1220;border:2px solid #4a8ae0;
+    box-shadow:0 0 12px rgba(74,138,224,.6);animation:jobpulse 1.2s infinite}
+  #cargo{font-size:13px;color:var(--text);text-align:center;display:none;
+    background:rgba(13,15,13,.75);border:1px solid #2a332a;border-radius:6px;
+    padding:5px 10px}
+  #shBtn{position:absolute;top:calc(env(safe-area-inset-top,0px) + 156px);
+    left:14px;z-index:1000;padding:7px 10px;border-radius:8px;
+    border:2px solid #e0c84a;background:rgba(13,15,13,.85);color:#e0c84a;
+    font-family:inherit;font-size:12px;font-weight:900;letter-spacing:.5px}
+
+  .gunshop{width:34px;height:34px;border-radius:8px;
+    display:flex;align-items:center;justify-content:center;font-size:17px;
+    background:#140d14;border:2px solid #b04ae0;
+    box-shadow:0 0 12px rgba(176,74,224,.5)}
+  #invBtn{position:absolute;top:calc(env(safe-area-inset-top,0px) + 198px);
+    left:14px;z-index:1000;padding:7px 10px;border-radius:8px;
+    border:2px solid #b04ae0;background:rgba(13,15,13,.85);color:#b04ae0;
+    font-family:inherit;font-size:12px;font-weight:900;letter-spacing:.5px;
+    display:flex;align-items:center;gap:6px}
+  #invPanel{position:absolute;inset:0;z-index:1800;display:none;
+    background:rgba(13,15,13,.94);padding:calc(env(safe-area-inset-top,0px) + 20px) 20px 20px;
+    overflow-y:auto}
+  #invPanel h2{color:#b04ae0;font-size:26px;font-weight:900;letter-spacing:2px}
+  .invRow{display:flex;justify-content:space-between;align-items:center;gap:10px;
+    border-bottom:1px solid #232b23;padding:12px 0}
+  .eqBtn{padding:8px 14px;border-radius:8px;border:2px solid #b04ae0;
+    background:transparent;color:#b04ae0;font-family:inherit;font-size:13px;
+    font-weight:900;white-space:nowrap}
+  .eqBtn:disabled{border-color:#4ae04a;color:#4ae04a}
+  #invClose{margin-top:16px;width:100%;padding:12px;border-radius:8px;
+    border:2px solid #2a332a;background:var(--panel);color:var(--text);
+    font-family:inherit;font-size:15px;font-weight:900}
+
+  #fightBtn{position:absolute;right:10px;bottom:calc(env(safe-area-inset-bottom,0px) + 118px);
+    z-index:1000;padding:14px 16px;border-radius:12px;
+    border:2px solid #2a332a;background:rgba(13,15,13,.88);color:var(--muted);
+    font-family:inherit;font-size:14px;font-weight:900;letter-spacing:1px}
+  #fightBtn.drawn{border-color:var(--danger);color:var(--danger);
+    box-shadow:0 0 16px rgba(224,74,74,.45);animation:pulse 1.2s infinite}
+
+  .npc{width:28px;height:28px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;font-size:14px;
+    background:#12140f;border:2px solid #6a7a6a}
+  .npc-dealer{border-color:#b04ae0;box-shadow:0 0 8px rgba(176,74,224,.4)}
+  .npc-buyer{border-color:#e0c84a;box-shadow:0 0 8px rgba(224,200,74,.4)}
+  #dpad{position:absolute;left:10px;bottom:calc(env(safe-area-inset-bottom,0px) + 118px);
+    z-index:1000;display:none;grid-template-columns:repeat(3,46px);
+    grid-template-rows:repeat(2,46px);gap:5px}
+  #dpad.show{display:grid}
+  .dp{border:2px solid #2a332a;border-radius:10px;background:rgba(13,15,13,.85);
+    color:var(--muted);font-size:18px;font-weight:900;font-family:inherit;
+    touch-action:none;user-select:none}
+  .dp:active{border-color:var(--cash);color:var(--cash)}
+  .dp.blank{visibility:hidden}
+
+  /* ---------- heat ---------- */
+  #stars{position:absolute;top:calc(env(safe-area-inset-top,0px) + 118px);
+    left:14px;z-index:1000;font-size:24px;letter-spacing:3px;
+    color:#333d33;text-shadow:0 2px 0 #000;display:none}
+  #stars .lit{color:var(--danger);text-shadow:0 0 12px rgba(224,74,74,.7),0 2px 0 #000}
+  .cop{width:32px;height:32px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;font-size:17px;
+    background:#1a1012;border:2px solid var(--danger);
+    box-shadow:0 0 12px rgba(224,74,74,.6);
+    animation:siren 0.8s infinite}
+  .swat{width:34px;height:34px;border-radius:6px;
+    display:flex;align-items:center;justify-content:center;font-size:18px;
+    background:#0d0d14;border:2px solid #8a8aa0;
+    box-shadow:0 0 14px rgba(138,138,160,.6);
+    animation:siren 0.5s infinite}
+  .heli{width:36px;height:36px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;font-size:20px;
+    background:transparent;border:2px dashed var(--danger);
+    box-shadow:0 0 16px rgba(224,74,74,.5);
+    animation:hover 2s ease-in-out infinite}
+  @keyframes hover{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+  .uhp{position:absolute;left:2px;right:2px;bottom:-6px;height:4px;
+    background:#1d241d;border-radius:2px;overflow:hidden}
+  .uhp i{display:block;height:100%;background:var(--danger)}
+  .cop,.swat,.heli{position:relative}
+  .dmgfloat{position:absolute;z-index:1300;font-size:17px;font-weight:900;
+    color:var(--danger);text-shadow:0 0 8px rgba(224,74,74,.7),0 1px 0 #000;
+    pointer-events:none;transform:translate(-50%,0);
+    animation:rise .9s ease-out forwards}
+  #stars.hunt .lit{animation:starblink 0.9s infinite}
+  @keyframes starblink{50%{opacity:.2}}
+  @keyframes siren{
+    0%,100%{border-color:var(--danger);box-shadow:0 0 12px rgba(224,74,74,.7)}
+    50%{border-color:#4a8ae0;box-shadow:0 0 12px rgba(74,138,224,.7)}}
+  #busted{position:absolute;inset:0;z-index:1500;display:none;
+    align-items:center;justify-content:center;flex-direction:column;gap:10px;
+    background:rgba(20,5,5,.82);text-align:center}
+  #busted h2{font-size:56px;font-weight:900;letter-spacing:6px;color:var(--danger);
+    text-shadow:0 0 26px rgba(224,74,74,.7)}
+  #busted p{color:var(--text);font-size:17px}
+  #toast{position:absolute;top:calc(env(safe-area-inset-top,0px) + 92px);
+    left:50%;transform:translateX(-50%);z-index:1100;
+    background:rgba(13,15,13,.9);border:1px solid var(--cash);border-radius:8px;
+    padding:8px 16px;font-size:14px;font-weight:700;color:var(--cash);
+    display:none;white-space:nowrap}
+
+  /* ---------- overlays ---------- */
+  #splash{position:absolute;inset:0;z-index:2000;background:var(--bg);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:18px;padding:32px;text-align:center}
+  #splash h1{font-size:52px;font-weight:900;letter-spacing:3px;color:var(--cash);
+    text-shadow:0 0 24px rgba(74,224,74,.5)}
+  #splash p{color:var(--muted);font-size:15px;max-width:300px;line-height:1.5}
+  .btn{padding:14px 28px;border-radius:10px;border:2px solid var(--cash);
+    background:transparent;color:var(--cash);font-family:inherit;
+    font-size:17px;font-weight:900;letter-spacing:1px}
+  .btn.solid{background:var(--cash);color:#052405}
+  #err{color:var(--danger);font-size:13px;display:none;max-width:300px}
+  #resetBtn{margin-top:14px;padding:9px 18px;border-radius:8px;
+    border:1px solid #2a332a;background:transparent;color:var(--muted);
+    font-family:inherit;font-size:12px;font-weight:900;letter-spacing:1px}
+  #resetBtn.armed{border-color:var(--danger);color:var(--danger);
+    box-shadow:0 0 14px rgba(224,74,74,.4)}
+
+  #devbadge{position:absolute;bottom:calc(env(safe-area-inset-bottom,0px) + 96px);
+    left:14px;z-index:1000;font-size:11px;color:#052405;background:var(--cash);
+    padding:3px 8px;border-radius:4px;font-weight:700;display:none}
+  #speeds{position:absolute;top:50%;right:10px;transform:translateY(-50%);
+    z-index:1000;display:none;flex-direction:column;gap:6px}
+  .spd{width:52px;padding:8px 0;border-radius:8px;border:2px solid #2a332a;
+    background:rgba(13,15,13,.85);color:var(--muted);font-family:inherit;
+    font-size:12px;font-weight:900;letter-spacing:.5px}
+  .spd.on{border-color:var(--cash);color:var(--cash);
+    box-shadow:0 0 10px rgba(74,224,74,.35)}
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="hud">
+  <div>
+    <div id="money">$0</div>
+    <div id="hpbar"><div id="hpfill"></div></div>
+    <div id="lvl">LVL 1</div>
+    <div id="xpbar"><div id="xpfill"></div></div>
+  </div>
+  <div id="status">finding you…</div>
+</div>
+
+<div id="stars"></div>
+<div id="toast"></div>
+
+<div id="busted">
+  <h2>BUSTED</h2>
+  <p id="bustedMsg"></p>
+</div>
+
+<div id="devbadge">DEV — arrows/WASD or tap map</div>
+
+<div id="speeds">
+  <button class="spd" id="tapToggle" style="border-color:#e0c84a;color:#e0c84a">TAP ✕</button>
+  <button class="spd" data-v="1.5">WALK</button>
+  <button class="spd" data-v="4">RUN</button>
+  <button class="spd" data-v="8">BIKE</button>
+  <button class="spd on" data-v="20">CAR</button>
+</div>
+
+<div id="dpad">
+  <button class="dp blank"></button>
+  <button class="dp" data-k="N">▲</button>
+  <button class="dp blank"></button>
+  <button class="dp" data-k="W">◀</button>
+  <button class="dp" data-k="S">▼</button>
+  <button class="dp" data-k="E">▶</button>
+</div>
+
+<button id="shBtn">🏠 SET SAFEHOUSE</button>
+<button id="invBtn">UNARMED</button>
+<button id="fightBtn">DRAW</button>
+
+<div id="invPanel">
+  <h2>YOUR IRON</h2>
+  <div id="invList"></div>
+  <button id="invClose">CLOSE</button>
+</div>
+
+<div id="bar">
+  <div id="cargo"></div>
+  <div id="nearest"></div>
+  <button id="collect" disabled>GET CLOSER</button>
+</div>
+
+<div id="splash">
+  <h1>STREETCASH</h1>
+  <p>Jobs spawn around your real location. Walk within 50 m of one and collect the cash. That's it — for now.</p>
+  <button class="btn solid" id="startGps">START (USE GPS)</button>
+  <button class="btn" id="startDev">DEV MODE (tap to move)</button>
+  <button id="resetBtn">RESET SAVE</button>
+  <div id="err"></div>
+</div>
+
+<script>
+"use strict";
+
+// ---------- config ----------
+const CFG = {
+  jobCount: 8,
+  minDist: 100,      // spawn ring, meters
+  maxDist: 600,
+  collectRadius: 50, // meters
+  cooldownMs: 5 * 60 * 1000,
+  despawnDist: 1200,   // jobs farther than this vanish; new ones spawn near you
+  payoutMin: 50,
+  payoutPerMeter: 0.35, // farther spawn = bigger payout
+  // heat (GTA-style: line of sight + search zones, no passive decay)
+  maxStars: 5,
+  copCatchRadius: 6,      // m — arrest is physical: they have to reach you
+  copMeleeRange: 8,       // m — batons/tackles when you resist hand-to-hand
+  copSpawnMin: 250,       // units spawn this far from last known position
+  copSpawnMax: 450,
+  bustedCut: 0.25,        // cash lost when busted
+  collectMinS: 3,         // working a job takes a random time in this range
+  collectMaxS: 8,
+  carMinS: 6,             // hotwiring takes longer
+  carMaxS: 12,
+  carCoolMs: 10*60*1000,  // stolen cars sellable after this
+  safeRadius: 50,         // m — safehouse stash zone
+  packDestMin: 400,       // package drop-offs spawn this far out
+  packDestMax: 1500,
+  packPayoutPerMeter: 0.4,
+  // level & health
+  xpBase: 250,            // xp for level 2; each level needs 150 more
+  xpStep: 150,
+  payoutPerLevel: 0.04,   // +4% money per level
+  hpPerLevel: 10,
+  regenDelayMs: 8000,     // no damage for this long → start healing
+  regenPerS: 3,
+};
+
+const JOB_TYPES = [
+  {icon:"🏧", name:"ATM skim", kind:"cash"},
+  {icon:"💼", name:"Briefcase drop", kind:"cash"},
+  {icon:"🃏", name:"Back-room game", kind:"cash"},
+  {icon:"⛽", name:"Pump hustle", kind:"cash"},
+  {icon:"🚗", name:"Boost the car", kind:"car"},
+  {icon:"📦", name:"Package pickup", kind:"package"},
+];
+
+const CAR_MODELS = [
+  {name:"Rust-bucket beater", min:120,  max:220,  w:35},
+  {name:"Family sedan",       min:280,  max:450,  w:35},
+  {name:"Lifted SUV",         min:450,  max:700,  w:20},
+  {name:"Street tuner",       min:700,  max:1000, w:8},
+  {name:"Exotic",             min:1200, max:1800, w:2},
+];
+function rollCar(){
+  let r = Math.random()*100;
+  for (const c of CAR_MODELS){
+    if ((r -= c.w) < 0) return {name:c.name, value:Math.round(c.min + Math.random()*(c.max-c.min))};
+  }
+  return {name:"Family sedan", value:350};
+}
+
+// ---------- game clock ----------
+// The world runs on its OWN time. Closing the game freezes everything —
+// cooldowns, restocks, car cooling, chases. You pick up exactly where you left.
+let gameTime = Number(localStorage.getItem("sc_gt") || 0);
+const gt = () => gameTime;
+let started = false;
+setInterval(() => {
+  if (started && document.visibilityState === "visible") gameTime += 250;
+}, 250);
+const paused = () => !started || document.visibilityState !== "visible";
+
+// ---------- state ----------
+let map, playerMarker, playerPos = null;
+let jobs = [];            // {id, lat, lng, payout, type, marker, circle, cooldownUntil}
+let money = Number(localStorage.getItem("sc_money") || 0);
+let safehouse = JSON.parse(localStorage.getItem("sc_safehouse") || "null");
+let garage    = JSON.parse(localStorage.getItem("sc_garage") || "[]");
+let cargo     = JSON.parse(localStorage.getItem("sc_cargo") || "null");
+let safehouseMarker = null, safehouseCircle = null, destMarker = null, destCircle = null;
+const saveMoney  = () => localStorage.setItem("sc_money", money);
+const saveGarage = () => localStorage.setItem("sc_garage", JSON.stringify(garage));
+const saveCargo  = () => localStorage.setItem("sc_cargo", JSON.stringify(cargo));
+
+// ---------- level & health ----------
+let level  = Number(localStorage.getItem("sc_level")  || 1);
+let xp     = Number(localStorage.getItem("sc_xp")     || 0);
+const maxHealth = () => 100 + CFG.hpPerLevel*(level-1);
+let health = Number(localStorage.getItem("sc_health") || maxHealth());
+let lastDamageAt = 0;
+const saveProg = () => { localStorage.setItem("sc_level", level);
+  localStorage.setItem("sc_xp", xp); localStorage.setItem("sc_health", Math.round(health)); };
+
+const payMult = () => 1 + CFG.payoutPerLevel*(level-1);
+const xpNeed  = () => CFG.xpBase + CFG.xpStep*(level-1);
+
+function addXp(n){
+  xp += n;
+  while (xp >= xpNeed()){
+    xp -= xpNeed();
+    level++;
+    health = maxHealth(); // level up = full heal
+    toast(`LEVEL ${level} — payouts up, tougher skin.`);
+  }
+  saveProg();
+  renderLevel(); renderHealth();
+}
+
+function damage(amount){
+  health -= amount;
+  lastDamageAt = gt();
+  if (health <= 0){
+    health = maxHealth() * 0.5; // you wake up rough
+    busted();
+  }
+  saveProg();
+  renderHealth();
+}
+
+function renderLevel(){
+  $("lvl").textContent = "LVL " + level;
+  $("xpfill").style.width = Math.min(100, Math.round(100*xp/xpNeed())) + "%";
+}
+
+function renderHealth(){
+  const pct = Math.max(0, Math.min(100, 100*health/maxHealth()));
+  const f = $("hpfill");
+  f.style.width = pct + "%";
+  f.style.background = pct > 50 ? "var(--cash)" : pct > 25 ? "#e0c84a" : "var(--danger)";
+}
+
+// passive regen
+setInterval(() => {
+  if (paused()) return;
+  if (health >= maxHealth() || gt() - lastDamageAt < CFG.regenDelayMs) return;
+  health = Math.min(maxHealth(), health + CFG.regenPerS);
+  saveProg();
+  renderHealth();
+}, 1000);
+let devMode = false;
+let watchId = null;
+
+// ---------- helpers ----------
+const $ = id => document.getElementById(id);
+
+function fmtMoney(n){ return "$" + n.toLocaleString(); }
+
+function haversine(a, b){
+  const R = 6371000, toR = Math.PI/180;
+  const dLat = (b.lat-a.lat)*toR, dLng = (b.lng-a.lng)*toR;
+  const s = Math.sin(dLat/2)**2 +
+    Math.cos(a.lat*toR)*Math.cos(b.lat*toR)*Math.sin(dLng/2)**2;
+  return 2*R*Math.asin(Math.sqrt(s));
+}
+
+function offsetPoint(lat, lng, distM, bearing){
+  const R = 6371000, toR = Math.PI/180, toD = 180/Math.PI;
+  const d = distM/R, la1 = lat*toR, ln1 = lng*toR;
+  const la2 = Math.asin(Math.sin(la1)*Math.cos(d) +
+    Math.cos(la1)*Math.sin(d)*Math.cos(bearing));
+  const ln2 = ln1 + Math.atan2(Math.sin(bearing)*Math.sin(d)*Math.cos(la1),
+    Math.cos(d) - Math.sin(la1)*Math.sin(la2));
+  return {lat: la2*toD, lng: ln2*toD};
+}
+
+// ---------- map ----------
+function initMap(center){
+  map = L.map("map", {zoomControl:false}).setView([center.lat, center.lng], 16);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  playerMarker = L.marker([center.lat, center.lng], {
+    icon: L.divIcon({className:"", html:'<div class="player-dot"></div>',
+      iconSize:[18,18], iconAnchor:[9,9]}),
+    zIndexOffset: 1000
+  }).addTo(map);
+
+  // Leaflet's popup close button is an <a href="#close"> — in webview wrappers
+  // that triggers an "Open Link?" dialog. De-link it; Leaflet's handler still closes.
+  map.on("popupopen", e => {
+    const btn = e.popup.getElement().querySelector(".leaflet-popup-close-button");
+    if (btn){
+      btn.removeAttribute("href");
+      btn.style.cursor = "pointer";
+    }
+  });
+
+  if (devMode){
+    map.on("click", e => { if (tapMove) setPlayerPos({lat:e.latlng.lat, lng:e.latlng.lng}); });
+  }
+
+  if (safehouse) drawSafehouse();
+  if (cargo && cargo.kind === "package") addDestMarker();
+  shops.forEach(drawShop);
+  restoreWorld();
+  renderCargo();
+  renderInvBtn();
+  $("invBtn").addEventListener("click", () => {
+    $("invList").innerHTML = invHtml();
+    $("invPanel").style.display = "block";
+  });
+  $("invClose").addEventListener("click", () => $("invPanel").style.display = "none");
+  $("fightBtn").addEventListener("click", () => {
+    drawn = !drawn;
+    const b = $("fightBtn");
+    b.classList.toggle("drawn", drawn);
+    b.textContent = drawn ? "FIGHTING" : "DRAW";
+    toast(drawn
+      ? currentWeapon().name + " out — auto-engaging anything in range."
+      : "Holstered." + (stars > 0 ? " If they reach you now, you're cuffed." : ""));
+  });
+}
+
+// ---------- jobs ----------
+let jobSeq = 0;
+function createJob(lat, lng, typeIdx, payout, cooldownUntil){
+  const type = JOB_TYPES[typeIdx];
+  const popupLine = type.kind === "cash" ? fmtMoney(payout)
+    : type.kind === "car" ? "steal it — drive it to your safehouse"
+    : "pays on delivery";
+  const marker = L.marker([lat, lng], {
+    icon: jobIcon(type.icon, ""), zIndexOffset: 500
+  }).addTo(map).bindPopup(`<b>${type.name}</b><br>${popupLine}`);
+  const circle = L.circle([lat, lng], {
+    radius: CFG.collectRadius, color:"#4ae04a", weight:1,
+    fillColor:"#4ae04a", fillOpacity:0.07
+  }).addTo(map);
+  jobs.push({id:jobSeq++, lat, lng, payout, type, typeIdx, marker, circle,
+    cooldownUntil: cooldownUntil || 0});
+}
+
+function spawnOneJob(center){
+  const dist = CFG.minDist + Math.random()*(CFG.maxDist-CFG.minDist);
+  const p = offsetPoint(center.lat, center.lng, dist, Math.random()*Math.PI*2);
+  const typeIdx = Math.floor(Math.random()*JOB_TYPES.length);
+  const type = JOB_TYPES[typeIdx];
+  const payout = type.kind === "cash" ? Math.round(CFG.payoutMin + dist*CFG.payoutPerMeter) : 0;
+  createJob(p.lat, p.lng, typeIdx, payout, 0);
+}
+
+function removeJob(j){
+  map.removeLayer(j.marker); map.removeLayer(j.circle);
+  jobs = jobs.filter(x => x.id !== j.id);
+}
+
+// keep the world alive: cull far jobs, refill near the player
+function maintainJobs(){
+  if (!playerPos) return;
+  for (const j of [...jobs]){
+    if (haversine(playerPos, j) > CFG.despawnDist) removeJob(j);
+  }
+  while (jobs.length < CFG.jobCount) spawnOneJob(playerPos);
+  maintainShops();
+  maintainNpcs();
+}
+
+function jobIcon(emoji, cls){
+  return L.divIcon({className:"", html:`<div class="job ${cls}">${emoji}</div>`,
+    iconSize:[30,30], iconAnchor:[15,15]});
+}
+
+// ---------- weapons & gun shops ----------
+const GUN_SVG = '<svg viewBox="0 0 24 14" width="20" height="12" fill="currentColor" style="display:block">'
+  + '<path d="M0 1h23v5h-2l-1.2 2.4h-8.3l.7-1.9H9.6L7.7 13H2.6l2-6.6H0z"/></svg>';
+
+const FISTS = {id:"", name:"Fists", type:"melee", dmg:8, range:3, rpm:120, use:"always with you"};
+const CATALOG = [
+  {id:"bat",   name:"Baseball bat",  type:"melee",   dmg:15, range:4,   rpm:80,   price:80,   use:"quiet close-quarters"},
+  {id:"knife", name:"Switchblade",   type:"melee",   dmg:20, range:3,   rpm:110,  price:120,  use:"quiet, concealable"},
+  {id:"snub",  name:".38 Snub",      type:"pistol",  dmg:30, range:32,  rpm:150,  price:450,  use:"cheap backup piece"},
+  {id:"g19",   name:"Glock 19",      type:"pistol",  dmg:26, range:40,  rpm:400,  price:650,  use:"reliable sidearm"},
+  {id:"mac10", name:"MAC-10",        type:"smg",     dmg:22, range:35,  rpm:1090, price:1400, use:"spray and pray"},
+  {id:"m500",  name:"Mossberg 500",  type:"shotgun", dmg:70, range:35,  rpm:60,   price:1800, use:"devastating up close"},
+  {id:"mp5",   name:"MP5",           type:"smg",     dmg:24, range:50,  rpm:800,  price:2200, use:"controllable auto"},
+  {id:"ar15",  name:"AR-15",         type:"rifle",   dmg:34, range:90,  rpm:700,  price:3500, use:"accurate at range"},
+  {id:"ak47",  name:"AK-47",         type:"rifle",   dmg:38, range:80,  rpm:600,  price:4200, use:"hard-hitting rifle"},
+  {id:"r700",  name:"Remington 700", type:"sniper",  dmg:95, range:250, rpm:20,   price:5200, use:"one shot, one drop"},
+];
+const weaponById = id => CATALOG.find(w => w.id === id);
+
+const SHOP_RANGE = 60;          // m — must be this close to trade
+const SHOP_NEAR  = 3000;        // one dealer somewhere within this bubble; leave it and a new one spawns
+const RESTOCK_MS = 20*60*1000;  // game-time between restocks
+
+let shops = JSON.parse(localStorage.getItem("sc_shops") || "[]"); // {lat,lng,stock,restockAt}
+let inv   = JSON.parse(localStorage.getItem("sc_inv")   || "{}"); // id -> count
+let equipped = localStorage.getItem("sc_equip") || "";
+const saveShops = () => localStorage.setItem("sc_shops",
+  JSON.stringify(shops.map(s => ({lat:s.lat, lng:s.lng, stock:s.stock, restockAt:s.restockAt}))));
+
+// migrate old saves (timers used to be wall-clock; game time starts near 0)
+if (localStorage.getItem("sc_v") !== "2"){
+  garage.forEach(c => c.readyAt = 0);   // any old cars: cooled
+  shops.forEach(s => s.restockAt = 0);  // any old shops: restock now
+  localStorage.setItem("sc_v", "2");
+}
+const saveInv = () => { localStorage.setItem("sc_inv", JSON.stringify(inv));
+  localStorage.setItem("sc_equip", equipped); };
+
+function rollStock(){
+  const n = 3 + Math.floor(Math.random()*3);
+  const pool = [...CATALOG];
+  const stock = [];
+  for (let i = 0; i < n && pool.length; i++){
+    // street shops mostly carry cheap iron; big guns are rare finds
+    const weights = pool.map(w => 1/Math.sqrt(w.price));
+    let r = Math.random() * weights.reduce((a,b)=>a+b,0), k = 0;
+    for (; k < pool.length-1; k++){ if ((r -= weights[k]) < 0) break; }
+    const w = pool.splice(k,1)[0];
+    stock.push({id:w.id, qty:1+Math.floor(Math.random()*3), mult:0.75+Math.random()*0.75});
+  }
+  return stock;
+}
+
+function shopPrice(item){
+  return Math.round(weaponById(item.id).price * item.mult / 10) * 10;
+}
+
+function drawShop(s){
+  s.marker = L.marker([s.lat, s.lng], {
+    icon: L.divIcon({className:"", html:`<div class="gunshop">${GUN_SVG}</div>`,
+      iconSize:[34,34], iconAnchor:[17,17]}),
+    zIndexOffset: 700
+  }).addTo(map).bindPopup(() => shopHtml(s));
+}
+
+function shopHtml(s){
+  if (gt() > s.restockAt){
+    s.stock = rollStock();
+    s.restockAt = gt() + RESTOCK_MS;
+    saveShops();
+  }
+  const close = playerPos && haversine(playerPos, s) <= SHOP_RANGE;
+  const idx = shops.indexOf(s);
+  const rows = s.stock.map((it, i) => {
+    const w = weaponById(it.id), price = shopPrice(it);
+    const can = close && it.qty > 0 && money >= price;
+    return `<div style="margin-top:6px">
+      <b>${w.name}</b> <span style="color:#7a877a">${w.type}</span><br>
+      <span style="font-size:11px;color:#7a877a">dmg ${w.dmg} · range ${w.range}m${w.rpm?" · "+w.rpm+"rpm":""} — ${w.use}</span><br>
+      ${fmtMoney(price)} · ${it.qty} left
+      <button class="buyBtn" data-s="${idx}" data-i="${i}" ${can?"":"disabled"}
+        style="margin-left:6px;padding:3px 10px;font-weight:900;font-family:inherit;
+        border:none;border-radius:5px;background:${can?"#4ae04a":"#2a332a"};
+        color:${can?"#052405":"#556055"}">BUY</button></div>`;
+  }).join("");
+  const note = close ? "" : `<br><i style="color:#e0c84a">get within ${SHOP_RANGE}m to trade</i>`;
+  return `<b>Gun shop</b> <span style="font-size:11px;color:#7a877a">no questions asked</span>${note}${rows}`;
+}
+
+document.addEventListener("click", e => {
+  if (!e.target.classList || !e.target.classList.contains("buyBtn")) return;
+  const s = shops[+e.target.dataset.s];
+  const it = s && s.stock[+e.target.dataset.i];
+  if (!s || !it) return;
+  const price = shopPrice(it);
+  if (!playerPos || haversine(playerPos, s) > SHOP_RANGE || it.qty <= 0 || money < price) return;
+  money -= price; saveMoney(); renderMoney(true);
+  it.qty--;
+  inv[it.id] = (inv[it.id] || 0) + 1;
+  if (!equipped) equipped = it.id; // first weapon auto-equips
+  saveInv(); saveShops();
+  s.marker.setPopupContent(shopHtml(s));
+  renderInvBtn();
+  toast(`${weaponById(it.id).name} — it's yours.`);
+});
+
+function maintainShops(){
+  if (!playerPos) return;
+  let changed = false;
+  // like everything else: leave a shop far enough behind and it's gone
+  for (const s of [...shops]){
+    if (haversine(playerPos, s) <= SHOP_NEAR) continue;
+    if (s.marker) map.removeLayer(s.marker);
+    shops.splice(shops.indexOf(s), 1);
+    changed = true;
+  }
+  // rare spawn, far out — there's always one dealer *somewhere* out there
+  if (!shops.length){
+    const p = offsetPoint(playerPos.lat, playerPos.lng,
+      700 + Math.random()*1300, Math.random()*Math.PI*2);
+    const shop = {lat:p.lat, lng:p.lng, stock:rollStock(), restockAt: gt()+RESTOCK_MS};
+    shops.push(shop); drawShop(shop);
+    toast("Word is a gun dealer set up shop nearby.");
+    changed = true;
+  }
+  if (changed) saveShops();
+}
+
+// ---------- inventory ----------
+function renderInvBtn(){
+  const w = weaponById(equipped);
+  $("invBtn").innerHTML = GUN_SVG + "<span>" + (w ? w.name.toUpperCase() : "UNARMED") + "</span>";
+}
+
+function invHtml(){
+  const ids = Object.keys(inv).filter(id => inv[id] > 0);
+  const rows = ids.length ? ids.map(id => {
+    const w = weaponById(id), eq = equipped === id;
+    return `<div class="invRow"><div><b>${w.name}</b> ×${inv[id]}<br>
+      <span style="font-size:11px;color:#7a877a">dmg ${w.dmg} · range ${w.range}m — ${w.use}</span></div>
+      <button class="eqBtn" data-id="${id}" ${eq?"disabled":""}>${eq?"EQUIPPED":"EQUIP"}</button></div>`;
+  }).join("") : `<div style="color:#7a877a;margin-top:8px">Empty. Find a gun shop on the map.</div>`;
+  const fists = `<div class="invRow"><div><b>Fists</b><br>
+    <span style="font-size:11px;color:#7a877a">dmg ${FISTS.dmg} · range ${FISTS.range}m — ${FISTS.use}</span></div>
+    <button class="eqBtn" data-id="" ${equipped?"":"disabled"}>${equipped?"EQUIP":"EQUIPPED"}</button></div>`;
+  const drugRows = DRUGS.filter(d => (onDrugs[d.id]||0) > 0)
+    .map(d => `${d.name} ×${onDrugs[d.id]}`).join(" · ");
+  const pockets = `<h2 style="margin-top:20px;font-size:18px">POCKETS</h2>
+    <div style="padding:8px 0;color:${drugRows?"var(--text)":"#7a877a"}">
+    ${drugRows || "Clean. Dealers wear shades."}<br>
+    <span style="font-size:11px;color:#e0c84a">lose it all if you're busted — stash at the safehouse</span></div>`;
+  return rows + fists + pockets;
+}
+
+document.addEventListener("click", e => {
+  if (e.target.classList && e.target.classList.contains("eqBtn")){
+    equipped = e.target.dataset.id;
+    saveInv(); renderInvBtn();
+    $("invList").innerHTML = invHtml();
+  }
+});
+
+const isArmedGun = () => { const w = weaponById(equipped); return !!(w && w.type !== "melee"); };
+
+// ---------- drugs ----------
+const DRUGS = [
+  {id:"weed",  name:"Weed",   base:40},
+  {id:"pills", name:"Pills",  base:90},
+  {id:"coke",  name:"Coke",   base:250},
+  {id:"her",   name:"Heroin", base:400},
+];
+const drugById = id => DRUGS.find(d => d.id === id);
+let onDrugs = JSON.parse(localStorage.getItem("sc_drugs") || "{}"); // pockets
+let stash   = JSON.parse(localStorage.getItem("sc_stash") || "{}"); // safehouse
+const saveDrugs = () => { localStorage.setItem("sc_drugs", JSON.stringify(onDrugs));
+  localStorage.setItem("sc_stash", JSON.stringify(stash)); };
+const pocketsEmpty = () => !Object.values(onDrugs).some(q => q > 0);
+
+// ---------- NPCs (wandering pedestrians) ----------
+const NPC_COUNT = 10, NPC_CULL = 1000, NPC_TRADE_RANGE = 20, NPC_ROB_RANGE = 15;
+let npcs = [], npcSeq = 0;
+
+const NPC_KINDS = {
+  civ:    {icon:"🚶", cls:"npc-civ",    w:6},
+  dealer: {icon:"🕶️", cls:"npc-dealer", w:2},
+  buyer:  {icon:"💰", cls:"npc-buyer",  w:2},
+};
+
+function npcIcon(kind){
+  const k = NPC_KINDS[kind];
+  return L.divIcon({className:"", html:`<div class="npc ${k.cls}">${k.icon}</div>`,
+    iconSize:[28,28], iconAnchor:[14,14]});
+}
+
+function rollNpcKind(){
+  let r = Math.random()*10;
+  for (const [kind,k] of Object.entries(NPC_KINDS)){ if ((r -= k.w) < 0) return kind; }
+  return "civ";
+}
+
+function attachNpc(n){
+  n.marker = L.marker([n.lat, n.lng], {icon: npcIcon(n.kind), zIndexOffset: 400}).addTo(map);
+  if (n.kind === "civ") n.marker.on("click", () => robCivilian(n));
+  else n.marker.bindPopup(() => npcTradeHtml(n));
+  npcs.push(n);
+}
+
+function spawnNpc(){
+  const dist = 150 + Math.random()*450;
+  const p = offsetPoint(playerPos.lat, playerPos.lng, dist, Math.random()*Math.PI*2);
+  const kind = rollNpcKind();
+  const n = {uid:npcSeq++, kind, lat:p.lat, lng:p.lng, wp:null, robbed:false, speed:1.2+Math.random()*0.5};
+  if (kind === "dealer"){
+    // carries 2-3 products at street prices
+    const pool = [...DRUGS]; n.stock = [];
+    const cnt = 2 + Math.floor(Math.random()*2);
+    for (let i=0;i<cnt;i++){
+      const d = pool.splice(Math.floor(Math.random()*pool.length),1)[0];
+      n.stock.push({id:d.id, qty:3+Math.floor(Math.random()*8), mult:0.8+Math.random()*0.4});
+    }
+  }
+  if (kind === "buyer"){
+    // wants 1-2 products, pays 0.9x–1.8x — find the good ones
+    const pool = [...DRUGS]; n.wants = [];
+    const cnt = 1 + Math.floor(Math.random()*2);
+    for (let i=0;i<cnt;i++){
+      const d = pool.splice(Math.floor(Math.random()*pool.length),1)[0];
+      n.wants.push({id:d.id, mult:0.9+Math.random()*0.9});
+    }
+  }
+  attachNpc(n);
+}
+
+function removeNpc(n){
+  map.removeLayer(n.marker);
+  npcs = npcs.filter(x => x !== n);
+}
+
+function maintainNpcs(){
+  if (!playerPos) return;
+  for (const n of [...npcs]) if (haversine(playerPos, n) > NPC_CULL) removeNpc(n);
+  while (npcs.length < NPC_COUNT) spawnNpc();
+}
+
+// NPCs wander on their own
+setInterval(() => {
+  if (paused() || !playerPos || !npcs.length) return;
+  for (const n of npcs){
+    if (!n.wp || haversine(n, n.wp) < 8){
+      const range = n.robbed ? 600 : 60 + Math.random()*140;
+      n.wp = offsetPoint(n.lat, n.lng, range, Math.random()*Math.PI*2);
+    }
+    const spd = n.robbed ? 3.2 : n.speed;
+    const step = Math.min(spd * 0.4, haversine(n, n.wp));
+    const p = offsetPoint(n.lat, n.lng, step, bearingBetween(n, n.wp));
+    n.lat = p.lat; n.lng = p.lng;
+    n.marker.setLatLng([n.lat, n.lng]);
+  }
+}, 400);
+
+function robCivilian(n){
+  if (n.robbed){ toast("They've got nothing left."); return; }
+  const w = currentWeapon();
+  if (w.type === "melee"){ toast("Stickups need a gun in hand."); return; }
+  if (!drawn){ toast("Draw your piece first."); return; }
+  const d = haversine(playerPos, n);
+  if (d > NPC_ROB_RANGE){ toast(`Get closer — ${Math.round(d)}m.`); return; }
+  const take = Math.round((20 + Math.random()*100) * payMult());
+  money += take; saveMoney(); renderMoney(true); showGain(take);
+  addXp(take);
+  n.robbed = true;
+  n.wp = null; // they bolt
+  applyHeat(Math.random() < 0.5 ? 1 : 2, "Street robbery called in!");
+  toast(`They handed over ${fmtMoney(take)} and ran.`);
+}
+
+function npcTradeHtml(n){
+  const close = playerPos && haversine(playerPos, n) <= NPC_TRADE_RANGE;
+  const note = close ? "" : `<br><i style="color:#e0c84a">get within ${NPC_TRADE_RANGE}m to deal</i>`;
+  if (n.kind === "dealer"){
+    const rows = n.stock.map((it,i) => {
+      const d = drugById(it.id), price = Math.round(d.base*it.mult/5)*5;
+      const can = close && it.qty > 0 && money >= price;
+      return `<div style="margin-top:6px"><b>${d.name}</b> — ${fmtMoney(price)} · ${it.qty} left
+        <button class="dbuyBtn" data-uid="${n.uid}" data-i="${i}" ${can?"":"disabled"}
+        style="margin-left:6px;padding:3px 10px;font-weight:900;font-family:inherit;border:none;
+        border-radius:5px;background:${can?"#4ae04a":"#2a332a"};color:${can?"#052405":"#556055"}">BUY</button></div>`;
+    }).join("");
+    return `<b>Street dealer</b><span style="font-size:11px;color:#7a877a"> keeps it moving</span>${note}${rows}`;
+  }
+  const rows = n.wants.map((wt,i) => {
+    const d = drugById(wt.id), have = onDrugs[wt.id] || 0;
+    const per = Math.round(d.base*wt.mult/5)*5;
+    const can = close && have > 0;
+    return `<div style="margin-top:6px"><b>${d.name}</b> — pays ${fmtMoney(per)} each (you: ${have})
+      <button class="dsellBtn" data-uid="${n.uid}" data-i="${i}" ${can?"":"disabled"}
+      style="margin-left:6px;padding:3px 10px;font-weight:900;font-family:inherit;border:none;
+      border-radius:5px;background:${can?"#4ae04a":"#2a332a"};color:${can?"#052405":"#556055"}">SELL ALL</button></div>`;
+  }).join("");
+  return `<b>Buyer</b><span style="font-size:11px;color:#7a877a"> asking around for product</span>${note}${rows}`;
+}
+
+document.addEventListener("click", e => {
+  const t = e.target;
+  if (!t.classList) return;
+  if (t.classList.contains("dbuyBtn")){
+    const n = npcs.find(x => x.uid == t.dataset.uid);
+    const it = n && n.stock[+t.dataset.i];
+    if (!n || !it) return;
+    const price = Math.round(drugById(it.id).base*it.mult/5)*5;
+    if (haversine(playerPos, n) > NPC_TRADE_RANGE || it.qty <= 0 || money < price) return;
+    money -= price; saveMoney(); renderMoney(true);
+    it.qty--;
+    onDrugs[it.id] = (onDrugs[it.id] || 0) + 1;
+    saveDrugs();
+    n.marker.setPopupContent(npcTradeHtml(n));
+    toast(`${drugById(it.id).name} in your pocket.`);
+  }
+  if (t.classList.contains("dsellBtn")){
+    const n = npcs.find(x => x.uid == t.dataset.uid);
+    const wt = n && n.wants[+t.dataset.i];
+    if (!n || !wt) return;
+    const have = onDrugs[wt.id] || 0;
+    if (haversine(playerPos, n) > NPC_TRADE_RANGE || have <= 0) return;
+    const per = Math.round(drugById(wt.id).base*wt.mult/5)*5;
+    const total = per * have;
+    onDrugs[wt.id] = 0;
+    money += total; saveMoney(); renderMoney(true); showGain(total);
+    addXp(total);
+    saveDrugs();
+    n.marker.setPopupContent(npcTradeHtml(n));
+    if (Math.random() < 0.15) applyHeat(1, "Someone saw the deal go down…");
+    else toast(`Moved ${have} for ${fmtMoney(total)}.`);
+  }
+  if (t.id === "stashAllBtn" || t.id === "takeAllBtn"){
+    if (!safehouse || !playerPos || haversine(playerPos, safehouse) > CFG.safeRadius) return;
+    const [from, to] = t.id === "stashAllBtn" ? [onDrugs, stash] : [stash, onDrugs];
+    for (const id of Object.keys(from)){
+      to[id] = (to[id] || 0) + from[id];
+      from[id] = 0;
+    }
+    saveDrugs();
+    if (safehouseMarker) safehouseMarker.setPopupContent(garageHtml());
+    toast(t.id === "stashAllBtn" ? "Product stashed — safe from the law." : "Pockets loaded up.");
+  }
+});
+
+// ---------- safehouse / garage / cargo ----------
+function drawSafehouse(){
+  if (safehouseMarker){ map.removeLayer(safehouseMarker); map.removeLayer(safehouseCircle); }
+  safehouseMarker = L.marker([safehouse.lat, safehouse.lng], {
+    icon: L.divIcon({className:"", html:'<div class="safehouse">🏠</div>',
+      iconSize:[34,34], iconAnchor:[17,17]}),
+    zIndexOffset: 900
+  }).addTo(map).bindPopup(garageHtml);
+  safehouseCircle = L.circle([safehouse.lat, safehouse.lng], {
+    radius: CFG.safeRadius, color:"#e0c84a", weight:1,
+    fillColor:"#e0c84a", fillOpacity:0.08
+  }).addTo(map);
+}
+
+function setSafehouseHere(){
+  if (!playerPos){ toast("No position yet."); return; }
+  safehouse = {lat: playerPos.lat, lng: playerPos.lng};
+  localStorage.setItem("sc_safehouse", JSON.stringify(safehouse));
+  drawSafehouse();
+  toast("Safehouse set. Stolen cars go here.");
+  $("shBtn").textContent = "🏠 MOVE";
+}
+
+function garageHtml(){
+  const now = gt();
+  const carRows = !garage.length
+    ? "Garage empty — go boost something."
+    : garage.map(c => {
+        const ready = now >= c.readyAt;
+        const t = ready ? "✅ ready" : "🔥 " + Math.ceil((c.readyAt-now)/60000) + "m";
+        return `${c.model} — ${fmtMoney(c.value)} ${t}`;
+      }).join("<br>");
+  const cooled = garage.filter(c => now >= c.readyAt);
+  const sellBtn = cooled.length
+    ? `<br><button id="sellBtn" style="margin-top:8px;padding:7px 12px;font-weight:900;
+        background:#4ae04a;color:#052405;border:none;border-radius:6px;font-family:inherit">
+        SELL ${cooled.length} — ${fmtMoney(cooled.reduce((s,c)=>s+c.value,0))}</button>`
+    : "";
+  const stashRows = DRUGS.map(d => {
+    const s = stash[d.id]||0, p = onDrugs[d.id]||0;
+    return (s || p) ? `${d.name}: ${s} stashed / ${p} on you` : "";
+  }).filter(Boolean).join("<br>") || "No product here.";
+  const canStash = !pocketsEmpty();
+  const canTake  = Object.values(stash).some(q => q > 0);
+  const btnCss = ok => `margin-top:6px;margin-right:6px;padding:6px 10px;font-weight:900;
+    font-family:inherit;border:none;border-radius:6px;
+    background:${ok?"#e0c84a":"#2a332a"};color:${ok?"#241d05":"#556055"}`;
+  return `<b>Safehouse garage</b><br>${carRows}${sellBtn}
+    <hr style="border-color:#232b23;margin:8px 0"><b>Stash</b><br>${stashRows}<br>
+    <button id="stashAllBtn" ${canStash?"":"disabled"} style="${btnCss(canStash)}">STASH ALL</button>
+    <button id="takeAllBtn" ${canTake?"":"disabled"} style="${btnCss(canTake)}">TAKE ALL</button>`;
+}
+
+document.addEventListener("click", e => {
+  if (e.target && e.target.id === "sellBtn") sellCooled();
+});
+
+function sellCooled(){
+  const now = gt();
+  const cooled = garage.filter(c => now >= c.readyAt);
+  if (!cooled.length) return;
+  const sum = cooled.reduce((s,c)=>s+c.value,0);
+  garage = garage.filter(c => now < c.readyAt);
+  saveGarage();
+  money += sum; saveMoney(); renderMoney(true); showGain(sum);
+  addXp(Math.round(sum/2));
+  map.closePopup();
+  toast("Cars fenced — clean money.");
+}
+
+function addDestMarker(){
+  removeDestMarker();
+  destMarker = L.marker([cargo.dest.lat, cargo.dest.lng], {
+    icon: L.divIcon({className:"", html:'<div class="dest">🎯</div>',
+      iconSize:[34,34], iconAnchor:[17,17]}),
+    zIndexOffset: 900
+  }).addTo(map).bindPopup(`<b>Drop-off</b><br>${fmtMoney(cargo.payout)} on delivery`);
+  destCircle = L.circle([cargo.dest.lat, cargo.dest.lng], {
+    radius: CFG.collectRadius, color:"#4a8ae0", weight:1,
+    fillColor:"#4a8ae0", fillOpacity:0.08
+  }).addTo(map);
+}
+function removeDestMarker(){
+  if (destMarker){ map.removeLayer(destMarker); map.removeLayer(destCircle); }
+  destMarker = destCircle = null;
+}
+
+function storeCar(){
+  garage.push({model: cargo.model, value: cargo.value, readyAt: gt() + CFG.carCoolMs});
+  saveGarage();
+  addXp(Math.round(cargo.value/2)); // half now, half when it sells
+  cargo = null; saveCargo(); renderCargo();
+  toast("Car stashed — let the heat die before you sell.");
+}
+
+function deliverPackage(){
+  money += cargo.payout; saveMoney(); renderMoney(true); showGain(cargo.payout);
+  addXp(cargo.payout);
+  removeDestMarker();
+  cargo = null; saveCargo(); renderCargo();
+  toast("Package delivered, no questions asked.");
+}
+
+function renderCargo(){
+  const el = $("cargo");
+  if (!cargo){ el.style.display = "none"; return; }
+  el.style.display = "block";
+  if (cargo.kind === "car"){
+    el.innerHTML = `🚗 <b>${cargo.model}</b> (${fmtMoney(cargo.value)}) — get it to the safehouse`;
+  } else {
+    const d = playerPos ? Math.round(haversine(playerPos, cargo.dest)) + " m" : "…";
+    el.innerHTML = `📦 drop-off ${d} — <b>${fmtMoney(cargo.payout)}</b>`;
+  }
+}
+
+// ---------- game loop ----------
+function setPlayerPos(pos, keepView){
+  const first = !playerPos;
+  playerPos = pos;
+  playerMarker.setLatLng([pos.lat, pos.lng]);
+  if (first){
+    map.setView([pos.lat, pos.lng], 16);
+    $("status").textContent = devMode ? "dev mode" : "GPS locked";
+  } else if (!keepView){
+    map.panTo([pos.lat, pos.lng], {animate:true, duration:.25});
+  }
+  maintainJobs();
+  update();
+}
+
+let nearestJob = null;
+function update(){
+  if (!playerPos) return;
+  const now = gt();
+
+  // arriving with cargo
+  if (cargo){
+    if (cargo.kind === "car" && safehouse && haversine(playerPos, safehouse) <= CFG.safeRadius) storeCar();
+    else if (cargo.kind === "package" && haversine(playerPos, cargo.dest) <= CFG.collectRadius) deliverPackage();
+  }
+  renderCargo();
+
+  nearestJob = null;
+  let nearestDist = Infinity;
+
+  for (const j of jobs){
+    const d = haversine(playerPos, j);
+    const cooling = j.cooldownUntil > now;
+    const inRange = !cooling && d <= CFG.collectRadius;
+    j.marker.setIcon(jobIcon(j.type.icon, cooling ? "cooling" : (inRange ? "inrange" : "")));
+    if (!cooling && d < nearestDist){ nearestDist = d; nearestJob = j; }
+  }
+
+  const btn = $("collect"), near = $("nearest");
+  if (channel){
+    near.innerHTML = `<b>${channel.job.type.name}</b> — stay in the circle!`;
+    return; // channel ticker owns the button right now
+  }
+  btn.style.background = ""; btn.style.color = "";
+  if (!nearestJob){
+    btn.disabled = true; btn.className = ""; btn.textContent = "ALL JOBS COOLING DOWN";
+    near.textContent = "come back in a few minutes";
+  } else if (nearestDist <= CFG.collectRadius){
+    const k = nearestJob.type.kind;
+    btn.disabled = false; btn.className = "ready";
+    btn.textContent = k === "car" ? "BOOST THE CAR"
+      : k === "package" ? "GRAB THE PACKAGE"
+      : `COLLECT ${fmtMoney(nearestJob.payout)}`;
+    near.innerHTML = `<b>${nearestJob.type.name}</b> — you're on it`;
+  } else {
+    btn.disabled = true; btn.className = ""; btn.textContent = "GET CLOSER";
+    near.innerHTML = `nearest: <b>${nearestJob.type.name}</b> · ${Math.round(nearestDist)} m`;
+  }
+}
+
+// ---------- timed collection ----------
+let channel = null; // {job, startedAt, endsAt}
+
+$("collect").addEventListener("click", () => {
+  if (channel || !nearestJob) return;
+  const j = nearestJob;
+  if (j.type.kind !== "cash" && cargo){ toast("Hands full — make your delivery first."); return; }
+  if (j.type.kind === "car" && !safehouse){ toast("Set a safehouse first — hit the 🏠 button."); return; }
+  const isCar = j.type.kind === "car";
+  const lo = isCar ? CFG.carMinS : CFG.collectMinS;
+  const hi = isCar ? CFG.carMaxS : CFG.collectMaxS;
+  const dur = (lo + Math.random()*(hi-lo)) * 1000;
+  const now = gt();
+  // how many witnesses spot you? louder crimes draw more eyes
+  const wp = isCar ? 300 : j.type.kind === "package" ? 120 : j.payout;
+  let witnesses = 0;
+  if (Math.random() < 0.5 + wp/1000) witnesses++;
+  if (Math.random() < wp/400)        witnesses++;
+  if (Math.random() < wp/800)        witnesses++;
+  const calls = Array.from({length: witnesses},
+    () => now + dur*(0.2 + Math.random()*0.7)).sort((a,b)=>a-b);
+  const armed = j.type.kind === "cash" && isArmedGun();
+  if (armed) toast("Armed robbery — bigger take, bigger heat.");
+  channel = {job: j, startedAt: now, endsAt: now + dur, calls, callNum: 0, wp, armed};
+});
+
+function cancelChannel(reason){
+  channel = null;
+  if (reason) toast(reason);
+  update();
+}
+
+setInterval(() => {
+  if (paused() || !channel) return;
+  const j = channel.job, now = gt();
+
+  // still in range?
+  if (!playerPos || haversine(playerPos, j) > CFG.collectRadius){
+    cancelChannel("Job blown — you walked off.");
+    return;
+  }
+  // witnesses make their calls partway through
+  while (channel.calls.length && now >= channel.calls[0]){
+    channel.calls.shift();
+    channel.callNum++;
+    if (channel.callNum === 1){
+      const big = channel.wp > 200;
+      const extra = channel.armed ? 1 : 0;
+      applyHeat((big ? 2 : 1) + extra,
+        channel.armed ? "Armed robbery called in — units flooring it!"
+        : big ? "Big score — they're sending everyone!" : "Someone's calling it in!");
+    } else {
+      applyHeat(1, channel.callNum === 2 ? "Another caller — more units inbound!" : "Phones are lighting up — it's a swarm!");
+    }
+  }
+
+  if (now >= channel.endsAt){
+    // job done
+    if (j.type.kind === "cash"){
+      const pay = Math.round(j.payout * payMult() * (channel.armed ? 1.25 : 1));
+      money += pay; saveMoney(); renderMoney(true); showGain(pay);
+      addXp(pay);
+    } else if (j.type.kind === "car"){
+      const c = rollCar();
+      cargo = {kind:"car", model:c.name, value:Math.round(c.value * payMult())};
+      saveCargo(); renderCargo();
+      toast(`${c.name} boosted — get it home!`);
+    } else {
+      const d = CFG.packDestMin + Math.random()*(CFG.packDestMax-CFG.packDestMin);
+      const dp = offsetPoint(playerPos.lat, playerPos.lng, d, Math.random()*Math.PI*2);
+      cargo = {kind:"package", payout: Math.round((40 + d*CFG.packPayoutPerMeter) * payMult()),
+               dest:{lat:dp.lat, lng:dp.lng}};
+      addDestMarker();
+      saveCargo(); renderCargo();
+      toast(`Drop-off marked — ${fmtMoney(cargo.payout)} on delivery.`);
+    }
+    j.cooldownUntil = gt() + CFG.cooldownMs;
+    setTimeout(update, CFG.cooldownMs + 500);
+    channel = null;
+    update();
+    return;
+  }
+  // progress render
+  const pct = Math.round(100 * (now - channel.startedAt) / (channel.endsAt - channel.startedAt));
+  const btn = $("collect");
+  btn.disabled = true;
+  btn.className = "ready";
+  btn.textContent = `WORKING THE JOB… ${pct}%`;
+  btn.style.background = `linear-gradient(90deg, var(--cash) ${pct}%, var(--panel) ${pct}%)`;
+  btn.style.color = pct > 50 ? "#052405" : "var(--cash)";
+}, 100);
+
+function renderMoney(pop){
+  const el = $("money");
+  el.textContent = fmtMoney(money);
+  if (pop){ el.classList.add("pop"); setTimeout(()=>el.classList.remove("pop"), 150); }
+}
+
+function showGain(amount){
+  const g = document.createElement("div");
+  g.className = "gain";
+  g.textContent = "+" + fmtMoney(amount);
+  g.style.left = "50%"; g.style.bottom = "140px";
+  g.style.transform = "translateX(-50%)";
+  document.body.appendChild(g);
+  setTimeout(()=>g.remove(), 1100);
+}
+
+// cooldown ticker so markers un-grey on time
+setInterval(update, 5000);
+
+// ---------- heat / cops (GTA-style) ----------
+let stars = 0, cops = [], bustedUntil = 0;
+let seen = false, lkp = null, hiddenMs = 0, searchCircle = null;
+
+const UNIT_DEFS = {
+  cop:  {icon:"🚓", cls:"cop",  vision:100, dps:5, fire:40, meleeDps:6,  hp:100, killXp:50,  spd:s=>1.8+0.55*s},
+  swat: {icon:"🚔", cls:"swat", vision:100, dps:9, fire:40, meleeDps:10, hp:160, killXp:100, spd:s=>(1.8+0.55*s)*1.15},
+  heli: {icon:"🚁", cls:"heli", vision:240, dps:0, fire:0,  meleeDps:0,  hp:220, killXp:200, spd:s=>(1.8+0.55*s)*1.6},
+};
+
+function unitIcon(kind, hpPct){
+  const u = UNIT_DEFS[kind];
+  const bar = hpPct < 1
+    ? `<div class="uhp"><i style="width:${Math.round(hpPct*100)}%"></i></div>` : "";
+  return L.divIcon({className:"", html:`<div class="${u.cls}">${u.icon}${bar}</div>`,
+    iconSize:[32,32], iconAnchor:[16,16]});
+}
+
+// force composition per star, GTA-style escalation
+function composition(s){
+  const groundCops = [0,1,2,3,3,4][s] || 0;
+  const swats      = [0,0,0,0,1,2][s] || 0;
+  const c = [];
+  for (let i=0;i<groundCops;i++) c.push("cop");
+  for (let i=0;i<swats;i++)      c.push("swat");
+  if (s >= 3) c.push("heli");
+  return c;
+}
+
+const searchRadius = () => 200 + 80*stars;
+const hideNeedMs   = () => (15 + 10*stars) * 1000;
+
+function renderStars(){
+  const el = $("stars");
+  if (stars <= 0){ el.style.display = "none"; return; }
+  el.style.display = "block";
+  el.classList.toggle("hunt", !seen);
+  el.innerHTML = Array.from({length: CFG.maxStars}, (_,i) =>
+    `<span class="${i < stars ? "lit" : ""}">★</span>`).join("");
+}
+
+function toast(msg){
+  const t = $("toast");
+  t.textContent = msg; t.style.display = "block";
+  clearTimeout(toast._h);
+  toast._h = setTimeout(() => t.style.display = "none", 2500);
+}
+
+function applyHeat(starsGained, msg){
+  stars = Math.min(CFG.maxStars, stars + starsGained);
+  // committing a crime gives your position away
+  seen = true; lkp = {lat:playerPos.lat, lng:playerPos.lng};
+  hiddenMs = 0; hideSearchZone();
+  renderStars();
+  toast(msg);
+  syncCops();
+}
+
+function addUnit(kind, lat, lng, hp){
+  const marker = L.marker([lat, lng], {
+    icon: unitIcon(kind, hp / UNIT_DEFS[kind].hp), zIndexOffset: 800}).addTo(map);
+  const unit = {kind, lat, lng, marker, wp:null, hp};
+  marker.on("click", () => shootAt(unit));
+  cops.push(unit);
+}
+
+function syncCops(){
+  const want = composition(stars);
+  // remove surplus by kind
+  for (const kind of Object.keys(UNIT_DEFS)){
+    const wantN = want.filter(k => k === kind).length;
+    let haveN = cops.filter(c => c.kind === kind).length;
+    while (haveN > wantN){
+      const i = cops.findIndex(c => c.kind === kind);
+      map.removeLayer(cops[i].marker);
+      cops.splice(i,1); haveN--;
+    }
+  }
+  // spawn missing near where they think you are
+  const anchor = (seen ? playerPos : lkp) || playerPos;
+  for (const kind of want){
+    const haveN = cops.filter(c => c.kind === kind).length;
+    const wantN = want.filter(k => k === kind).length;
+    if (haveN >= wantN) continue;
+    const dist = CFG.copSpawnMin + Math.random()*(CFG.copSpawnMax-CFG.copSpawnMin);
+    const p = offsetPoint(anchor.lat, anchor.lng, dist, Math.random()*Math.PI*2);
+    addUnit(kind, p.lat, p.lng, UNIT_DEFS[kind].hp);
+  }
+}
+
+function drawSearchZone(){
+  hideSearchZone();
+  searchCircle = L.circle([lkp.lat, lkp.lng], {
+    radius: searchRadius(), color:"#e04a4a", weight:2, dashArray:"8 8",
+    fillColor:"#e04a4a", fillOpacity:0.05
+  }).addTo(map);
+}
+function hideSearchZone(){
+  if (searchCircle){ map.removeLayer(searchCircle); searchCircle = null; }
+}
+
+function clearHeat(msg){
+  stars = 0; seen = false; lkp = null; hiddenMs = 0;
+  violence = 0; // spree over, slate cleaned
+  hideSearchZone();
+  syncCops();
+  renderStars();
+  if (msg) toast(msg);
+}
+
+function busted(){
+  if (channel) channel = null; // job interrupted by the arrest
+  const hadCargo = !!cargo;
+  if (cargo){
+    if (cargo.kind === "package") removeDestMarker();
+    cargo = null; saveCargo(); renderCargo();
+  }
+  const hadDrugs = !pocketsEmpty();
+  if (hadDrugs){ onDrugs = {}; saveDrugs(); } // everything on you is evidence now
+  const lost = Math.round(money * CFG.bustedCut);
+  money -= lost;
+  saveMoney();
+  renderMoney(true);
+  clearHeat();
+  bustedUntil = gt() + 8000; // brief immunity
+  const extras = [hadCargo && "your cargo", hadDrugs && "everything in your pockets"]
+    .filter(Boolean).join(" and ");
+  $("bustedMsg").textContent = `The cops took ${fmtMoney(lost)}` + (extras ? ` and ${extras}` : "");
+  const o = $("busted");
+  o.style.display = "flex";
+  setTimeout(() => o.style.display = "none", 2600);
+}
+
+function bearingBetween(a, b){
+  const toR = Math.PI/180;
+  const y = Math.sin((b.lng-a.lng)*toR) * Math.cos(b.lat*toR);
+  const x = Math.cos(a.lat*toR)*Math.sin(b.lat*toR) -
+    Math.sin(a.lat*toR)*Math.cos(b.lat*toR)*Math.cos((b.lng-a.lng)*toR);
+  return Math.atan2(y, x);
+}
+
+// violence this spree: 0 = clean, 1 = hands/melee, 2 = firearms.
+// cops match force: melee gets batons, guns get gunfire.
+let violence = 0;
+let drawn = false;
+let nextShotAt = 0;
+
+const currentWeapon = () => weaponById(equipped) || FISTS;
+
+function floatDamage(unit, dmg){
+  const pt = map.latLngToContainerPoint([unit.lat, unit.lng]);
+  const el = document.createElement("div");
+  el.className = "dmgfloat";
+  el.textContent = "-" + Math.round(dmg);
+  el.style.left = pt.x + "px";
+  el.style.top  = (pt.y - 20) + "px";
+  map.getContainer().appendChild(el);
+  setTimeout(() => el.remove(), 900);
+}
+
+function attack(unit){
+  const w = currentWeapon();
+  const now = gt();
+  if (now < nextShotAt || !playerPos) return false;
+  const d = haversine(playerPos, unit);
+  if (d > w.range) return false;
+  nextShotAt = now + Math.max(150, 60000 / (w.rpm || 120));
+  // attacking police: you're resisting, and everyone knows where you are
+  const level = w.type === "melee" ? 1 : 2;
+  violence = Math.max(violence, level);
+  seen = true;
+  lkp = {lat: playerPos.lat, lng: playerPos.lng};
+  const floor = level === 2 ? 3 : 2; // gunfire ≥3★, assaulting an officer ≥2★
+  if (stars < floor) applyHeat(floor - stars,
+    level === 2 ? "Shots fired at police!" : "Assaulting an officer!");
+  unit.hp -= w.dmg;
+  floatDamage(unit, w.dmg);
+  if (unit.hp <= 0){
+    killUnit(unit);
+  } else {
+    unit.marker.setIcon(unitIcon(unit.kind, unit.hp / UNIT_DEFS[unit.kind].hp));
+  }
+  return true;
+}
+
+// tap a unit = manual attack (with feedback when it can't land)
+function shootAt(unit){
+  const w = currentWeapon();
+  const d = playerPos ? haversine(playerPos, unit) : Infinity;
+  if (d > w.range){
+    toast(`Out of reach — ${Math.round(d)}m. ${w.name} works inside ${w.range}m.`);
+    return;
+  }
+  attack(unit);
+}
+
+// drawn = auto-engage the nearest unit that enters your weapon's range
+setInterval(() => {
+  if (paused() || !drawn || !playerPos || !cops.length) return;
+  let best = null, bd = Infinity;
+  for (const c of cops){
+    const d = haversine(playerPos, c);
+    if (d < bd){ bd = d; best = c; }
+  }
+  if (best) attack(best);
+}, 150);
+
+function killUnit(unit){
+  map.removeLayer(unit.marker);
+  cops = cops.filter(c => c !== unit);
+  addXp(UNIT_DEFS[unit.kind].killXp);
+  const msg = unit.kind === "heli" ? "Chopper down! They will NOT forget this."
+    : unit.kind === "swat" ? "SWAT officer down — expect hell."
+    : "Officer down — heat rising!";
+  if (stars < CFG.maxStars){ stars++; renderStars(); }
+  toast(msg);
+  syncCops(); // replacements roll out
+}
+
+// chase tick — runs in GPS mode and dev mode alike
+const HEAT_TICK = 200;
+setInterval(() => {
+  if (paused() || !playerPos || stars === 0) return;
+  const now = gt();
+  if (now < bustedUntil) return;
+
+  // --- line of sight: does anyone see you right now? ---
+  const wasSeen = seen;
+  seen = cops.some(c => haversine(c, playerPos) <= UNIT_DEFS[c.kind].vision);
+
+  if (seen){
+    lkp = {lat:playerPos.lat, lng:playerPos.lng};
+    hiddenMs = 0;
+    if (!wasSeen){
+      hideSearchZone();
+      toast("Spotted! They're on you!");
+      renderStars(); // stars go solid
+    }
+  } else {
+    if (wasSeen){
+      drawSearchZone();
+      toast("You slipped out of sight — stay low.");
+      renderStars(); // stars start flashing
+    }
+    // hiding progress; being outside the search zone counts double
+    const outside = lkp && haversine(playerPos, lkp) > searchRadius();
+    hiddenMs += HEAT_TICK * (outside ? 2 : 1);
+    if (hiddenMs >= hideNeedMs()){
+      clearHeat("You lost the cops.");
+      return;
+    }
+  }
+
+  // --- unit movement, damage, capture ---
+  for (const c of cops){
+    const u = UNIT_DEFS[c.kind];
+    const d = haversine(c, playerPos);
+
+    if (seen && c.kind !== "heli"){
+      // arrest is physical — and only sticks if you're not resisting
+      if (d <= CFG.copCatchRadius && !drawn){ busted(); return; }
+      // force matching: they answer what you brought
+      if (violence >= 2 && u.dps && d <= u.fire){
+        damage(u.dps * HEAT_TICK/1000);
+        if (gt() < bustedUntil) return; // dropped by gunfire
+      } else if (violence >= 1 && drawn && u.meleeDps && d <= CFG.copMeleeRange){
+        damage(u.meleeDps * HEAT_TICK/1000);
+        if (gt() < bustedUntil) return; // beaten down and cuffed
+      }
+    }
+
+    // pick target: you if seen, otherwise hunt the search zone
+    let target;
+    if (seen){
+      target = playerPos;
+    } else {
+      if (!c.wp || haversine(c, c.wp) < 15){
+        const r = Math.sqrt(Math.random()) * searchRadius();
+        c.wp = offsetPoint(lkp.lat, lkp.lng, r, Math.random()*Math.PI*2);
+      }
+      target = c.wp;
+    }
+
+    const dt = haversine(c, target);
+    if (dt < 2) continue;
+    const step = Math.min(u.spd(stars) * HEAT_TICK/1000, dt);
+    const p = offsetPoint(c.lat, c.lng, step, bearingBetween(c, target));
+    c.lat = p.lat; c.lng = p.lng;
+    c.marker.setLatLng([c.lat, c.lng]);
+  }
+}, HEAT_TICK);
+
+// ---------- dev movement (arrows / WASD + speed) ----------
+let devSpeed = 20; // m/s, default CAR
+const keys = new Set();
+const KEYMAP = {
+  ArrowUp:"N", KeyW:"N", ArrowDown:"S", KeyS:"S",
+  ArrowLeft:"W", KeyA:"W", ArrowRight:"E", KeyD:"E"
+};
+
+document.addEventListener("keydown", e => {
+  if (KEYMAP[e.code]){ keys.add(KEYMAP[e.code]); e.preventDefault(); }
+});
+document.addEventListener("keyup", e => {
+  if (KEYMAP[e.code]) keys.delete(KEYMAP[e.code]);
+});
+
+document.querySelectorAll(".spd[data-v]").forEach(b => {
+  b.addEventListener("click", () => {
+    devSpeed = Number(b.dataset.v);
+    document.querySelectorAll(".spd[data-v]").forEach(x => x.classList.remove("on"));
+    b.classList.add("on");
+  });
+});
+
+// dev: tap-to-move toggle (off by default — no accidental teleports)
+let tapMove = false;
+$("tapToggle").addEventListener("click", () => {
+  tapMove = !tapMove;
+  $("tapToggle").textContent = tapMove ? "TAP ✓" : "TAP ✕";
+});
+
+// dev: on-screen D-pad feeds the same key set as the keyboard
+document.querySelectorAll(".dp[data-k]").forEach(b => {
+  const on  = e => { e.preventDefault(); keys.add(b.dataset.k); };
+  const off = e => { if (e) e.preventDefault(); keys.delete(b.dataset.k); };
+  b.addEventListener("pointerdown", on);
+  b.addEventListener("pointerup", off);
+  b.addEventListener("pointercancel", off);
+  b.addEventListener("pointerleave", () => keys.delete(b.dataset.k));
+  b.addEventListener("touchstart", e => e.preventDefault(), {passive:false});
+  b.addEventListener("contextmenu", e => e.preventDefault());
+});
+// no long-press callouts anywhere in the game UI
+document.addEventListener("contextmenu", e => {
+  if (!e.target.closest(".leaflet-popup")) e.preventDefault();
+});
+
+const TICK = 100; // ms
+setInterval(() => {
+  if (!devMode || !playerPos || keys.size === 0) return;
+  let dx = 0, dy = 0; // east, north
+  if (keys.has("N")) dy += 1;
+  if (keys.has("S")) dy -= 1;
+  if (keys.has("E")) dx += 1;
+  if (keys.has("W")) dx -= 1;
+  if (!dx && !dy) return;
+  const step = devSpeed * (TICK/1000);           // meters this tick
+  const bearing = Math.atan2(dx, dy);            // 0 = north
+  setPlayerPos(offsetPoint(playerPos.lat, playerPos.lng, step, bearing));
+}, TICK);
+
+// ---------- world persistence: pick up exactly where you left off ----------
+function saveWorld(){
+  if (!started) return;
+  localStorage.setItem("sc_gt", Math.round(gameTime));
+  localStorage.setItem("sc_world", JSON.stringify({
+    jobs: jobs.map(j => ({lat:j.lat, lng:j.lng, t:j.typeIdx, p:j.payout, cd:j.cooldownUntil})),
+    npcs: npcs.map(n => ({uid:n.uid, kind:n.kind, lat:n.lat, lng:n.lng,
+      robbed:n.robbed, speed:n.speed, stock:n.stock, wants:n.wants})),
+    cops: cops.map(c => ({kind:c.kind, lat:c.lat, lng:c.lng, hp:c.hp})),
+    stars, seen, lkp, hiddenMs, violence, npcSeq
+  }));
+}
+setInterval(saveWorld, 3000);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") saveWorld();
+});
+window.addEventListener("pagehide", saveWorld);
+
+function restoreWorld(){
+  const w = JSON.parse(localStorage.getItem("sc_world") || "null");
+  if (!w) return;
+  for (const j of w.jobs || []) createJob(j.lat, j.lng, j.t ?? 0, j.p || 0, j.cd || 0);
+  for (const n of w.npcs || []) attachNpc({uid:n.uid, kind:n.kind, lat:n.lat, lng:n.lng,
+    wp:null, robbed:!!n.robbed, speed:n.speed || 1.4, stock:n.stock, wants:n.wants});
+  npcSeq = w.npcSeq || npcSeq;
+  stars = w.stars || 0;
+  seen = !!w.seen;
+  lkp = w.lkp || null;
+  hiddenMs = w.hiddenMs || 0;
+  violence = w.violence || 0;
+  for (const c of w.cops || []) addUnit(c.kind, c.lat, c.lng, c.hp || UNIT_DEFS[c.kind].hp);
+  renderStars();
+  if (stars > 0 && !seen && lkp) drawSearchZone();
+}
+
+// ---------- startup ----------
+function start(useGps){
+  devMode = !useGps;
+  started = true;
+  $("splash").style.display = "none";
+  if (devMode){ $("devbadge").style.display = "block"; $("speeds").style.display = "flex";
+    $("dpad").classList.add("show"); }
+  $("shBtn").addEventListener("click", setSafehouseHere);
+  if (safehouse) $("shBtn").textContent = "🏠 MOVE";
+
+  if (devMode){
+    // start centered somewhere neutral; tap to move
+    initMap({lat:44.76, lng:-85.62});
+    setPlayerPos({lat:44.76, lng:-85.62});
+    return;
+  }
+
+  if (!("geolocation" in navigator)){
+    fail("No geolocation support on this device/browser.");
+    return;
+  }
+  initMap({lat:0, lng:0});
+  $("status").textContent = "waiting for GPS…";
+  watchId = navigator.geolocation.watchPosition(
+    p => setPlayerPos({lat:p.coords.latitude, lng:p.coords.longitude}),
+    e => fail(e.code === 1
+      ? "Location permission denied. This page needs HTTPS + location access."
+      : "GPS error: " + e.message),
+    {enableHighAccuracy:true, maximumAge:2000, timeout:15000}
+  );
+}
+
+function fail(msg){
+  $("splash").style.display = "flex";
+  const err = $("err");
+  err.style.display = "block";
+  err.textContent = msg;
+}
+
+$("startGps").addEventListener("click", () => start(true));
+$("startDev").addEventListener("click", () => start(false));
+
+// reset save: arm on first tap, wipe on second (disarms after 3s)
+let resetArmed = false, resetTimer = null;
+$("resetBtn").addEventListener("click", () => {
+  if (!resetArmed){
+    resetArmed = true;
+    $("resetBtn").classList.add("armed");
+    $("resetBtn").textContent = "TAP AGAIN — WIPES EVERYTHING";
+    resetTimer = setTimeout(() => {
+      resetArmed = false;
+      $("resetBtn").classList.remove("armed");
+      $("resetBtn").textContent = "RESET SAVE";
+    }, 3000);
+    return;
+  }
+  clearTimeout(resetTimer);
+  Object.keys(localStorage)
+    .filter(k => k.startsWith("sc_"))
+    .forEach(k => localStorage.removeItem(k));
+  location.reload();
+});
+
+renderMoney(false);
+renderLevel();
+renderHealth();
+</script>
+</body>
+</html>
