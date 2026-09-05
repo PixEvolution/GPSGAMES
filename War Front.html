@@ -81,7 +81,7 @@
   #wepBtn.drawn { background:#4d3a1f; border-color:#a3854e; color:#f0e2c2; }
   #buildBtn { padding:13px 18px; font-size:14px; }
 
-  #cornerCol { bottom:calc(150px + env(safe-area-inset-bottom)); left:8px; display:flex; flex-direction:column; gap:6px; z-index:60; }
+  #cornerCol { bottom:calc(150px + env(safe-area-inset-bottom)); left:8px; display:flex; flex-direction:column; gap:6px; z-index:60; align-items:flex-start; }
 
   #toasts { top:calc(56px + env(safe-area-inset-top)); left:50%; transform:translateX(-50%); z-index:70;
     display:flex; flex-direction:column; gap:6px; align-items:center; pointer-events:none; width:92vw; }
@@ -180,6 +180,7 @@
   .mkUnit.struckU { border-color:#b6c48e; border-style:dashed; }
   .mkUnit.generalU { border-color:#e4d374; background:#3a3416; box-shadow:0 0 10px rgba(228,211,116,0.7); }
   .mkUnit.msgU { border-color:#9cc4d0; background:#14262c; }
+  .mk.carry { border-color:#e4d374 !important; box-shadow:0 0 9px rgba(228,211,116,0.85); }
   .mkCache {
     width:22px; height:22px; border-radius:5px;
     background:#3a3416; border:2px solid #e4d374;
@@ -317,6 +318,13 @@
   <button id="logBtn" class="btn">LOG</button>
 </div>
 
+<div id="tutCard" style="position:fixed; z-index:30; left:50%; transform:translateX(-50%); top:calc(52px + env(safe-area-inset-top)); width:92vw; max-width:430px; display:none; background:rgba(20,26,10,0.95); border:1px solid #6b7a48; border-left:4px solid #b8c880; border-radius:8px; padding:9px 10px; font-size:12px; line-height:1.4; color:#dbe4c6;">
+  <div style="display:flex; gap:8px; align-items:flex-start;">
+    <div id="tutText" style="flex:1;"></div>
+    <button id="tutSkip" class="btn" style="padding:4px 8px; font-size:10px; flex:none;">SKIP</button>
+  </div>
+</div>
+
 <div id="logPanel">
   <div id="logHead">
     <div id="logTitle">FIELD REPORTS</div>
@@ -340,8 +348,11 @@
 </div>
 
 <div id="cornerCol" class="hud">
-  <button id="devBtn" class="btn">DEV</button>
-  <button id="resetBtn" class="btn danger">RESET</button>
+  <div id="sysMenu" style="display:none; flex-direction:column; gap:6px; margin-bottom:6px;">
+    <button id="devBtn" class="btn">DEV</button>
+    <button id="resetBtn" class="btn danger">RESET</button>
+  </div>
+  <button id="sysBtn" class="btn" style="padding:9px 13px;">⚙</button>
 </div>
 
 <div id="toasts" class="hud"></div>
@@ -426,6 +437,8 @@
   <h2>Name the enemy</h2>
   <p>Who is invading? A real rival or an invented one — their name will be on every wave warning and every shell they drop on you.</p>
   <input type="text" id="inEnemy" maxlength="28" placeholder="e.g. The Crimson Pact" autocomplete="off">
+  <button id="tutToggle" class="btn">FIELD MANUAL: ON</button>
+  <p style="font-size:11px; margin-top:2px;">The manual walks new commanders through their first base and first wave. Veterans can switch it off.</p>
   <button id="okEnemy" class="btn primary">DECLARE WAR</button>
 </div>
 
@@ -533,7 +546,7 @@ const CFG = {
     },
     radar: {
       name: "Radar Post", foot: 12, hp: 1000, cost: 450, buildMin: 3,
-      desc: "THE remote-command unlock: place, train & order from anywhere. 120s wave intel. Requires a War Factory.",
+      desc: "THE remote-command unlock: place, train & order from anywhere, plus early radar detection of incoming attacks. Requires a War Factory.",
       requires: "warfactory",
     },
     watchtower: {
@@ -571,9 +584,9 @@ const CFG = {
     tank:     { name: "Tank",           cost: 700, trainMin: 5,   hp: 600, speed: 2.5, dmg: 90, range: 55, rofMs: 3500, splash: 12, splashDmg: 45, combat: true, vehicle: true,
                 desc: "Slow, tough, cannon with splash. The wave-breaker." },
     struck:   { name: "Supply Truck",   cost: 250, trainMin: 2.5, hp: 200, speed: 5.0, combat: false, vehicle: true,
-                desc: "Unarmed. Auto-fetches supply caches near its post." },
+                desc: "Unarmed. Auto-fetches supply caches near its post and hauls them back to base." },
     general:  { name: "General",        cost: 800, trainMin: 4,   hp: 150, speed: 1.9, combat: false, mountable: true,
-                desc: "Mobile command relay: full remote command, 180s wave intel with spawn bearing, and REVEALS artillery impact points. ONE allowed. Guard him with your life." },
+                desc: "Mobile command relay: full remote command, earliest attack detection with direction, and REVEALS artillery impact points. ONE allowed. Guard him with your life." },
     messenger:{ name: "Messenger",      cost: 60,  trainMin: 1,   hp: 40,  speed: 1.2, combat: false,
                 desc: "Carries your orders to buildings and sites so you don't have to walk. Orders execute ONLY if he arrives alive." },
   },
@@ -626,8 +639,8 @@ const CFG = {
   waveSpread: 45,              // m scatter between wave members
   frontJitter: 60,             // ± deg per wave around the persistent front
   frontDrift: 15,              // ± deg drift of the front after each wave
-  // wave warning lead by intel tier: 1 = base, 2 = Radar, 3 = General
-  warnMsTiers: { 1: 60000, 2: 120000, 3: 180000 },
+  // early-DETECTION lead by intel tier. Tier 1 = none: attacks arrive unannounced.
+  warnMsTiers: { 1: 0, 2: 120000, 3: 180000 },
   firstWaveGraceMin: 15,       // guaranteed peace after CC placement: economy + first squad time
   waveClearXp: 40,
   scoutIntervalMin: [3, 6],    // between-wave harassment pairs
@@ -943,7 +956,8 @@ let camMode = "LOCKED";
 function applyCamMode() {
   if (!map) return;
   document.body.classList.toggle("freecam", camMode === "FREECAM");
-  $("camBtn").textContent = camMode;
+  // the button is an action: show what tapping DOES, not what you're in
+  $("camBtn").textContent = camMode === "LOCKED" ? "FREECAM" : "LOCK";
   if (camMode === "LOCKED") {
     map.dragging.disable();
     if (playerPos) map.panTo([playerPos.lat, playerPos.lng], { animate: true });
@@ -1102,6 +1116,7 @@ function buildUnit(data) {
   if (data.cacheId === undefined) data.cacheId = null;      // supply truck errand
   if (data.errand === undefined) data.errand = null;        // messenger orders in transit
   if (data.escortId === undefined) data.escortId = null;    // combat: friendly being guarded
+  if (data.carry === undefined) data.carry = 0;             // supply value being hauled back to base
   world.units.push(data);
   const meta = CFG.units[data.kind];
   let cls = "";
@@ -1143,12 +1158,20 @@ function refreshUnitMarker(entry) {
   const maxHp = entry.data.kind === "messenger" ? msgMaxHp() : CFG.units[entry.data.kind].hp;
   const bar = el.querySelector(".hp");
   if (bar) bar.style.width = clamp(entry.data.hp / maxHp * 100, 0, 100) + "%";
+  const mk = el.querySelector(".mk");
+  if (mk) mk.classList.toggle("carry", !!entry.data.carry);
   const sq = el.querySelector(".sq");
   if (sq) sq.textContent = entry.data.squad;
   el.querySelector(".mkUnit").classList.toggle("sel", isSelected(entry));
 }
 function removeUnit(entry) {
   const u = entry.data;
+  // a carrier dying drops the supplies — recoverable where they fell
+  if (u.carry > 0) {
+    buildCache({ id: newId("c"), lat: u.lat, lng: u.lng, value: u.carry });
+    toast("The supplies were dropped where they fell — " + fmtCash(u.carry) + " recoverable.", true);
+    u.carry = 0;
+  }
   // a runner dying in the field means the orders never arrive
   if (u.kind === "messenger" && u.errand) {
     toast("A runner was killed — his orders died with him. Funds returned.", true);
@@ -1273,7 +1296,7 @@ function spawnWave(comp, isScouts) {
     world.war.waveActive = true;
     world.war.waveNum = (world.war.waveNum || 0) + 1;
     sfx("horn");
-    toast(world.enemyName + " — wave " + world.war.waveNum + ": " + (compDesc(comp) || spawned + " hostiles") + " from the " + compass(bearing) + "!", true);
+    toast(world.enemyName + " forces spotted — " + (compDesc(comp) || spawned + " hostiles") + " from the " + compass(bearing) + "!", true);
   } else if (spawned) {
     toast(world.enemyName + " scouts probing the perimeter.", true);
   }
@@ -1322,20 +1345,18 @@ setInterval(() => {
   }
 
   if (!war.waveActive) {
-    const lead = CFG.warnMsTiers[intelTier()];
-    if (!war.warned && gt() >= war.nextWaveGt - lead) {
+    // No countdowns, no scheduled-event framing. Attacks simply HAPPEN.
+    // Radar/General buy early DETECTION — reported like field intel, not a timer.
+    const tier = intelTier();
+    if (!war.warned && tier >= 2 && gt() >= war.nextWaveGt - CFG.warnMsTiers[tier]) {
       war.warned = true;
-      // roll the wave NOW so intel can describe what's actually coming
       const row = waveRow();
       war.incoming = {
         comp: rollComp(row),
         bearing: (war.frontBearing + rand(-CFG.frontJitter, CFG.frontJitter) + 360) % 360,
       };
-      const tier = intelTier();
-      const secs = Math.round((war.nextWaveGt - gt())/1000);
-      if (tier >= 3)      toast(world.enemyName + " — " + compDesc(war.incoming.comp) + " inbound from the " + compass(war.incoming.bearing) + ", " + secs + "s! (General's intel)", true);
-      else if (tier >= 2) toast(world.enemyName + " — " + compDesc(war.incoming.comp) + " inbound, " + secs + "s! (Radar intel)", true);
-      else                toast(world.enemyName + " forces inbound — " + secs + "s!", true);
+      if (tier >= 3) toast("FIELD INTEL — " + compDesc(war.incoming.comp) + " marshaling to the " + compass(war.incoming.bearing) + ". Contact imminent.", true);
+      else           toast("RADAR CONTACT — " + compDesc(war.incoming.comp) + " inbound. Prepare positions.", true);
     }
     if (gt() >= war.nextWaveGt) {
       const row = waveRow();
@@ -1349,7 +1370,7 @@ setInterval(() => {
     if (world.enemies.length === 0) {
       war.waveActive = false;
       addXp(CFG.waveClearXp);
-      toast("Wave " + war.waveNum + " repelled. " + world.armyName + " holds.", false);
+      toast("Attack repelled — " + world.armyName + " holds this ground.", false);
       scheduleNextWave();
       scheduleScouts();
       saveWorld();
@@ -1766,7 +1787,7 @@ function buildCache(data) {
     const el = document.createElement("div");
     el.innerHTML = '<div class="popTitle">Supply cache</div>';
     const l = document.createElement("div"); l.className = "popLine";
-    l.textContent = fmtCash(data.value) + " — grab it in person, send selected troops (tap this with units selected), or a Supply Truck will.";
+    l.textContent = fmtCash(data.value) + " — grab it yourself for instant cash, or send troops/trucks (they must haul it back to your CC or a Depot).";
     el.appendChild(l);
     return el;
   }, { autoPan: false });
@@ -1781,6 +1802,32 @@ function removeCache(entry) {
   world.units.forEach(u => { if (u.cacheId === entry.data.id) u.cacheId = null; });
   if (entry.marker) entry.marker.remove();
   if (entry.ring) entry.ring.remove();
+}
+/* units don't cash caches on the spot — they haul them home */
+function pickupCache(entry, unitData) {
+  unitData.carry = (unitData.carry || 0) + entry.data.value;
+  toast((unitData.kind === "struck" ? "Supply Truck loaded a cache" : "Cache secured") + " — hauling " + fmtCash(unitData.carry) + " back to base.");
+  removeCache(entry);
+  saveWorld();
+}
+function nearestBank(u) {
+  let best = null, bestD = Infinity;
+  world.buildings.forEach(b => {
+    if ((b.kind !== "cc" && b.kind !== "depot") || b.rubble || b.progress < 1) return;
+    const d = haversine({ lat: u.lat, lng: u.lng }, { lat: b.lat, lng: b.lng });
+    if (d < bestD) { bestD = d; best = b; }
+  });
+  return best;
+}
+function bankCarry(entry) {
+  const u = entry.data;
+  if (!u.carry) return;
+  world.cash += u.carry;
+  addXp(CFG.cacheXp);
+  sfx("cash");
+  toast((u.kind === "struck" ? "Supply Truck" : CFG.units[u.kind].name) + " delivered supplies — +" + fmtCash(u.carry) + ".");
+  u.carry = 0;
+  refreshHud(); refreshUnitMarker(entry); saveWorld();
 }
 function collectCache(entry, by) {
   world.cash += entry.data.value;
@@ -1808,6 +1855,7 @@ function restoreWorld(saved) {
   world.war = saved.war || null;
   world.log = saved.log || [];
   world.msgTier = saved.msgTier || 1;
+  world.tut = (saved.tut === undefined) ? -1 : saved.tut;
   world.buildings = [];
   world.units = [];
   world.enemies = [];
@@ -2036,6 +2084,7 @@ $("placeConfirm").addEventListener("click", () => {
         player: { hp: CFG.player.maxHp, maxHp: CFG.player.maxHp, weapons: {}, ammo: { a556: 0 }, drawn: false, targetId: null, graceUntil: 0 },
         war: null,
         msgTier: 1,
+        tut: tutEnabled ? 0 : -1,
         camMode: camMode,
       };
       initWar();
@@ -2057,7 +2106,7 @@ $("placeConfirm").addEventListener("click", () => {
     saveWorld(); refreshHud(); refreshSquadChips(); refreshWeaponBtn();
     if (ccPlaceMode === "onboard") {
       toast(world.armyName + " — command established. Hold this ground.");
-      toast("Intel says " + world.enemyName + " won't reach you for ~" + CFG.firstWaveGraceMin + " minutes. Build your economy and raise a squad.", false);
+      toast("Scouts report no " + world.enemyName + " activity nearby. Build your economy and raise a squad while the ground is quiet.", false);
     } else {
       toast("Command re-established. Don't lose it again.");
     }
@@ -3120,8 +3169,8 @@ setInterval(() => {
         if (!ce) { u.cacheId = null; u.state = meta.combat ? "GUARD" : "IDLE"; u.post = { lat: u.lat, lng: u.lng }; break; }
         const cp = { lat: ce.data.lat, lng: ce.data.lng };
         if (haversine({ lat: u.lat, lng: u.lng }, cp) <= CFG.cachePickup) {
-          collectCache(ce, "unit");
-          u.cacheId = null; u.state = meta.combat ? "GUARD" : "IDLE"; u.post = { lat: u.lat, lng: u.lng };
+          pickupCache(ce, u);
+          u.cacheId = null; u.state = "RETURN"; u.target = null;
         } else {
           stepToward(u, cp, dt, unitSpeed(u));
         }
@@ -3225,16 +3274,29 @@ setInterval(() => {
         const c = live.caches.find(x => x.data.id === u.cacheId);
         if (!c) { u.cacheId = null; u.state = "RETURN"; u.target = { lat: u.post.lat, lng: u.post.lng }; break; }
         if (stepToward(u, { lat: c.data.lat, lng: c.data.lng }, dt, meta.speed)) {
-          collectCache(c, "truck");
+          pickupCache(c, u);
           u.cacheId = null;
           u.state = "RETURN";
-          u.target = { lat: u.post.lat, lng: u.post.lng };
+          u.target = null;   // RETURN banks the haul first, then heads home
         }
         break;
       }
-      case "RETURN": {  // supply truck heading home
-        if (!u.target) u.target = { lat: u.post.lat, lng: u.post.lng };
-        if (stepToward(u, u.target, dt, meta.speed)) { u.target = null; u.state = "IDLE"; }
+      case "RETURN": {  // hauling supplies to base, then standing down / rolling home
+        if (u.carry > 0) {
+          const bank = nearestBank(u);
+          if (!bank) { u.state = meta.combat ? "GUARD" : "IDLE"; u.post = { lat: u.lat, lng: u.lng }; break; }
+          const bp = { lat: bank.lat, lng: bank.lng };
+          if (haversine({ lat: u.lat, lng: u.lng }, bp) <= bldFoot(bank) + 6) bankCarry(entry);
+          else stepToward(u, bp, dt, unitSpeed(u));
+          break;
+        }
+        if (u.kind === "struck") {
+          if (!u.target) u.target = { lat: u.post.lat, lng: u.post.lng };
+          if (stepToward(u, u.target, dt, meta.speed)) { u.target = null; u.state = "IDLE"; }
+        } else {
+          u.state = meta.combat ? "GUARD" : "IDLE";
+          u.post = { lat: u.lat, lng: u.lng };
+        }
         break;
       }
       case "IDLE": {
@@ -3430,6 +3492,7 @@ setInterval(() => {
   if (paused()) return;                                   // pause guard FIRST
   refreshHud();
   ensurePlayerMarker();   // grace pulse on/off
+  tutTick();
 
   // LIVE popups: re-render any open building/scorch popup so countdowns
   // tick and completed states appear the moment they happen.
@@ -3582,6 +3645,71 @@ setInterval(() => {
   devMoveActive = true;
   onPosition(np.lat, np.lng, 0);
 }, CFG.devTickMs);
+
+/* ============ FIELD MANUAL (tutorial) ============ */
+let tutEnabled = true;
+$("tutToggle").addEventListener("click", () => {
+  tutEnabled = !tutEnabled;
+  $("tutToggle").textContent = "FIELD MANUAL: " + (tutEnabled ? "ON" : "OFF");
+  $("tutToggle").classList.toggle("ghosted", !tutEnabled);
+});
+const TUT = [
+  { done: () => world.buildings.some(b => b.kind === "depot"),
+    text: "1/7 — Your CC pays $8/min; a Supply Depot pays $20/min more. Tap BUILD, pick Supply Depot, tap open ground inside your circle, CONFIRM." },
+  { done: () => world.buildings.some(b => b.kind === "depot" && b.progress >= 1),
+    text: "2/7 — Nothing builds itself: someone must be ON SITE. Walk to the depot site (dev: D-pad) and stand there — YOU count as workforce." },
+  { done: () => builderCount() >= 1 || world.buildings.some(b => (b.queue||[]).some(q => q.kind === "builder")),
+    text: "3/7 — Income online. Tap your Command Center and TRAIN BUILDER ($100) so construction runs without you." },
+  { done: () => world.buildings.some(b => b.kind === "barracks" && b.progress >= 1),
+    text: "4/7 — Place a Barracks ($350). Your builder will walk out and construct it — you can help on site to speed it up." },
+  { done: () => combatCount() >= 2,
+    text: "5/7 — Tap the Barracks: train 2 Riflemen ($100 each). They spawn into squad SQ1 — tap SQ1 then tap the map to position them." },
+  { done: () => world.units.some(x => x.kind === "messenger"),
+    text: "6/7 — Train a MESSENGER at the CC ($60). Runners physically carry your orders — training, building, squad moves — so you can command from home." },
+  { done: () => world.war && world.war.waveNum >= 1 && !world.war.waveActive,
+    text: "7/7 — " + "The enemy WILL come, without warning. Post your squad on the likely approach, consider a Watchtower ($300), keep your rifle loaded. Survive their first attack." },
+];
+function tutTick() {
+  const card = $("tutCard");
+  if (!world || !started || world.tut === undefined || world.tut < 0 || world.tut >= TUT.length) {
+    card.style.display = "none";
+    return;
+  }
+  try {
+    if (TUT[world.tut].done()) {
+      world.tut++;
+      sfx("level");
+      if (world.tut >= TUT.length) {
+        world.tut = -1;
+        toast("FIELD MANUAL complete — command is yours, Commander.", false);
+        card.style.display = "none";
+      } else {
+        toast("Field manual: step complete.", false);
+      }
+      saveWorld();
+      if (world.tut < 0) return;
+    }
+  } catch (e) { logErr("field manual", e); }
+  if (world.tut >= 0 && world.tut < TUT.length) {
+    card.style.display = "block";
+    const t = "FIELD MANUAL  " + TUT[world.tut].text;
+    if ($("tutText").textContent !== t) $("tutText").textContent = t;
+  }
+}
+$("tutSkip").addEventListener("click", () => {
+  world.tut = -1;
+  $("tutCard").style.display = "none";
+  toast("Field manual closed. It stays off for this war.");
+  saveWorld();
+});
+
+/* ============ system menu (gear) ============ */
+$("sysBtn").addEventListener("click", () => {
+  const m = $("sysMenu");
+  const opening = m.style.display !== "flex";
+  m.style.display = opening ? "flex" : "none";
+  if (!opening) $("devPanel").classList.remove("show");
+});
 
 /* ============ reset (two-tap arm) ============ */
 let resetArmed = null;
