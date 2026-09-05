@@ -507,7 +507,7 @@ const CFG = {
   buildings: {
     cc: {
       name: "Command Center", foot: 25, hp: 2500, cost: 0, buildMin: 0,
-      buildRadius: 400, inc: 5,
+      buildRadius: 400, inc: 8,
       desc: "The anchor. Lose it and the war is over.",
       trains: ["builder", "messenger"],
       tiers: {
@@ -517,7 +517,7 @@ const CFG = {
     },
     depot: {
       name: "Supply Depot", foot: 15, hp: 1200, cost: 200, buildMin: 2,
-      inc: 12,
+      inc: 20,
       desc: "+$12 per game-minute. The economy.",
     },
     barracks: {
@@ -596,8 +596,8 @@ const CFG = {
   mountCasualtyPct: 0.35,      // chance each mounted soldier dies when the ride is destroyed
 
   // supply caches (bubble/ring — a truck or the player physically reaches them)
-  cacheIntervalMin: [4, 8],
-  cacheValue: [75, 200],
+  cacheIntervalMin: [3, 6],
+  cacheValue: [100, 250],
   cacheRing: [100, 450],       // m from the CC
   cachePickup: 20,             // m collect radius
   maxCaches: 5,
@@ -606,10 +606,10 @@ const CFG = {
 
   // enemies — full composition escalation: rifles → +rockets → +humvees → +tanks
   enemies: {
-    erifle:  { name: "Rifleman",       hp: 80,  speed: 1.7, range: 40, dmgUnit: 10, dmgBld: 15, rofMs: 1500, bounty: 15,  xp: 10 },
-    erocket: { name: "Rocket Trooper", hp: 70,  speed: 1.6, range: 50, dmgUnit: 40, dmgBld: 25, rofMs: 3200, bounty: 25,  xp: 14, antiVehicle: 2 },
-    ehumvee: { name: "Humvee",         hp: 250, speed: 5.5, range: 45, dmgUnit: 10, dmgBld: 12, rofMs: 800,  bounty: 60,  xp: 25, vehicle: true },
-    etank:   { name: "Tank",           hp: 500, speed: 2.3, range: 55, dmgUnit: 35, dmgBld: 80, rofMs: 3600, bounty: 120, xp: 40, vehicle: true },
+    erifle:  { name: "Rifleman",       hp: 80,  speed: 1.7, range: 40, dmgUnit: 10, dmgBld: 15, rofMs: 1500, bounty: 20,  xp: 10 },
+    erocket: { name: "Rocket Trooper", hp: 70,  speed: 1.6, range: 50, dmgUnit: 40, dmgBld: 25, rofMs: 3200, bounty: 30,  xp: 14, antiVehicle: 2 },
+    ehumvee: { name: "Humvee",         hp: 250, speed: 5.5, range: 45, dmgUnit: 10, dmgBld: 12, rofMs: 800,  bounty: 70,  xp: 25, vehicle: true },
+    etank:   { name: "Tank",           hp: 500, speed: 2.3, range: 55, dmgUnit: 35, dmgBld: 80, rofMs: 3600, bounty: 140, xp: 40, vehicle: true },
   },
   maxEnemies: 20,
 
@@ -911,6 +911,22 @@ function ensurePlayerMarker() {
       html: '<div class="mk mkPlayer"><svg width="14" height="14" viewBox="0 0 24 24"><path fill="#dfeec0" d="M12 2l2.6 6.9 7.4.3-5.8 4.6 2 7.2L12 16.8 5.8 21l2-7.2L2 9.2l7.4-.3z"/></svg></div>',
     });
     playerMarker = L.marker([playerPos.lat, playerPos.lng], { icon, zIndexOffset: 900 }).addTo(map);
+    playerMarker.on("click", () => {
+      if (!started || !sel) return;
+      const guards = selectedEntries().filter(e =>
+        CFG.units[e.data.kind].combat && CFG.units[e.data.kind].dmg && e.data.state !== "MOUNTED");
+      if (!guards.length) return;
+      const { ok, outE } = commandable(guards);
+      ok.forEach(e => {
+        const u = e.data;
+        u.state = "ESCORT"; u.escortId = "PLAYER";
+        u.target = null; u.task = null; u.enemyId = null;
+      });
+      const routed = routeOrderByRunner(outE, { kind: "ESCORT_PLAYER" });
+      if (ok.length || routed) toast((ok.length ? ok.length + " now guarding YOU" : "") + (routed ? (ok.length?" — ":"") + "runner carrying the order to " + routed + " more." : "."), false);
+      else toast("No units in command range and no idle runner.", true);
+      saveWorld();
+    });
     accCircle = L.circle([playerPos.lat, playerPos.lng], {
       radius: 8, color: "#9db06a", weight: 1, opacity: 0.35, fillOpacity: 0.08,
     }).addTo(map);
@@ -1730,11 +1746,27 @@ function buildCache(data) {
     radius: CFG.cachePickup, color: "#e4d374", weight: 1.5, opacity: 0.6, dashArray: "3 5", fill: false, interactive: false,
   }).addTo(map);
   const entry = { data, marker, ring };
+  marker.on("click", () => {
+    if (!started || !sel) return;   // no selection: popup opens as normal
+    const movers = selectedEntries().filter(e => e.data.state !== "MOUNTED" && e.data.kind !== "messenger");
+    if (!movers.length) return;
+    marker.closePopup();
+    const { ok, outE } = commandable(movers);
+    ok.forEach(e => {
+      const u = e.data;
+      u.state = "FETCH"; u.cacheId = data.id;
+      u.target = null; u.task = null; u.enemyId = null; u.escortId = null;
+    });
+    const routed = routeOrderByRunner(outE, { kind: "FETCH", cacheId: data.id });
+    if (ok.length || routed) toast((ok.length ? ok.length + " retrieving the cache" : "") + (routed ? (ok.length?" — ":"") + "runner carrying the order to " + routed + " more." : "."), false);
+    else toast("No units in command range and no idle runner.", true);
+    saveWorld();
+  });
   marker.bindPopup(() => {
     const el = document.createElement("div");
     el.innerHTML = '<div class="popTitle">Supply cache</div>';
     const l = document.createElement("div"); l.className = "popLine";
-    l.textContent = fmtCash(data.value) + " — reach it in person, or a Supply Truck will.";
+    l.textContent = fmtCash(data.value) + " — grab it in person, send selected troops (tap this with units selected), or a Supply Truck will.";
     el.appendChild(l);
     return el;
   }, { autoPan: false });
@@ -1754,7 +1786,7 @@ function collectCache(entry, by) {
   world.cash += entry.data.value;
   addXp(CFG.cacheXp);
   sfx("cash");
-  toast((by === "truck" ? "Supply Truck secured a cache" : "Supply cache secured") + " — +" + fmtCash(entry.data.value) + ".");
+  toast((by === "truck" ? "Supply Truck secured a cache" : by === "unit" ? "Troops secured a supply cache" : "Supply cache secured") + " — +" + fmtCash(entry.data.value) + ".");
   removeCache(entry);
   saveWorld();
 }
@@ -2116,6 +2148,13 @@ function nearestIdleMessenger(pos) {
 }
 function errandPos(errand) {
   if (errand.type === "place") return { lat: errand.lat, lng: errand.lng };
+  if (errand.type === "order") {
+    const us = world.units.filter(x => errand.unitIds.indexOf(x.id) >= 0 && x.state !== "MOUNTED");
+    if (!us.length) return null;
+    let la = 0, ln = 0;
+    us.forEach(x => { la += x.lat; ln += x.lng; });
+    return { lat: la / us.length, lng: ln / us.length };
+  }
   const bld = world.buildings.find(b => b.id === errand.bldId);
   return bld ? { lat: bld.lat, lng: bld.lng } : null;
 }
@@ -2126,6 +2165,7 @@ function errandDesc(errand) {
   if (errand.type === "train") return "Train " + CFG.units[errand.unitKind].name + " → " + at;
   if (errand.type === "upg") return "Upgrade order → " + at;
   if (errand.type === "msgup") return "Runner-corps upgrade → " + at;
+  if (errand.type === "order") return errand.order.kind + " orders → " + errand.unitIds.length + " unit" + (errand.unitIds.length>1?"s":"");
   return "Orders";
 }
 function sendErrand(mEntry, errand) {
@@ -2198,6 +2238,40 @@ function executeErrand(mEntry) {
       toast("Runner arrived but that corps upgrade was already done — funds returned.", true);
       clearErrand(mEntry, true);
     }
+  } else if (errand.type === "order") {
+    const o = errand.order;
+    const targets = live.units.filter(e =>
+      errand.unitIds.indexOf(e.data.id) >= 0 && e.data.state !== "MOUNTED" && e.data.hp > 0);
+    let applied = 0;
+    targets.forEach(e => {
+      const t = e.data, tm = CFG.units[t.kind];
+      if (o.kind === "MOVE") {
+        t.state = "MOVE";
+        t.target = targets.length > 1 ? scatter({ lat: o.lat, lng: o.lng }, CFG.orderScatter) : { lat: o.lat, lng: o.lng };
+        t.task = null; t.enemyId = null; t.cacheId = null; t.escortId = null;
+        applied++;
+      } else if (o.kind === "GUARD") {
+        t.post = { lat: t.lat, lng: t.lng };
+        t.state = t.kind === "builder" ? "HOLD" : (tm.combat ? "GUARD" : "IDLE");
+        t.target = null; t.task = null; t.enemyId = null; t.cacheId = null; t.escortId = null;
+        applied++;
+      } else if (o.kind === "ATTACK" && tm.combat && tm.dmg) {
+        const en = live.enemies.find(x => x.data.id === o.enemyId);
+        if (en) { t.state = "ATTACK"; t.enemyId = o.enemyId; }
+        else { t.state = "GUARD"; t.post = { lat: t.lat, lng: t.lng }; }
+        t.target = null; t.task = null; t.escortId = null;
+        applied++;
+      } else if (o.kind === "FETCH") {
+        const ce = live.caches.find(c => c.data.id === o.cacheId);
+        if (ce) { t.state = "FETCH"; t.cacheId = o.cacheId; t.target = null; t.task = null; t.enemyId = null; t.escortId = null; applied++; }
+      } else if (o.kind === "ESCORT_PLAYER" && tm.combat && tm.dmg) {
+        t.state = "ESCORT"; t.escortId = "PLAYER";
+        t.target = null; t.task = null; t.enemyId = null;
+        applied++;
+      }
+    });
+    toast(applied ? "Orders delivered — " + applied + " unit" + (applied>1?"s":"") + " responding." : "Runner arrived but nobody was left to take the orders.", applied === 0);
+    clearErrand(mEntry, false);
   } else if (errand.type === "place") {
     const res = checkPlacement(errand.kind, { lat: errand.lat, lng: errand.lng }, true);
     if (res.ok) {
@@ -2693,13 +2767,28 @@ function refreshSquadChips() {
 }
 
 function commandable(entries) {
-  if (freeOps() || remoteCommand()) return { ok: entries, out: 0 };
-  if (!playerPos) return { ok: [], out: entries.length };
+  if (freeOps() || remoteCommand()) return { ok: entries, out: 0, outE: [] };
+  if (!playerPos) return { ok: [], out: entries.length, outE: entries.slice() };
   const ok = [], outArr = [];
   entries.forEach(e => {
     (haversine(playerPos, { lat: e.data.lat, lng: e.data.lng }) <= CFG.orderRange ? ok : outArr).push(e);
   });
-  return { ok, out: outArr.length };
+  return { ok, out: outArr.length, outE: outArr };
+}
+/* out-of-range units can still be commanded — by runner. Returns # routed. */
+function centroidOf(entries) {
+  let la = 0, ln = 0;
+  entries.forEach(e => { la += e.data.lat; ln += e.data.lng; });
+  return { lat: la / entries.length, lng: ln / entries.length };
+}
+function routeOrderByRunner(outE, order) {
+  if (!outE || !outE.length || freeOps() || remoteCommand()) return 0;
+  const targets = outE.filter(e => e.data.state !== "MOUNTED" && e.data.kind !== "messenger");
+  if (!targets.length) return 0;
+  const m = nearestIdleMessenger(centroidOf(targets));
+  if (!m) return 0;
+  sendErrand(m, { type: "order", order, unitIds: targets.map(e => e.data.id), paid: 0 });
+  return targets.length;
 }
 function orderMove(entries, latlng) {
   const movable = entries.filter(e => e.data.state !== "MOUNTED");
@@ -2711,27 +2800,30 @@ function orderMove(entries, latlng) {
     u.task = null; u.enemyId = null; u.mountId = null; u.cacheId = null; u.escortId = null;
     if (u.kind === "messenger" && u.errand) { clearErrand(e, true); toast("Runner rerouted — carried orders cancelled, funds returned."); }
   });
-  if (ok.length) toast("Moving " + ok.length + " unit" + (ok.length>1?"s":"") + (out ? " — " + out + " out of command range ("+CFG.orderRange+"m)." : "."), out > 0);
-  else if (out) toast("No units in command range ("+CFG.orderRange+"m). Get closer — Radar will fix this.", true);
+  const { outE } = commandable(movable);
+  const routed = routeOrderByRunner(outE, { kind: "MOVE", lat: latlng.lat, lng: latlng.lng });
+  if (ok.length || routed) toast((ok.length ? "Moving " + ok.length + " unit" + (ok.length>1?"s":"") : "") + (routed ? (ok.length?" — ":"") + "runner carrying orders to " + routed + " more." : (out ? " — " + out + " out of command range." : ".")), out > routed);
+  else if (out) toast("No units in command range ("+CFG.orderRange+"m) and no idle runner to carry orders.", true);
   saveWorld();
 }
 function orderAttack(entries, enemyEntry) {
   const combatEntries = entries.filter(e => CFG.units[e.data.kind].combat && CFG.units[e.data.kind].dmg && e.data.state !== "MOUNTED");
   if (!combatEntries.length) { toast("Nothing armed in that selection.", true); return; }
-  const { ok, out } = commandable(combatEntries);
+  const { ok, out, outE } = commandable(combatEntries);
   ok.forEach(e => {
     const u = e.data;
     u.state = "ATTACK";
     u.enemyId = enemyEntry.data.id;
     u.target = null; u.task = null; u.escortId = null;
   });
-  if (ok.length) toast(ok.length + " engaging the " + world.enemyName + " " + CFG.enemies[enemyEntry.data.kind].name + (out ? " — " + out + " out of range." : "!"), false);
-  else if (out) toast("No units in command range ("+CFG.orderRange+"m).", true);
+  const routedA = routeOrderByRunner(outE, { kind: "ATTACK", enemyId: enemyEntry.data.id });
+  if (ok.length || routedA) toast((ok.length ? ok.length + " engaging the " + world.enemyName + " " + CFG.enemies[enemyEntry.data.kind].name : "") + (routedA ? (ok.length?" — ":"") + "runner carrying attack orders to " + routedA + " more." : "!"), false);
+  else if (out) toast("No units in command range and no idle runner.", true);
   saveWorld();
 }
 $("ordGuard").addEventListener("click", () => {
   if (!sel) return;
-  const { ok, out } = commandable(selectedEntries().filter(e => e.data.state !== "MOUNTED"));
+  const { ok, out, outE } = commandable(selectedEntries().filter(e => e.data.state !== "MOUNTED"));
   ok.forEach(e => {
     const u = e.data;
     if (u.kind === "messenger" && u.errand) { clearErrand(e, true); toast("Runner held — carried orders cancelled, funds returned."); }
@@ -2739,8 +2831,9 @@ $("ordGuard").addEventListener("click", () => {
     u.state = u.kind === "builder" ? "HOLD" : (CFG.units[u.kind].combat ? "GUARD" : "IDLE");
     u.target = null; u.task = null; u.enemyId = null; u.cacheId = null; u.escortId = null;
   });
-  if (ok.length) toast(ok.length + " holding position" + (out ? " — " + out + " out of range." : "."), out > 0);
-  else if (out) toast("No units in command range.", true);
+  const routedG = routeOrderByRunner(outE, { kind: "GUARD" });
+  if (ok.length || routedG) toast((ok.length ? ok.length + " holding position" : "") + (routedG ? (ok.length?" — ":"") + "runner carrying hold orders to " + routedG + " more." : "."), false);
+  else if (out) toast("No units in command range and no idle runner.", true);
   saveWorld();
 });
 $("ordDismount").addEventListener("click", () => {
@@ -3015,12 +3108,34 @@ setInterval(() => {
       case "ERRAND": {  // messenger carrying orders — delivery or death
         const dest = errandPos(u.errand || {});
         if (!u.errand || !dest) { clearErrand(entry, true); u.state = "IDLE"; u.post = { lat: u.lat, lng: u.lng }; break; }
-        if (stepToward(u, dest, dt, unitSpeed(u))) executeErrand(entry);
+        if (u.errand.type === "order") {
+          // field orders chase the units themselves — deliver on approach
+          if (haversine({ lat: u.lat, lng: u.lng }, dest) <= 25) { executeErrand(entry); break; }
+          stepToward(u, dest, dt, unitSpeed(u));
+        } else if (stepToward(u, dest, dt, unitSpeed(u))) executeErrand(entry);
         break;
       }
-      case "ESCORT": {  // combat unit guarding a friendly — follows and fights
-        const te = findUnitEntry(u.escortId);
-        if (!te || te.data.state === "MOUNTED") { u.escortId = null; u.state = "GUARD"; u.post = { lat: u.lat, lng: u.lng }; break; }
+      case "FETCH": {  // sent to retrieve a supply cache
+        const ce = live.caches.find(c => c.data.id === u.cacheId);
+        if (!ce) { u.cacheId = null; u.state = meta.combat ? "GUARD" : "IDLE"; u.post = { lat: u.lat, lng: u.lng }; break; }
+        const cp = { lat: ce.data.lat, lng: ce.data.lng };
+        if (haversine({ lat: u.lat, lng: u.lng }, cp) <= CFG.cachePickup) {
+          collectCache(ce, "unit");
+          u.cacheId = null; u.state = meta.combat ? "GUARD" : "IDLE"; u.post = { lat: u.lat, lng: u.lng };
+        } else {
+          stepToward(u, cp, dt, unitSpeed(u));
+        }
+        break;
+      }
+      case "ESCORT": {  // combat unit guarding a friendly (or the commander) — follows and fights
+        let tp = null;
+        if (u.escortId === "PLAYER") {
+          if (playerPos) tp = { lat: playerPos.lat, lng: playerPos.lng };
+        } else {
+          const te = findUnitEntry(u.escortId);
+          if (te && te.data.state !== "MOUNTED") tp = { lat: te.data.lat, lng: te.data.lng };
+        }
+        if (!tp) { u.escortId = null; u.state = "GUARD"; u.post = { lat: u.lat, lng: u.lng }; break; }
         if (meta.dmg) {
           const near = nearestEnemyTo({ lat: u.lat, lng: u.lng }, meta.range);
           if (near && now >= entry.nextShotGt) {
@@ -3029,7 +3144,6 @@ setInterval(() => {
             break;
           }
         }
-        const tp = { lat: te.data.lat, lng: te.data.lng };
         if (haversine({ lat: u.lat, lng: u.lng }, tp) > CFG.escortFollowDist) {
           stepToward(u, offsetPoint(tp.lat, tp.lng, CFG.escortFollowDist * 0.7, rand(0, 360)), dt, meta.speed);
         }
