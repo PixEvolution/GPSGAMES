@@ -97,6 +97,25 @@
     font-size:11px; font-weight:700; color:#8a9a6b; background:rgba(16,20,9,0.8);
     border:1px solid #3b4527; border-radius:5px; padding:4px 8px; }
   #gpsChip.bad { color:#e0a494; border-color:#7a4a3a; }
+
+  /* ============ MESSAGE LOG ============ */
+  #logPanel {
+    position:fixed; z-index:45; left:50%; transform:translateX(-50%);
+    top:calc(52px + env(safe-area-inset-top));
+    width:94vw; max-width:440px; max-height:62vh;
+    display:none; flex-direction:column; gap:8px;
+    background:rgba(14,18,8,0.97); border:1px solid #55613a; border-radius:10px; padding:12px;
+  }
+  #logPanel.show { display:flex; }
+  #logHead { display:flex; align-items:center; }
+  #logTitle { font-size:12px; letter-spacing:0.14em; font-weight:800; color:#8fa070; }
+  #logClose { margin-left:auto; padding:6px 12px; }
+  #logList { overflow-y:auto; -webkit-overflow-scrolling:touch; display:flex; flex-direction:column; gap:4px; }
+  .logRow { display:flex; gap:8px; font-size:12px; color:#c3d0a6; padding:5px 6px;
+    background:#171d0c; border:1px solid #333d20; border-radius:5px; align-items:baseline; }
+  .logRow.warn { color:#e8c0b6; border-color:#5a352c; background:#1f130d; }
+  .logTime { font-size:10px; font-weight:800; color:#7f8f60; flex:none; font-variant-numeric:tabular-nums; }
+  .logRow.warn .logTime { color:#a3705f; }
   #waveChip { position:fixed; z-index:10; top:calc(78px + env(safe-area-inset-top)); left:8px;
     display:none; font-size:11px; font-weight:800; color:#f3cfc7; background:rgba(38,14,10,0.9);
     border:1px solid #a33; border-radius:5px; padding:4px 8px; letter-spacing:0.05em; }
@@ -160,6 +179,7 @@
   .mkUnit.vehU { width:24px; height:24px; border-radius:6px; }
   .mkUnit.struckU { border-color:#b6c48e; border-style:dashed; }
   .mkUnit.generalU { border-color:#e4d374; background:#3a3416; box-shadow:0 0 10px rgba(228,211,116,0.7); }
+  .mkUnit.msgU { border-color:#9cc4d0; background:#14262c; }
   .mkCache {
     width:22px; height:22px; border-radius:5px;
     background:#3a3416; border:2px solid #e4d374;
@@ -292,11 +312,29 @@
   <button id="jumpMe" class="btn jump">ME</button>
   <button id="jumpHq" class="btn jump">HQ</button>
   <button id="sfxBtn" class="btn">SFX</button>
+  <button id="logBtn" class="btn">LOG</button>
+</div>
+
+<div id="logPanel">
+  <div id="logHead">
+    <div id="logTitle">FIELD REPORTS</div>
+    <button id="logClose" class="btn">CLOSE</button>
+  </div>
+  <div id="logList"></div>
 </div>
 
 <div id="rightCol">
   <button id="wepBtn" class="btn">DRAW</button>
+  <button id="msgBtn" class="btn">RUNNERS</button>
   <button id="buildBtn" class="btn primary">BUILD</button>
+</div>
+
+<div id="msgMenu" style="position:fixed; z-index:41; left:50%; transform:translateX(-50%); bottom:calc(70px + env(safe-area-inset-bottom)); width:94vw; max-width:440px; display:none; flex-direction:column; gap:8px; background:rgba(14,18,8,0.96); border:1px solid #55613a; border-radius:10px; padding:12px;">
+  <div style="display:flex; align-items:center;">
+    <div style="font-size:12px; letter-spacing:0.14em; font-weight:800; color:#8fa070;">FIELD RUNNERS</div>
+    <button id="msgClose" class="btn" style="margin-left:auto; padding:6px 12px;">CLOSE</button>
+  </div>
+  <div id="msgList" style="display:flex; flex-direction:column; gap:8px;"></div>
 </div>
 
 <div id="cornerCol" class="hud">
@@ -429,7 +467,7 @@
 
 /* ============ CFG ============ */
 const CFG = {
-  saveVersion: 9,
+  saveVersion: 10,
   devCode: "1944",
   autosaveMs: 3000,
 
@@ -444,14 +482,15 @@ const CFG = {
     { lvl: 7,  intervalMin: [2, 6],    radius: [50, 90],  shells: [1, 3] },
     { lvl: 10, intervalMin: [1.5, 5],  radius: [60, 120], shells: [2, 4] },  // floor: 90s
   ],
-  bombWarnMs: 10000,          // pulsing red circle + siren lead time
+  bombWarnMs: 10000,          // siren + toast lead time
+  bombMarkerIntelTier: 3,     // impact-point circles require this intel tier (3 = the General's eyes)
   bombBldDmg: 700,            // buildings take it heavily
   bombPlayerDmg: 60,          // standing in the circle hurts
-  firstBombGraceMin: 12,      // game-min after CC placement before shelling starts
-  // targeting: 70% near a random building (within 1.5× its footprint + spread),
-  // 30% anywhere in the build radius. NEVER aimed at the player's live GPS —
-  // buildings are the magnet; nobody gets hunted at their real house.
-  bombNearBldPct: 0.7,
+  firstBombGraceMin: 18,      // game-min after CC placement before shelling starts
+  // targeting: 50% near a random building (within 1.5× its footprint + spread),
+  // 50% a fully random point in the build radius. NEVER aimed at the player's
+  // live GPS — nobody gets hunted at their real house.
+  bombNearBldPct: 0.5,
   bombNearSpread: 30,
 
   // scorched earth
@@ -468,7 +507,7 @@ const CFG = {
       name: "Command Center", foot: 25, hp: 2500, cost: 0, buildMin: 0,
       buildRadius: 400, inc: 5,
       desc: "The anchor. Lose it and the war is over.",
-      trains: ["builder"],
+      trains: ["builder", "messenger"],
       tiers: {
         2: { cost: 600,  upMin: 4, hp: 3500, radius: 550, foot: 27 },
         3: { cost: 1500, upMin: 6, hp: 5000, radius: 700, foot: 29 },
@@ -532,8 +571,18 @@ const CFG = {
     struck:   { name: "Supply Truck",   cost: 250, trainMin: 2.5, hp: 200, speed: 5.0, combat: false, vehicle: true,
                 desc: "Unarmed. Auto-fetches supply caches near its post." },
     general:  { name: "General",        cost: 800, trainMin: 4,   hp: 150, speed: 1.9, combat: false, mountable: true,
-                desc: "Mobile command relay: full remote command + 180s wave intel with spawn bearing. ONE allowed. Guard him with your life." },
+                desc: "Mobile command relay: full remote command, 180s wave intel with spawn bearing, and REVEALS artillery impact points. ONE allowed. Guard him with your life." },
+    messenger:{ name: "Messenger",      cost: 60,  trainMin: 1,   hp: 40,  speed: 1.2, combat: false,
+                desc: "Carries your orders to buildings and sites so you don't have to walk. Orders execute ONLY if he arrives alive." },
   },
+  maxMessengers: 4,
+  // messenger corps upgrades (bought at the CC, applies to all runners)
+  msgTiers: {
+    1: { speed: 1.2, hp: 40 },                       // on foot, unfit
+    2: { cost: 400,  speed: 2.5, hp: 80 },           // trained runner
+    3: { cost: 1000, speed: 4.5, hp: 140 },          // bicycle courier
+  },
+  escortFollowDist: 12,        // m — escorts close to this before holding formation
   maxCombatUnits: 24,
   maxBuilders: 8,
   maxTrucks: 4,
@@ -564,7 +613,7 @@ const CFG = {
 
   // wave escalation table — comp ranges keyed on player level (highest row ≤ level)
   waveTable: [
-    { lvl: 1,  comp: { erifle: [3, 4] },                                                   intervalMin: [8, 14] },
+    { lvl: 1,  comp: { erifle: [2, 4] },                                                   intervalMin: [8, 14] },
     { lvl: 2,  comp: { erifle: [4, 6] },                                                   intervalMin: [7, 12] },
     { lvl: 3,  comp: { erifle: [5, 7],  erocket: [1, 2] },                                 intervalMin: [6, 10] },
     { lvl: 5,  comp: { erifle: [6, 9],  erocket: [2, 3], ehumvee: [1, 2] },                intervalMin: [5, 8]  },
@@ -577,7 +626,7 @@ const CFG = {
   frontDrift: 15,              // ± deg drift of the front after each wave
   // wave warning lead by intel tier: 1 = base, 2 = Radar, 3 = General
   warnMsTiers: { 1: 60000, 2: 120000, 3: 180000 },
-  firstWaveGraceMin: 8,        // game-min after CC placement before wave 1
+  firstWaveGraceMin: 15,       // guaranteed peace after CC placement: economy + first squad time
   waveClearXp: 40,
   scoutIntervalMin: [3, 6],    // between-wave harassment pairs
   scoutCount: 2,
@@ -615,9 +664,9 @@ const CFG = {
   rubbleClearCostPct: 0.25,
   rubbleClearTimePct: 0.4,
 
-  xp: { build: { depot: 25, barracks: 40, cc: 0 }, perLevel: 150, scorchRepair: 15 },
+  xp: { build: { depot: 25, barracks: 40, cc: 0, watchtower: 30, warfactory: 50, repairyard: 40, radar: 45 }, perLevel: 150, scorchRepair: 15 },
 
-  startCash: 300,
+  startCash: 600,   // depot + barracks affordable immediately — the opening is build-up, not scraping
 
   devSpeeds: { WALK:1.5, RUN:4, BIKE:8, CAR:20 },
   devTickMs: 100,
@@ -639,12 +688,48 @@ function fmtClock(ms) {
   const mm = String(m%60).padStart(2,"0"), ss = String(s%60).padStart(2,"0");
   return h > 0 ? (h + ":" + mm + ":" + ss) : (mm + ":" + ss);
 }
+let logUnread = 0;
 function toast(msg, warn) {
   const t = document.createElement("div");
   t.className = "toast" + (warn ? " warn" : "");
   t.textContent = msg;
   $("toasts").appendChild(t);
   setTimeout(() => t.remove(), 3500);
+  // every toast is also filed as a field report (persisted with the world)
+  if (world) {
+    if (!world.log) world.log = [];
+    world.log.push({ t: gt(), m: msg, w: !!warn });
+    while (world.log.length > 60) world.log.shift();
+    if (!$("logPanel").classList.contains("show")) {
+      logUnread++;
+      $("logBtn").textContent = "LOG · " + (logUnread > 9 ? "9+" : logUnread);
+    } else {
+      renderLog();
+    }
+  }
+}
+function renderLog() {
+  const list = $("logList");
+  list.innerHTML = "";
+  const entries = (world && world.log) ? world.log.slice().reverse() : [];
+  if (!entries.length) {
+    const empty = document.createElement("div");
+    empty.className = "logRow";
+    empty.textContent = "No field reports yet.";
+    list.appendChild(empty);
+    return;
+  }
+  entries.forEach(e => {
+    const row = document.createElement("div");
+    row.className = "logRow" + (e.w ? " warn" : "");
+    const tm = document.createElement("div");
+    tm.className = "logTime";
+    tm.textContent = "T+" + fmtClock(e.t);
+    const m = document.createElement("div");
+    m.textContent = e.m;
+    row.appendChild(tm); row.appendChild(m);
+    list.appendChild(row);
+  });
 }
 function esc(s){ const d=document.createElement("div"); d.textContent=s; return d.innerHTML; }
 
@@ -854,6 +939,17 @@ $("sfxBtn").addEventListener("click", () => {
   toast("Sound " + (sfxOn ? "on." : "off."));
   if (sfxOn) { unlockAudio(); sfx("cash"); }
 });
+$("logBtn").addEventListener("click", () => {
+  const panel = $("logPanel");
+  const opening = !panel.classList.contains("show");
+  panel.classList.toggle("show");
+  if (opening) {
+    logUnread = 0;
+    $("logBtn").textContent = "LOG";
+    renderLog();
+  }
+});
+$("logClose").addEventListener("click", () => $("logPanel").classList.remove("show"));
 $("jumpMe").addEventListener("click", () => { if (playerPos) map.panTo([playerPos.lat, playerPos.lng]); });
 $("jumpHq").addEventListener("click", () => {
   const cc = live.buildings.find(b => b.data.kind === "cc");
@@ -884,6 +980,7 @@ const UNIT_SVG = {
   tank:     '<svg width="14" height="14" viewBox="0 0 24 24"><path fill="#dfeec0" d="M2 17a4 4 0 014-4h12a4 4 0 010 8H6a4 4 0 01-4-4zm7-6V9h4l2-4h2l-1 6H9z"/></svg>',
   struck:   '<svg width="14" height="14" viewBox="0 0 24 24"><path fill="#dfeec0" d="M2 16V6h11v10H2zm12 0v-6h4l3 3v3h-1a2.5 2.5 0 11-5 0h-1zm-9 0a2.5 2.5 0 105 0H5z"/></svg>',
   general:  '<svg width="12" height="12" viewBox="0 0 24 24"><path fill="#f0e2a0" d="M12 1l2.4 4.9 5.4.8-3.9 3.8.9 5.4L12 13.3l-4.8 2.6.9-5.4L4.2 6.7l5.4-.8L12 1zm-6 16h12v2H6v-2zm-2 4h16v2H4v-2z"/></svg>',
+  messenger:'<svg width="11" height="11" viewBox="0 0 24 24"><path fill="#c8e0e8" d="M2 6h20v12H2V6zm2 2.4V16h16V8.4l-8 5-8-5zM4.9 8l7.1 4.4L19.1 8H4.9z"/></svg>',
   cache:    '<svg width="12" height="12" viewBox="0 0 24 24"><path fill="#f0e2a0" d="M4 8l8-5 8 5v11H4V8zm8 1l6-3.5L12 2 6 5.5 12 9zm-1 2L5 7.6V17h6v-6zm2 0v6h6V7.6L13 11z"/></svg>',
 };
 
@@ -974,12 +1071,15 @@ function buildUnit(data) {
   if (data.mountId === undefined) data.mountId = null;      // infantry: humvee it's boarding/aboard
   if (data.mounted === undefined) data.mounted = [];        // humvee: ids aboard
   if (data.cacheId === undefined) data.cacheId = null;      // supply truck errand
+  if (data.errand === undefined) data.errand = null;        // messenger orders in transit
+  if (data.escortId === undefined) data.escortId = null;    // combat: friendly being guarded
   world.units.push(data);
   const meta = CFG.units[data.kind];
   let cls = "";
   if (data.kind === "builder") cls = "builderU";
   else if (data.kind === "rocket") cls = "rocketU";
   else if (data.kind === "general") cls = "generalU";
+  else if (data.kind === "messenger") cls = "msgU";
   if (meta.vehicle) cls += " vehU";
   if (data.kind === "struck") cls += " struckU";
   const sz = meta.vehicle ? 24 : 20;
@@ -996,6 +1096,13 @@ function buildUnit(data) {
   entry.marker.on("contextmenu", () => cycleSquad(entry));
   live.units.push(entry);
   if (data.state === "MOUNTED") entry.marker.remove();      // restore hidden if aboard
+  if (data.kind === "messenger" && data.errand && data.errand.type === "place") {
+    const gi = L.divIcon({
+      className: "", iconSize: [34,34], iconAnchor: [17,17],
+      html: '<div class="mk mkBld mkGhost">' + BLD_SVG[data.errand.kind] + '</div>',
+    });
+    entry.pendingMarker = L.marker([data.errand.lat, data.errand.lng], { icon: gi, zIndexOffset: 450, interactive: false }).addTo(map);
+  }
   refreshUnitMarker(entry);
   refreshSquadChips();
   return entry;
@@ -1004,14 +1111,22 @@ function findUnitEntry(id) { return live.units.find(e => e.data.id === id) || nu
 function refreshUnitMarker(entry) {
   const el = entry.marker && entry.marker.getElement();
   if (!el) return;
+  const maxHp = entry.data.kind === "messenger" ? msgMaxHp() : CFG.units[entry.data.kind].hp;
   const bar = el.querySelector(".hp");
-  if (bar) bar.style.width = clamp(entry.data.hp / CFG.units[entry.data.kind].hp * 100, 0, 100) + "%";
+  if (bar) bar.style.width = clamp(entry.data.hp / maxHp * 100, 0, 100) + "%";
   const sq = el.querySelector(".sq");
   if (sq) sq.textContent = entry.data.squad;
   el.querySelector(".mkUnit").classList.toggle("sel", isSelected(entry));
 }
 function removeUnit(entry) {
   const u = entry.data;
+  // a runner dying in the field means the orders never arrive
+  if (u.kind === "messenger" && u.errand) {
+    toast("A runner was killed — his orders died with him. Funds returned.", true);
+    clearErrand(entry, true);
+  }
+  // escorts lose their charge reference
+  world.units.forEach(x => { if (x.escortId === u.id) x.escortId = null; });
   // a dying humvee dumps its passengers first (with casualties)
   if (u.kind === "humvee" && u.mounted && u.mounted.length) dismountAll(entry, true);
   // a dying passenger leaves its ride's manifest
@@ -1036,16 +1151,16 @@ function spawnTrainedUnit(kind, fromBld) {
     id: newId("u"), kind, squad,
     lat: p.lat, lng: p.lng,
     hp: meta.hp,
-    state: (kind === "builder" || kind === "struck") ? "IDLE" : "GUARD",
+    state: (kind === "builder" || kind === "struck" || kind === "messenger") ? "IDLE" : "GUARD",
     post: { lat: p.lat, lng: p.lng },
   });
   toast(meta.name + " ready" + (meta.combat ? " — squad " + squad + "." : "."));
-  if (kind === "general") toast("The General has taken the field — full remote command. Do NOT let him die.", true);
+  if (kind === "general") toast("The General has taken the field — full remote command, and incoming artillery is now marked on the map. Do NOT let him die.", true);
   return entry;
 }
 function u_squadFor(kind) {
   const meta = CFG.units[kind];
-  if (!meta.combat) return kind === "builder" ? "BLD" : (kind === "general" ? "CMD" : "SUP");
+  if (!meta.combat) return kind === "builder" ? "BLD" : (kind === "general" ? "CMD" : (kind === "messenger" ? "MSG" : "SUP"));
   let squad = 1;
   for (let s = 1; s <= 3; s++) {
     if (world.units.filter(u => u.squad === s).length < CFG.squadSize) { squad = s; break; }
@@ -1196,7 +1311,8 @@ setInterval(() => {
     if (gt() >= war.nextWaveGt) {
       const row = waveRow();
       spawnWave(war.incoming ? war.incoming.comp : rollComp(row), false);
-    } else if (gt() >= war.scoutsGt && world.enemies.length === 0) {
+    } else if (war.waveNum > 0 && gt() >= war.scoutsGt && world.enemies.length === 0) {
+      // scouts only start once the war has actually begun — never during the opening peace
       spawnWave({ erifle: CFG.scoutCount }, true);
       scheduleScouts();
     }
@@ -1356,7 +1472,7 @@ function scorchPopupContent(entry) {
       world.cash -= cost;
       s.repairing = true; s.progress = 0;
       refreshHud(); saveWorld();
-      entry.circle.closePopup();
+      if (entry.circle.isPopupOpen()) entry.circle.getPopup().setContent(scorchPopupContent(entry));
       toast("Land repair ordered — builders will come, or work it yourself.");
     });
     root.appendChild(b);
@@ -1370,6 +1486,7 @@ const pendingCircles = [];
 function renderPendingWarnings() {
   pendingCircles.forEach(c => c.remove());
   pendingCircles.length = 0;
+  if (intelTier() < CFG.bombMarkerIntelTier) return;   // shells still land & units still scatter — the General's intel reveals WHERE
   (world.war.pending || []).forEach(p => {
     const c = L.circle([p.lat, p.lng], {
       radius: p.r, color: "#c0402a", weight: 2, dashArray: "5 5",
@@ -1641,6 +1758,8 @@ function restoreWorld(saved) {
   world.level = saved.level || 1;
   world.player = saved.player || { hp: CFG.player.maxHp, maxHp: CFG.player.maxHp, weapons: {}, ammo: { a556: 0 }, drawn: false, targetId: null, graceUntil: 0 };
   world.war = saved.war || null;
+  world.log = saved.log || [];
+  world.msgTier = saved.msgTier || 1;
   world.buildings = [];
   world.units = [];
   world.enemies = [];
@@ -1783,8 +1902,8 @@ function moveGhost(latlng) {
   updateGhostValidity();
 }
 
-function checkPlacement(kind, pos) {
-  if (!playerPos && !freeOps()) return { ok:false, reason:"No position fix — enable GPS or use DEV movement first." };
+function checkPlacement(kind, pos, forRemote) {
+  if (!playerPos && !freeOps() && !forRemote) return { ok:false, reason:"No position fix — enable GPS or use DEV movement first." };
   const meta = CFG.buildings[kind];
   if (kind === "cc") {
     if (freeOps() && !playerPos) return { ok:true, reason:"FREE OPS: Command Center site set. Confirm to break ground." };
@@ -1817,13 +1936,21 @@ function checkPlacement(kind, pos) {
     if (haversine({lat:s.lat,lng:s.lng}, pos) < s.r + meta.foot)
       return { ok:false, reason:"That ground is scorched — repair the land before building on it." };
   }
-  if (!freeOps() && !remoteCommand()) {
+  if (!freeOps() && !remoteCommand() && !forRemote) {
     const dp = haversine(playerPos, pos);
     const reach = meta.foot + CFG.assistRadius;
-    if (dp > reach)
-      return { ok:false, reason:"You must be at the site to place ("+Math.round(dp)+"m away, reach "+reach+"m). Radar will unlock remote placement." };
+    if (dp > reach) {
+      if (world.cash < meta.cost)
+        return { ok:false, reason:"Costs "+fmtCash(meta.cost)+" — you have "+fmtCash(world.cash)+"." };
+      const m = nearestIdleMessenger(pos);
+      if (m) {
+        const run = Math.round(haversine({ lat: m.data.lat, lng: m.data.lng }, pos));
+        return { ok:true, viaMessenger:true, reason:"Out of reach — CONFIRM sends a runner ("+run+"m). The site is founded when he arrives alive." };
+      }
+      return { ok:false, reason:"You must be at the site ("+Math.round(dp)+"m away, reach "+reach+"m) — or train a Messenger at the CC to carry orders. Radar unlocks true remote." };
+    }
   }
-  if (world.cash < meta.cost)
+  if (world.cash < meta.cost && !forRemote)   // runner deliveries were paid at dispatch
     return { ok:false, reason:"Costs "+fmtCash(meta.cost)+" — you have "+fmtCash(world.cash)+"." };
   return { ok:true, reason: meta.name+" — "+fmtCash(meta.cost)+", ~"+meta.buildMin+" game-min. Confirm to break ground." };
 }
@@ -1860,6 +1987,7 @@ $("placeConfirm").addEventListener("click", () => {
         buildings: [], units: [], enemies: [], scorch: [], caches: [],
         player: { hp: CFG.player.maxHp, maxHp: CFG.player.maxHp, weapons: {}, ammo: { a556: 0 }, drawn: false, targetId: null, graceUntil: 0 },
         war: null,
+        msgTier: 1,
         camMode: camMode,
       };
       initWar();
@@ -1881,10 +2009,20 @@ $("placeConfirm").addEventListener("click", () => {
     saveWorld(); refreshHud(); refreshSquadChips(); refreshWeaponBtn();
     if (ccPlaceMode === "onboard") {
       toast(world.armyName + " — command established. Hold this ground.");
-      toast(world.enemyName + " will come. Build while you can.");
+      toast("Intel says " + world.enemyName + " won't reach you for ~" + CFG.firstWaveGraceMin + " minutes. Build your economy and raise a squad.", false);
     } else {
       toast("Command re-established. Don't lose it again.");
     }
+    return;
+  }
+
+  if (res.viaMessenger && kind !== "cc") {
+    const m = nearestIdleMessenger(pos);
+    if (!m) { toast("No idle runner anymore.", true); updateGhostValidity(); return; }
+    cancelPlacement();
+    world.cash -= meta.cost;
+    refreshHud();
+    sendErrand(m, { type: "place", kind, lat: pos.lat, lng: pos.lng, paid: meta.cost });
     return;
   }
 
@@ -1940,6 +2078,200 @@ $("buildBtn").addEventListener("click", () => {
 });
 $("bmClose").addEventListener("click", () => $("buildMenu").classList.remove("show"));
 
+/* =====================================================================
+   MESSENGER CORPS — orders travel by runner until Radar exists.
+   A messenger physically walks the order to its destination; the order
+   executes ONLY on arrival. Killed en route = orders lost (funds
+   refunded), so escort your runners. Faster in person, always.
+   ===================================================================== */
+function msgTierStats() { return CFG.msgTiers[world.msgTier || 1]; }
+function msgMaxHp() { return msgTierStats().hp; }
+function unitSpeed(u) { return u.kind === "messenger" ? msgTierStats().speed : CFG.units[u.kind].speed; }
+function nearestIdleMessenger(pos) {
+  let best = null, bestD = Infinity;
+  live.units.forEach(e => {
+    const u = e.data;
+    if (u.kind !== "messenger" || u.errand || u.state === "MOUNTED") return;
+    if (u.state !== "IDLE" && u.state !== "MOVE" && u.state !== "FLEE") return;
+    const d = haversine({ lat: u.lat, lng: u.lng }, pos);
+    if (d < bestD) { bestD = d; best = e; }
+  });
+  return best;
+}
+function errandPos(errand) {
+  if (errand.type === "place") return { lat: errand.lat, lng: errand.lng };
+  const bld = world.buildings.find(b => b.id === errand.bldId);
+  return bld ? { lat: bld.lat, lng: bld.lng } : null;
+}
+function errandDesc(errand) {
+  if (errand.type === "place") return "Found " + CFG.buildings[errand.kind].name;
+  const bld = world.buildings.find(b => b.id === errand.bldId);
+  const at = bld ? CFG.buildings[bld.kind].name : "?";
+  if (errand.type === "train") return "Train " + CFG.units[errand.unitKind].name + " → " + at;
+  if (errand.type === "upg") return "Upgrade order → " + at;
+  if (errand.type === "msgup") return "Runner-corps upgrade → " + at;
+  return "Orders";
+}
+function sendErrand(mEntry, errand) {
+  const u = mEntry.data;
+  u.errand = errand;
+  u.state = "ERRAND";
+  u.target = null;
+  const dest = errandPos(errand);
+  const d = dest ? Math.round(haversine({ lat: u.lat, lng: u.lng }, dest)) : 0;
+  if (errand.type === "place") {
+    const icon = L.divIcon({
+      className: "", iconSize: [34,34], iconAnchor: [17,17],
+      html: '<div class="mk mkBld mkGhost">' + BLD_SVG[errand.kind] + '</div>',
+    });
+    mEntry.pendingMarker = L.marker([errand.lat, errand.lng], { icon, zIndexOffset: 450, interactive: false }).addTo(map);
+  }
+  toast("Runner dispatched: " + errandDesc(errand) + " — " + d + "m. Orders execute on arrival.");
+  saveWorld();
+}
+function clearErrand(mEntry, refund) {
+  const u = mEntry.data;
+  if (!u.errand) return;
+  if (refund && u.errand.paid) {
+    world.cash += u.errand.paid;
+    refreshHud();
+  }
+  if (mEntry.pendingMarker) { mEntry.pendingMarker.remove(); mEntry.pendingMarker = null; }
+  u.errand = null;
+}
+function executeErrand(mEntry) {
+  const u = mEntry.data, errand = u.errand;
+  u.state = "IDLE";
+  u.post = { lat: u.lat, lng: u.lng };
+  if (!errand) return;
+  if (errand.type === "train") {
+    const bld = world.buildings.find(b => b.id === errand.bldId);
+    const um = CFG.units[errand.unitKind];
+    const capped =
+      (errand.unitKind === "builder" && builderCount() >= CFG.maxBuilders) ||
+      (errand.unitKind === "struck" && world.units.filter(x => x.kind === "struck").length >= CFG.maxTrucks) ||
+      (errand.unitKind === "messenger" && world.units.filter(x => x.kind === "messenger").length >= CFG.maxMessengers) ||
+      (errand.unitKind === "general" && hasGeneral()) ||
+      (um.combat && combatCount() >= CFG.maxCombatUnits);
+    if (bld && !bld.rubble && bld.progress >= 1 && bld.queue.length < CFG.queueCap && !capped) {
+      bld.queue.push({ kind: errand.unitKind, remainMs: um.trainMin * 60000 });
+      toast("Orders delivered — " + um.name + " training at the " + CFG.buildings[bld.kind].name + ".");
+      clearErrand(mEntry, false);
+    } else {
+      toast("Runner arrived but the order can't be carried out — funds returned.", true);
+      clearErrand(mEntry, true);
+    }
+  } else if (errand.type === "upg") {
+    const bldEntry = findBld(errand.bldId);
+    const bld = bldEntry && bldEntry.data;
+    const nt = bld && CFG.buildings[bld.kind].tiers && CFG.buildings[bld.kind].tiers[bld.tier + 1];
+    if (bld && nt && !bld.rubble && bld.progress >= 1 && !bld.upgrading) {
+      bld.upgrading = true; bld.upProgress = 0;
+      refreshBldMarker(bldEntry);
+      toast("Orders delivered — " + CFG.buildings[bld.kind].name + " upgrade to T" + (bld.tier + 1) + " begins.");
+      clearErrand(mEntry, false);
+    } else {
+      toast("Runner arrived but the upgrade can't start — funds returned.", true);
+      clearErrand(mEntry, true);
+    }
+  } else if (errand.type === "msgup") {
+    if (!errand.toTier || (world.msgTier || 1) + 1 === errand.toTier) {
+      applyMsgUpgrade();
+      clearErrand(mEntry, false);
+    } else {
+      toast("Runner arrived but that corps upgrade was already done — funds returned.", true);
+      clearErrand(mEntry, true);
+    }
+  } else if (errand.type === "place") {
+    const res = checkPlacement(errand.kind, { lat: errand.lat, lng: errand.lng }, true);
+    if (res.ok) {
+      const meta = CFG.buildings[errand.kind];
+      live.buildings.push(buildBuilding({
+        id: newId("b"), kind: errand.kind, tier: 1,
+        lat: errand.lat, lng: errand.lng,
+        hp: meta.hp, maxHp: meta.hp,
+        progress: 0,
+      }));
+      toast("Orders delivered — " + meta.name + " site founded. Builders will come.");
+      clearErrand(mEntry, false);
+    } else {
+      toast("Runner arrived but the ground is no longer buildable — funds returned.", true);
+      clearErrand(mEntry, true);
+    }
+  }
+  saveWorld();
+}
+function applyMsgUpgrade() {
+  const oldMax = msgMaxHp();
+  world.msgTier = (world.msgTier || 1) + 1;
+  const newMax = msgMaxHp();
+  live.units.forEach(e => {
+    if (e.data.kind !== "messenger") return;
+    e.data.hp = Math.min(newMax, e.data.hp / oldMax * newMax);
+    refreshUnitMarker(e);
+  });
+  toast("Messenger corps upgraded to T" + world.msgTier + " — " + msgTierStats().speed + " m/s, " + newMax + " hp.");
+}
+
+/* runners menu */
+function renderMsgMenu() {
+  const list = $("msgList");
+  list.innerHTML = "";
+  const runners = live.units.filter(e => e.data.kind === "messenger");
+  if (!runners.length) {
+    const row = document.createElement("div");
+    row.className = "bmItem ghosted";
+    row.textContent = "No messengers. Train them at the Command Center ($" + CFG.units.messenger.cost + ").";
+    list.appendChild(row);
+  }
+  runners.forEach((e, i) => {
+    const u = e.data;
+    const item = document.createElement("div");
+    item.className = "bmItem";
+    const info = document.createElement("div"); info.className = "bmInfo";
+    const nm = document.createElement("div"); nm.className = "bmName";
+    nm.textContent = "Runner " + (i + 1) + " · T" + (world.msgTier || 1) + " · " + Math.ceil(u.hp) + "/" + msgMaxHp() + "hp";
+    const ds = document.createElement("div"); ds.className = "bmDesc";
+    if (u.errand) {
+      const dest = errandPos(u.errand);
+      const d = dest ? Math.round(haversine({ lat: u.lat, lng: u.lng }, dest)) : 0;
+      ds.textContent = "Carrying: " + errandDesc(u.errand) + " · " + d + "m out";
+    } else {
+      ds.textContent = u.state === "FLEE" ? "Fleeing!" : "Idle — tap to select, then tap the map to move him.";
+    }
+    info.appendChild(nm); info.appendChild(ds);
+    item.appendChild(info);
+    if (u.errand) {
+      const rc = document.createElement("button");
+      rc.className = "btn danger";
+      rc.textContent = "RECALL";
+      rc.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        clearErrand(e, true);
+        u.state = "IDLE"; u.target = null; u.post = { lat: u.lat, lng: u.lng };
+        toast("Runner recalled — orders cancelled, funds returned.");
+        saveWorld();
+        renderMsgMenu();
+      });
+      item.appendChild(rc);
+    }
+    item.addEventListener("click", () => {
+      $("msgMenu").style.display = "none";
+      selectUnit(e);
+      map.panTo([u.lat, u.lng]);
+    });
+    list.appendChild(item);
+  });
+}
+$("msgBtn").addEventListener("click", () => {
+  if (!started) return;
+  const menu = $("msgMenu");
+  const opening = menu.style.display !== "flex";
+  menu.style.display = opening ? "flex" : "none";
+  if (opening) renderMsgMenu();
+});
+$("msgClose").addEventListener("click", () => $("msgMenu").style.display = "none");
+
 /* ============ training / upgrades ============ */
 function canTrainAt(bld) {
   if (freeOps() || remoteCommand()) return true;
@@ -1949,10 +2281,10 @@ function canTrainAt(bld) {
 function queueTrain(bldEntry, kind) {
   const bld = bldEntry.data, meta = CFG.units[kind];
   if (bld.rubble || bld.progress < 1) { toast("That building isn't operational.", true); return; }
-  if (!canTrainAt(bld)) { toast("You must be at the " + CFG.buildings[bld.kind].name + " to start training. Radar will unlock remote orders.", true); return; }
   if (bld.queue.length >= CFG.queueCap) { toast("Queue is full.", true); return; }
   if (kind === "builder" && builderCount() >= CFG.maxBuilders) { toast("Builder cap reached (" + CFG.maxBuilders + ").", true); return; }
   if (kind === "struck" && world.units.filter(u => u.kind === "struck").length >= CFG.maxTrucks) { toast("Truck fleet cap reached (" + CFG.maxTrucks + ").", true); return; }
+  if (kind === "messenger" && world.units.filter(u => u.kind === "messenger").length >= CFG.maxMessengers) { toast("Messenger cap reached (" + CFG.maxMessengers + ").", true); return; }
   if (kind === "general") {
     const queued = world.buildings.some(b => (b.queue || []).some(q => q.kind === "general"));
     if (hasGeneral() || queued) { toast("Only one General. He's irreplaceable — until he isn't.", true); return; }
@@ -1960,12 +2292,25 @@ function queueTrain(bldEntry, kind) {
   }
   if (meta.combat && combatCount() >= CFG.maxCombatUnits) { toast("Army at capacity (" + CFG.maxCombatUnits + ").", true); return; }
   if (world.cash < meta.cost) { toast("Costs " + fmtCash(meta.cost) + " — you have " + fmtCash(world.cash) + ".", true); return; }
-  world.cash -= meta.cost;
-  bld.queue.push({ kind, remainMs: meta.trainMin * 60000 });
-  refreshHud(); saveWorld();
-  toast(meta.name + " queued — " + meta.trainMin + " game-min.");
+  if (canTrainAt(bld)) {
+    world.cash -= meta.cost;
+    bld.queue.push({ kind, remainMs: meta.trainMin * 60000 });
+    refreshHud(); saveWorld();
+    toast(meta.name + " queued — " + meta.trainMin + " game-min.");
+  } else {
+    // too far: a messenger can carry the order there
+    const m = nearestIdleMessenger({ lat: bld.lat, lng: bld.lng });
+    if (!m) { toast("Out of range — get closer, or train a Messenger at the Command Center to carry orders.", true); return; }
+    world.cash -= meta.cost;
+    refreshHud();
+    sendErrand(m, { type: "train", bldId: bld.id, unitKind: kind, paid: meta.cost });
+  }
 }
 
+/* re-render an open popup in place (buttons act without closing the menu) */
+function refreshBldPopup(entry) {
+  if (entry.marker.isPopupOpen()) entry.marker.getPopup().setContent(buildingPopupContent(entry));
+}
 function buildingPopupContent(entry) {
   const d = entry.data, meta = CFG.buildings[d.kind];
   const root = document.createElement("div");
@@ -1990,7 +2335,7 @@ function buildingPopupContent(entry) {
         world.cash -= cost;
         d.clearing = true; d.progress = 0;
         refreshBldMarker(entry); refreshHud(); saveWorld();
-        entry.marker.closePopup();
+        refreshBldPopup(entry);
         toast("Clearing ordered — builders will handle it, or work it yourself.");
       });
       root.appendChild(b);
@@ -2016,7 +2361,7 @@ function buildingPopupContent(entry) {
         world.cash -= rCost;
         d.repairing = true;
         refreshHud(); saveWorld();
-        entry.marker.closePopup();
+        refreshBldPopup(entry);
         toast("Repairs ordered — builders will come, or work it yourself.");
       });
       root.appendChild(b);
@@ -2050,11 +2395,32 @@ function buildingPopupContent(entry) {
         const b = document.createElement("button");
         b.className = "btn primary popBtn";
         b.textContent = "TRAIN " + um.name.toUpperCase() + " (" + fmtCash(um.cost) + ")";
-        b.addEventListener("click", () => { queueTrain(entry, kind); entry.marker.closePopup(); });
+        b.addEventListener("click", () => { queueTrain(entry, kind); refreshBldPopup(entry); });
         root.appendChild(b);
       });
       if (d.kind === "cc" && d.tier < 3) addLine("The General unlocks at Command Center T3.");
-      if (d.kind === "cc") addLine("Command: " + (intelTier() === 3 ? "FULL (General)" : intelTier() === 2 ? "REMOTE (Radar)" : "LOCAL — be there in person"));
+      if (d.kind === "cc" && CFG.msgTiers[(world.msgTier || 1) + 1]) {
+        const mt = CFG.msgTiers[(world.msgTier || 1) + 1];
+        const b = document.createElement("button");
+        b.className = "btn primary popBtn";
+        b.textContent = "UPGRADE RUNNERS TO T" + ((world.msgTier || 1) + 1) + " (" + fmtCash(mt.cost) + ")";
+        b.addEventListener("click", () => {
+          if (world.cash < mt.cost) { toast("Costs " + fmtCash(mt.cost) + ".", true); return; }
+          if (canTrainAt(d)) {
+            world.cash -= mt.cost;
+            applyMsgUpgrade();
+            refreshHud(); saveWorld(); refreshBldPopup(entry);
+          } else {
+            const m = nearestIdleMessenger({ lat: d.lat, lng: d.lng });
+            if (!m) { toast("Out of range and no runner to carry the order.", true); return; }
+            world.cash -= mt.cost;
+            refreshHud(); refreshBldPopup(entry);
+            sendErrand(m, { type: "msgup", bldId: d.id, paid: mt.cost, toTier: (world.msgTier || 1) + 1 });
+          }
+        });
+        root.appendChild(b);
+      }
+      if (d.kind === "cc") addLine("Command: " + (intelTier() === 3 ? "FULL (General)" : intelTier() === 2 ? "REMOTE (Radar)" : "LOCAL — runners carry orders, or be there in person"));
     }
     // the Barracks armory: the player's personal weapons + ammo
     if (d.kind === "barracks") {
@@ -2082,7 +2448,7 @@ function buildingPopupContent(entry) {
     const b = document.createElement("button");
     b.className = "btn danger popBtn";
     b.textContent = "DEV: DAMAGE 500";
-    b.addEventListener("click", () => { damageBuilding(entry, 500); saveWorld(); entry.marker.closePopup(); });
+    b.addEventListener("click", () => { damageBuilding(entry, 500); saveWorld(); refreshBldPopup(entry); });
     root.appendChild(b);
   }
   return root;
@@ -2092,13 +2458,21 @@ function startUpgrade(entry) {
   const d = entry.data, meta = CFG.buildings[d.kind];
   const nt = meta.tiers && meta.tiers[d.tier + 1];
   if (!nt || d.rubble || d.progress < 1 || d.upgrading) return;
-  if (!canTrainAt(d)) { toast("You must be at the " + meta.name + " to order the upgrade. Radar will unlock remote orders.", true); return; }
   if (world.cash < nt.cost) { toast("Costs " + fmtCash(nt.cost) + " — you have " + fmtCash(world.cash) + ".", true); return; }
-  world.cash -= nt.cost;
-  d.upgrading = true; d.upProgress = 0;
-  refreshBldMarker(entry); refreshHud(); saveWorld();
-  entry.marker.closePopup();
-  toast(meta.name + " upgrade to T" + (d.tier + 1) + " started — workers make it faster.");
+  if (canTrainAt(d)) {
+    world.cash -= nt.cost;
+    d.upgrading = true; d.upProgress = 0;
+    refreshBldMarker(entry); refreshHud(); saveWorld();
+    refreshBldPopup(entry);
+    toast(meta.name + " upgrade to T" + (d.tier + 1) + " started — workers make it faster.");
+  } else {
+    const m = nearestIdleMessenger({ lat: d.lat, lng: d.lng });
+    if (!m) { toast("Out of range — get closer, or train a Messenger at the Command Center to carry orders.", true); return; }
+    world.cash -= nt.cost;
+    refreshHud();
+    refreshBldPopup(entry);
+    sendErrand(m, { type: "upg", bldId: d.id, paid: nt.cost });
+  }
 }
 function finishUpgrade(entry) {
   const d = entry.data, meta = CFG.buildings[d.kind];
@@ -2124,7 +2498,7 @@ function buyWeapon(bldEntry, kind) {
   world.cash -= w.cost;
   world.player.weapons[kind] = true;
   refreshHud(); refreshWeaponBtn(); saveWorld();
-  bldEntry.marker.closePopup();
+  refreshBldPopup(bldEntry);
   toast(w.name + " purchased. DRAW it to fight.");
 }
 function buyAmmo(bldEntry, cal) {
@@ -2134,6 +2508,7 @@ function buyAmmo(bldEntry, cal) {
   world.cash -= am.cost;
   world.player.ammo[cal] = (world.player.ammo[cal] | 0) + am.pack;
   refreshHud(); refreshWeaponBtn(); saveWorld();
+  refreshBldPopup(bldEntry);
   toast("+" + am.pack + " rounds of 5.56.");
 }
 function refreshWeaponBtn() {
@@ -2188,8 +2563,10 @@ function selectUnit(entry) {
   setSelection({ type: "unit", id: u.id },
     meta.name + (meta.combat ? " · SQ" + u.squad : "") + " · " + Math.ceil(u.hp) + "hp" + extra);
 }
-/* tap a friendly unit: if infantry are selected and you tapped a humvee,
-   that's a MOUNT order; otherwise it selects the unit */
+/* tap a friendly unit:
+   - infantry selected + tapped a humvee → MOUNT
+   - armed units selected + tapped any other friendly → ESCORT it
+   - otherwise → select the unit */
 function onFriendlyUnitTap(entry) {
   if (placement) return;
   const tapped = entry.data;
@@ -2197,7 +2574,26 @@ function onFriendlyUnitTap(entry) {
     const infantry = selectedEntries().filter(e => CFG.units[e.data.kind].mountable && e.data.state !== "MOUNTED" && e.data.id !== tapped.id);
     if (infantry.length) { orderMount(infantry, entry); return; }
   }
+  if (sel) {
+    const guards = selectedEntries().filter(e =>
+      CFG.units[e.data.kind].combat && CFG.units[e.data.kind].dmg &&
+      e.data.state !== "MOUNTED" && e.data.id !== tapped.id);
+    if (guards.length) { orderEscort(guards, entry); return; }
+  }
   selectUnit(entry);
+}
+function orderEscort(entries, targetEntry) {
+  const { ok, out } = commandable(entries);
+  ok.forEach(e => {
+    const u = e.data;
+    u.state = "ESCORT";
+    u.escortId = targetEntry.data.id;
+    u.target = null; u.task = null; u.enemyId = null;
+  });
+  const tName = CFG.units[targetEntry.data.kind].name;
+  if (ok.length) toast(ok.length + " now escorting the " + tName + (out ? " — " + out + " out of command range." : "."), out > 0);
+  else if (out) toast("No units in command range ("+CFG.orderRange+"m).", true);
+  saveWorld();
 }
 function orderMount(entries, hvEntry) {
   const hv = hvEntry.data;
@@ -2296,7 +2692,8 @@ function orderMove(entries, latlng) {
     const u = e.data;
     u.state = "MOVE";
     u.target = ok.length > 1 ? scatter(latlng, CFG.orderScatter) : { lat: latlng.lat, lng: latlng.lng };
-    u.task = null; u.enemyId = null; u.mountId = null; u.cacheId = null;
+    u.task = null; u.enemyId = null; u.mountId = null; u.cacheId = null; u.escortId = null;
+    if (u.kind === "messenger" && u.errand) { clearErrand(e, true); toast("Runner rerouted — carried orders cancelled, funds returned."); }
   });
   if (ok.length) toast("Moving " + ok.length + " unit" + (ok.length>1?"s":"") + (out ? " — " + out + " out of command range ("+CFG.orderRange+"m)." : "."), out > 0);
   else if (out) toast("No units in command range ("+CFG.orderRange+"m). Get closer — Radar will fix this.", true);
@@ -2310,7 +2707,7 @@ function orderAttack(entries, enemyEntry) {
     const u = e.data;
     u.state = "ATTACK";
     u.enemyId = enemyEntry.data.id;
-    u.target = null; u.task = null;
+    u.target = null; u.task = null; u.escortId = null;
   });
   if (ok.length) toast(ok.length + " engaging the " + world.enemyName + " " + CFG.enemies[enemyEntry.data.kind].name + (out ? " — " + out + " out of range." : "!"), false);
   else if (out) toast("No units in command range ("+CFG.orderRange+"m).", true);
@@ -2321,9 +2718,10 @@ $("ordGuard").addEventListener("click", () => {
   const { ok, out } = commandable(selectedEntries().filter(e => e.data.state !== "MOUNTED"));
   ok.forEach(e => {
     const u = e.data;
+    if (u.kind === "messenger" && u.errand) { clearErrand(e, true); toast("Runner held — carried orders cancelled, funds returned."); }
     u.post = { lat: u.lat, lng: u.lng };
     u.state = u.kind === "builder" ? "HOLD" : (CFG.units[u.kind].combat ? "GUARD" : "IDLE");
-    u.target = null; u.task = null; u.enemyId = null; u.cacheId = null;
+    u.target = null; u.task = null; u.enemyId = null; u.cacheId = null; u.escortId = null;
   });
   if (ok.length) toast(ok.length + " holding position" + (out ? " — " + out + " out of range." : "."), out > 0);
   else if (out) toast("No units in command range.", true);
@@ -2445,6 +2843,7 @@ setInterval(() => {
       const um = CFG.units[head.kind];
       if (head.kind === "builder" && builderCount() >= CFG.maxBuilders) { toast("Builder cap reached — training refunded.", true); world.cash += um.cost; }
       else if (head.kind === "struck" && world.units.filter(u => u.kind === "struck").length >= CFG.maxTrucks) { toast("Truck fleet cap reached — refunded.", true); world.cash += um.cost; }
+      else if (head.kind === "messenger" && world.units.filter(u => u.kind === "messenger").length >= CFG.maxMessengers) { toast("Messenger cap reached — refunded.", true); world.cash += um.cost; }
       else if (head.kind === "general" && hasGeneral()) { toast("Only one General — refunded.", true); world.cash += um.cost; }
       else if (um.combat && combatCount() >= CFG.maxCombatUnits) { toast("Army at capacity — training refunded.", true); world.cash += um.cost; }
       else spawnTrainedUnit(head.kind, d);
@@ -2565,8 +2964,9 @@ setInterval(() => {
   live.units.forEach(entry => {
     const u = entry.data, meta = CFG.units[u.kind];
 
-    // builders flee any enemy that gets close, whatever they were doing
-    if (u.kind === "builder" && u.state !== "FLEE") {
+    // builders — and idle messengers — flee any enemy that gets close.
+    // A messenger CARRYING orders does not flee: delivery or death.
+    if ((u.kind === "builder" || (u.kind === "messenger" && !u.errand)) && u.state !== "FLEE" && u.state !== "MOUNTED") {
       const near = nearestEnemyTo({ lat: u.lat, lng: u.lng }, CFG.builderFleeDist);
       if (near) {
         u.state = "FLEE"; u.task = null;
@@ -2578,10 +2978,33 @@ setInterval(() => {
     switch (u.state) {
       case "MOVE": {
         if (!u.target) { u.state = meta.combat ? "GUARD" : "IDLE"; break; }
-        if (stepToward(u, u.target, dt, meta.speed)) {
+        if (stepToward(u, u.target, dt, unitSpeed(u))) {
           u.post = { lat: u.lat, lng: u.lng };
           u.target = null;
           u.state = meta.combat ? "GUARD" : "IDLE";
+        }
+        break;
+      }
+      case "ERRAND": {  // messenger carrying orders — delivery or death
+        const dest = errandPos(u.errand || {});
+        if (!u.errand || !dest) { clearErrand(entry, true); u.state = "IDLE"; u.post = { lat: u.lat, lng: u.lng }; break; }
+        if (stepToward(u, dest, dt, unitSpeed(u))) executeErrand(entry);
+        break;
+      }
+      case "ESCORT": {  // combat unit guarding a friendly — follows and fights
+        const te = findUnitEntry(u.escortId);
+        if (!te || te.data.state === "MOUNTED") { u.escortId = null; u.state = "GUARD"; u.post = { lat: u.lat, lng: u.lng }; break; }
+        if (meta.dmg) {
+          const near = nearestEnemyTo({ lat: u.lat, lng: u.lng }, meta.range);
+          if (near && now >= entry.nextShotGt) {
+            entry.nextShotGt = now + meta.rofMs;
+            fireAtEnemy(entry, meta, near.entry);
+            break;
+          }
+        }
+        const tp = { lat: te.data.lat, lng: te.data.lng };
+        if (haversine({ lat: u.lat, lng: u.lng }, tp) > CFG.escortFollowDist) {
+          stepToward(u, offsetPoint(tp.lat, tp.lng, CFG.escortFollowDist * 0.7, rand(0, 360)), dt, meta.speed);
         }
         break;
       }
@@ -2617,10 +3040,10 @@ setInterval(() => {
         break;
       }
       case "FLEE": {
-        if (!u.target) { u.state = u.kind === "builder" ? "IDLE" : "GUARD"; u.post = { lat: u.lat, lng: u.lng }; break; }
-        if (stepToward(u, u.target, dt, meta.speed * 1.15)) {
+        if (!u.target) { u.state = CFG.units[u.kind].combat ? "GUARD" : "IDLE"; u.post = { lat: u.lat, lng: u.lng }; break; }
+        if (stepToward(u, u.target, dt, unitSpeed(u) * 1.15)) {
           u.target = null;
-          if (u.kind === "builder") {
+          if (!CFG.units[u.kind].combat) {
             const still = nearestEnemyTo({ lat: u.lat, lng: u.lng }, CFG.builderSafeDist);
             if (still) {
               const away = bearingBetween({ lat: still.entry.data.lat, lng: still.entry.data.lng }, { lat: u.lat, lng: u.lng });
@@ -2863,6 +3286,24 @@ setInterval(() => {
   if (paused()) return;                                   // pause guard FIRST
   refreshHud();
   ensurePlayerMarker();   // grace pulse on/off
+
+  // LIVE popups: re-render any open building/scorch popup that shows a
+  // countdown or progress, so queue timers and percentages actually tick.
+  // Static popups aren't touched, so their buttons never jump under a tap.
+  live.buildings.forEach(entry => {
+    const d = entry.data;
+    const dynamic = (d.queue && d.queue.length) || d.progress < 1 || d.upgrading ||
+                    (d.repairing && d.hp < d.maxHp) || (d.rubble && d.clearing);
+    if (dynamic && entry.marker.isPopupOpen()) {
+      entry.marker.getPopup().setContent(buildingPopupContent(entry));
+    }
+  });
+  live.scorch.forEach(entry => {
+    if (entry.data.repairing && entry.circle.isPopupOpen()) {
+      entry.circle.getPopup().setContent(scorchPopupContent(entry));
+    }
+  });
+
   const war = world.war;
   const chip = $("waveChip");
   if (war.waveActive) {
