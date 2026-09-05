@@ -72,7 +72,7 @@
   body.freecam .jump { display:block; }
 
   #rightCol {
-    position:fixed; z-index:10; right:8px; bottom:calc(76px + env(safe-area-inset-bottom));
+    position:fixed; z-index:10; right:8px; bottom:calc(150px + env(safe-area-inset-bottom));
     display:none; flex-direction:column; gap:6px; align-items:stretch;
   }
   body.playing #rightCol { display:flex; }
@@ -81,7 +81,7 @@
   #wepBtn.drawn { background:#4d3a1f; border-color:#a3854e; color:#f0e2c2; }
   #buildBtn { padding:13px 18px; font-size:14px; }
 
-  #cornerCol { bottom:calc(76px + env(safe-area-inset-bottom)); left:8px; display:flex; flex-direction:column; gap:6px; z-index:60; }
+  #cornerCol { bottom:calc(150px + env(safe-area-inset-bottom)); left:8px; display:flex; flex-direction:column; gap:6px; z-index:60; }
 
   #toasts { top:calc(56px + env(safe-area-inset-top)); left:50%; transform:translateX(-50%); z-index:70;
     display:flex; flex-direction:column; gap:6px; align-items:center; pointer-events:none; width:92vw; }
@@ -205,10 +205,12 @@
   .leaflet-container { background:#181c12; }
   .leaflet-popup-content-wrapper { background:#1a2010; color:#dbe4c6; border:1px solid #55613a; border-radius:6px; }
   .leaflet-popup-tip { background:#1a2010; border:1px solid #55613a; }
-  .leaflet-popup-content { margin:10px 14px; font-size:13px; }
+  .leaflet-popup-content { margin:8px 10px; font-size:12px; line-height:1.35; }
+  .leaflet-popup-scrolled { border-top:1px solid #333d20; border-bottom:1px solid #333d20; -webkit-overflow-scrolling:touch; }
+  .popBtn { padding:7px 10px; font-size:11px; }
   .popTitle { font-weight:800; color:#cfe0a2; margin-bottom:2px; }
   .popLine { color:#a9b78d; font-size:12px; margin:2px 0; }
-  .popBtn { margin-top:6px; width:100%; padding:9px; }
+  .popBtn { margin-top:6px; width:100%; padding:7px 10px; font-size:11px; }
 
   /* ============ OVERLAYS ============ */
   .screen {
@@ -234,7 +236,7 @@
 
   #placeBar {
     position:fixed; z-index:40; left:50%; transform:translateX(-50%);
-    bottom:calc(70px + env(safe-area-inset-bottom));
+    bottom:calc(150px + env(safe-area-inset-bottom));
     display:none; flex-direction:column; align-items:center; gap:8px; width:92vw; max-width:420px;
   }
   #placeBar.show { display:flex; }
@@ -245,7 +247,7 @@
 
   #buildMenu {
     position:fixed; z-index:41; left:50%; transform:translateX(-50%);
-    bottom:calc(70px + env(safe-area-inset-bottom));
+    bottom:calc(150px + env(safe-area-inset-bottom));
     width:94vw; max-width:440px; display:none; flex-direction:column; gap:8px;
     background:rgba(14,18,8,0.96); border:1px solid #55613a; border-radius:10px; padding:12px;
   }
@@ -267,7 +269,7 @@
   .bmCost { font-weight:800; font-size:13px; color:#e4d374; flex:none; }
 
   #devPanel {
-    position:fixed; z-index:61; left:8px; bottom:calc(122px + env(safe-area-inset-bottom));
+    position:fixed; z-index:61; left:8px; bottom:calc(248px + env(safe-area-inset-bottom));
     background:rgba(14,18,8,0.94); border:1px solid #55613a; border-radius:8px;
     padding:10px; display:none; flex-direction:column; gap:8px; color:#cdd9b0; width:196px;
   }
@@ -329,7 +331,7 @@
   <button id="buildBtn" class="btn primary">BUILD</button>
 </div>
 
-<div id="msgMenu" style="position:fixed; z-index:41; left:50%; transform:translateX(-50%); bottom:calc(70px + env(safe-area-inset-bottom)); width:94vw; max-width:440px; display:none; flex-direction:column; gap:8px; background:rgba(14,18,8,0.96); border:1px solid #55613a; border-radius:10px; padding:12px;">
+<div id="msgMenu" style="position:fixed; z-index:41; left:50%; transform:translateX(-50%); bottom:calc(150px + env(safe-area-inset-bottom)); width:94vw; max-width:440px; display:none; flex-direction:column; gap:8px; background:rgba(14,18,8,0.96); border:1px solid #55613a; border-radius:10px; padding:12px;">
   <div style="display:flex; align-items:center;">
     <div style="font-size:12px; letter-spacing:0.14em; font-weight:800; color:#8fa070;">FIELD RUNNERS</div>
     <button id="msgClose" class="btn" style="margin-left:auto; padding:6px 12px;">CLOSE</button>
@@ -816,8 +818,14 @@ function loadWorld() {
   } catch (e) { return null; }
 }
 function resetAll() {
+  // keep quality-of-life settings across resets; wipe only the war itself
+  const keepSfx = S.get("wf_sfx"), keepDev = S.get("wf_dev");
   S.wipePrefix("wf_");
-  location.reload();
+  if (keepSfx !== null) S.set("wf_sfx", keepSfx);
+  if (keepDev !== null) S.set("wf_dev", keepDev);
+  if (S.persistent) { location.reload(); return; }
+  // preview sandbox: reload may not clear in-memory state — hard restart in place
+  location.href = location.href.split("#")[0];
 }
 
 /* ============ world state ============ */
@@ -1032,7 +1040,12 @@ function buildBuilding(data) {
       radius: ccBuildRadius(data), color: "#7c9147", weight: 1, opacity: 0.45, dashArray: "6 8", fill: false,
     }).addTo(map);
   }
-  entry.marker.bindPopup(() => buildingPopupContent(entry), { autoPan: true });
+  entry.marker.bindPopup(() => buildingPopupContent(entry), { autoPan: false, maxWidth: 250, maxHeight: 290 });
+  // setContent() during live refresh overwrites the function binding with a
+  // static snapshot — regenerate on every open so popups can never fossilize
+  entry.marker.on("popupopen", () => {
+    entry.marker.getPopup().setContent(buildingPopupContent(entry));
+  });
   refreshBldMarker(entry);
   return entry;
 }
@@ -1437,6 +1450,9 @@ function buildScorch(data) {
   }).addTo(map);
   const entry = { data, circle };
   circle.bindPopup(() => scorchPopupContent(entry), { autoPan: false });
+  circle.on("popupopen", () => {
+    circle.getPopup().setContent(scorchPopupContent(entry));
+  });
   live.scorch.push(entry);
   return entry;
 }
@@ -2776,6 +2792,14 @@ function speedMult(workforce) {
   return 1 + CFG.speedPerExtra * (wf - 1);
 }
 
+let _errLogged = {};
+function logErr(where, e) {
+  const key = where + ":" + e.message;
+  if (_errLogged[key]) return;
+  _errLogged[key] = true;
+  toast("Internal error in " + where + ": " + e.message, true);
+}
+
 let lastConGt = gt();
 setInterval(() => {
   if (paused()) return;                                   // pause guard FIRST
@@ -2785,6 +2809,7 @@ setInterval(() => {
   if (dt <= 0) return;
 
   live.buildings.forEach(entry => {
+   try {
     const d = entry.data;
     const meta = CFG.buildings[d.kind];
     const boost = yardBoost(d.lat, d.lng);
@@ -2831,6 +2856,7 @@ setInterval(() => {
       }
       refreshBldMarker(entry);
     }
+   } catch(e) { logErr("construction", e); }
   });
 
   live.buildings.forEach(entry => {
@@ -2962,6 +2988,7 @@ setInterval(() => {
 
   /* ---- friendly units ---- */
   live.units.forEach(entry => {
+   try {
     const u = entry.data, meta = CFG.units[u.kind];
 
     // builders — and idle messengers — flee any enemy that gets close.
@@ -3139,10 +3166,12 @@ setInterval(() => {
       }
     }
     entry.marker.setLatLng([u.lat, u.lng]);
+   } catch(e) { logErr("unit AI", e); }
   });
 
   /* ---- enemies: march on the base, shoot the nearest player thing ---- */
   live.enemies.slice().forEach(entry => {
+   try {
     const d = entry.data, meta = CFG.enemies[d.kind];
     const tgt = nearestPlayerThing({ lat: d.lat, lng: d.lng });
     if (!tgt) return;
@@ -3163,6 +3192,7 @@ setInterval(() => {
       stepToward(d, tgt.t.pos, dt, meta.speed);
     }
     entry.marker.setLatLng([d.lat, d.lng]);
+   } catch(e) { logErr("enemy AI", e); }
   });
 
   /* ---- Watchtowers: automated defense (T3 mounts a splash cannon) ---- */
@@ -3287,14 +3317,10 @@ setInterval(() => {
   refreshHud();
   ensurePlayerMarker();   // grace pulse on/off
 
-  // LIVE popups: re-render any open building/scorch popup that shows a
-  // countdown or progress, so queue timers and percentages actually tick.
-  // Static popups aren't touched, so their buttons never jump under a tap.
+  // LIVE popups: re-render any open building/scorch popup so countdowns
+  // tick and completed states appear the moment they happen.
   live.buildings.forEach(entry => {
-    const d = entry.data;
-    const dynamic = (d.queue && d.queue.length) || d.progress < 1 || d.upgrading ||
-                    (d.repairing && d.hp < d.maxHp) || (d.rubble && d.clearing);
-    if (dynamic && entry.marker.isPopupOpen()) {
+    if (entry.marker.isPopupOpen()) {
       entry.marker.getPopup().setContent(buildingPopupContent(entry));
     }
   });
