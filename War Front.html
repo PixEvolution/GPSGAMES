@@ -68,8 +68,7 @@
 
   #camCol { top:calc(52px + env(safe-area-inset-top)); right:8px; display:flex; flex-direction:column; gap:6px; }
   #camCol .btn { min-width:74px; text-align:center; padding:10px 8px; }
-  .jump { display:none; }
-  body.freecam .jump { display:block; }
+  .jump { display:block; }
 
   #rightCol {
     position:fixed; z-index:10; right:8px; bottom:calc(150px + env(safe-area-inset-bottom));
@@ -311,14 +310,13 @@
 <div id="waveChip" class="hud"></div>
 
 <div id="camCol" class="hud">
-  <button id="camBtn" class="btn">LOCKED</button>
   <button id="jumpMe" class="btn jump">ME</button>
   <button id="jumpHq" class="btn jump">HQ</button>
   <button id="sfxBtn" class="btn">SFX</button>
   <button id="logBtn" class="btn">LOG</button>
 </div>
 
-<div id="tutCard" style="position:fixed; z-index:30; left:50%; transform:translateX(-50%); top:calc(52px + env(safe-area-inset-top)); width:92vw; max-width:430px; display:none; background:rgba(20,26,10,0.95); border:1px solid #6b7a48; border-left:4px solid #b8c880; border-radius:8px; padding:9px 10px; font-size:12px; line-height:1.4; color:#dbe4c6;">
+<div id="tutCard" style="position:fixed; z-index:30; left:8px; top:calc(52px + env(safe-area-inset-top)); width:calc(100vw - 132px); max-width:330px; display:none; background:rgba(20,26,10,0.95); border:1px solid #6b7a48; border-left:4px solid #b8c880; border-radius:8px; padding:9px 10px; font-size:12px; line-height:1.4; color:#dbe4c6;">
   <div style="display:flex; gap:8px; align-items:flex-start;">
     <div id="tutText" style="flex:1;"></div>
     <button id="tutSkip" class="btn" style="padding:4px 8px; font-size:10px; flex:none;">SKIP</button>
@@ -952,24 +950,13 @@ function ensurePlayerMarker() {
 }
 
 /* ============ camera ============ */
-let camMode = "LOCKED";
+/* camera is ALWAYS free: drag anywhere, ME / HQ snap you where you need to be */
+let camMode = "FREECAM";
 function applyCamMode() {
   if (!map) return;
-  document.body.classList.toggle("freecam", camMode === "FREECAM");
-  // the button is an action: show what tapping DOES, not what you're in
-  $("camBtn").textContent = camMode === "LOCKED" ? "FREECAM" : "LOCK";
-  if (camMode === "LOCKED") {
-    map.dragging.disable();
-    if (playerPos) map.panTo([playerPos.lat, playerPos.lng], { animate: true });
-  } else {
-    map.dragging.enable();
-  }
+  document.body.classList.add("freecam");
+  map.dragging.enable();
 }
-$("camBtn").addEventListener("click", () => {
-  camMode = camMode === "LOCKED" ? "FREECAM" : "LOCKED";
-  applyCamMode();
-  saveWorld();
-});
 $("sfxBtn").addEventListener("click", () => {
   sfxOn = !sfxOn;
   S.set("wf_sfx", sfxOn ? "1" : "0");
@@ -1861,7 +1848,7 @@ function restoreWorld(saved) {
   world.enemies = [];
   world.scorch = [];
   world.caches = [];
-  camMode = saved.camMode || "LOCKED";
+  camMode = "FREECAM";
   (saved._bSnapshot || []).forEach(b => { live.buildings.push(buildBuilding(b)); });
   (saved._uSnapshot || []).forEach(u => { buildUnit(u); });
   (saved._eSnapshot || []).forEach(en => { buildEnemy(en); });
@@ -1902,7 +1889,7 @@ function onPosition(lat, lng, acc) {
   if (!map) initMap(playerPos);
   ensurePlayerMarker();
   if (accCircle && acc) accCircle.setRadius(clamp(acc, 5, 60));
-  if (camMode === "LOCKED") map.panTo([lat, lng], { animate: true });
+  // free camera: GPS updates never yank the view — use ME to snap to yourself
   if (flow === "awaitFix") { flow = "placeCC"; ccPlaceMode = "onboard"; startCCPlacement(); }
   if (placement) updateGhostValidity();
 }
