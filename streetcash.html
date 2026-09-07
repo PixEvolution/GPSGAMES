@@ -589,9 +589,10 @@ let gameTime = Number(store.getItem("sc_gt") || 0);
 const gt = () => gameTime;
 let started = false;
 setInterval(() => {
-  if (started && document.visibilityState === "visible") gameTime += 250;
+  if (started && document.visibilityState === "visible" && !cineOpen) gameTime += 250;
 }, 250);
-const paused = () => !started || document.visibilityState !== "visible";
+let cineOpen = false; // any cutscene on screen freezes the world
+const paused = () => !started || document.visibilityState !== "visible" || cineOpen;
 
 // ---------- state ----------
 let map, playerMarker, playerPos = null;
@@ -1220,7 +1221,7 @@ function strikeNpc(n){
   }
   if (!spendRound(w)) return;
   nextShotAt = now + Math.max(150, 60000 / (w.rpm || 120));
-  violence = Math.max(violence, w.type === "melee" ? 1 : 2);
+  if (n.kind !== "target") violence = Math.max(violence, w.type === "melee" ? 1 : 2);
   n.aggro = true;
   // his crew saw that (mission targets have no crew)
   if (n.kind === "gang")
@@ -1232,7 +1233,9 @@ function strikeNpc(n){
     removeNpc(n);
     if (n.kind === "target"){
       addXp(100);
-      if (curStep() && curStep().type === "kill") advance();
+      const remaining = npcs.filter(o => o.kind === "target").length;
+      if (remaining > 0) toast(`${n.label} down. ${remaining} left.`);
+      else if (curStep() && curStep().type === "kill") advance();
     } else {
       addXp(40);
       toast(`${GANGS[n.gang].name} soldier down.`);
@@ -1240,10 +1243,13 @@ function strikeNpc(n){
   } else {
     n.marker.setIcon(npcIcon(n));
   }
-  // gunfire sometimes reaches the police - rarely on gang turf
-  const base = w.type === "melee" ? 0.1 : 0.35;
-  if (Math.random() < base * snitchFactor())
-    applyHeat(1, "Shots reported to police!");
+  // gunfire sometimes reaches the police - rarely on gang turf.
+  // mission hits are arranged work: the block knows not to make calls.
+  if (n.kind !== "target"){
+    const base = w.type === "melee" ? 0.1 : 0.35;
+    if (Math.random() < base * snitchFactor())
+      applyHeat(1, "Shots reported to police!");
+  }
 }
 
 // ---------- businesses (GTA MC-style) ----------
@@ -1476,7 +1482,8 @@ const NPC_KINDS = {
 
 function npcIcon(n){
   if (n.kind === "target"){
-    const pct = Math.max(0, Math.round(100 * n.hp / 120));
+    n.maxhp = n.maxhp || Math.max(n.hp, 1);
+    const pct = Math.max(0, Math.round(100 * n.hp / n.maxhp));
     const bar = pct < 100 ? `<div class="uhp"><i style="width:${pct}%"></i></div>` : "";
     return L.divIcon({className:"", html:
       `<div class="npc" style="border-color:var(--danger);box-shadow:0 0 10px rgba(224,74,74,.7)">🧍${bar}</div>`,
@@ -1909,8 +1916,10 @@ function setPlayerPos(pos, keepView){
     // free camera while picking a mission spot — the map is yours to browse
     map.panTo([pos.lat, pos.lng], {animate:true, duration:.25});
   }
-  maintainJobs();
-  update();
+  if (!cineOpen){
+    maintainJobs();
+    update();
+  }
 }
 
 let nearestJob = null;
@@ -1927,6 +1936,22 @@ function update(){
         if (s.type === "goto") advance();
         else if (!npcs.some(n => n.kind === "target"))
           cinePlay(s.intro(), () => spawnTarget(s));
+      }
+    } else if (s && s.type === "gotoAll"){
+      for (const st of s.stops){
+        const loc = mission.ts[st.slot];
+        if (loc && haversine(playerPos, loc) <= CFG.collectRadius){
+          delete mission.ts[st.slot];
+          saveMission();
+          const left = s.stops.filter(x => mission.ts[x.slot]).length;
+          if (left > 0){
+            toast(`${st.name} hops in. ${left} more to go.`);
+            clearMissionRing();
+            for (const x of s.stops)
+              if (mission.ts[x.slot]) addMissionRing(mission.ts[x.slot]);
+          } else advance();
+          break;
+        }
       }
     }
   }
@@ -2576,15 +2601,15 @@ function restorePursuit(pos){
 let pname = store.getItem("sc_name") || "";
 let completed = new Set(jparse("sc_mdone", []));
 const saveDone = () => store.setItem("sc_mdone", JSON.stringify([...completed]));
-let mission = {id:null, idx:0, t:null};
+let mission = {id:null, idx:0, t:null, ts:{}};
 const saveMission = () => store.setItem("sc_mission",
-  JSON.stringify({id:mission.id, idx:mission.idx, t:mission.t, v:2}));
+  JSON.stringify({id:mission.id, idx:mission.idx, t:mission.t, ts:mission.ts, v:2}));
 
 // migrate old step-string saves into the engine format
 {
   const raw = jparse("sc_mission", null);
   if (raw && raw.v === 2){
-    mission = {id:raw.id || null, idx:raw.idx || 0, t:raw.t || null};
+    mission = {id:raw.id || null, idx:raw.idx || 0, t:raw.t || null, ts:raw.ts || {}};
   } else if (raw && raw.step){
     const MAP = {
       house:["m1",0], confirm:["m1",2], meet:["m1",3], arrived:["m1",4],
@@ -2626,6 +2651,7 @@ function drawStoryPlace(key){
       iconSize:[34,34], iconAnchor:[17,17]}), zIndexOffset: 850
   }).addTo(map);
   if (key === "paynspray") storyMarkers[key].bindPopup(sprayHtml);
+  else if (key === "gunstore") storyMarkers[key].bindPopup(gunstoreHtml);
   else storyMarkers[key].bindPopup(`<b>${p.label}</b><br><span style="font-size:11px;color:#7a877a">story location</span>`);
 }
 
@@ -2649,6 +2675,52 @@ function sprayHtml(){
   if (!rows.length) rows.push(`<div style="margin-top:6px;color:#7a877a">Nothing to paint right now.</div>`);
   return `<b>Clean Slate Customs</b><span style="font-size:11px;color:#7a877a"> cash only, no receipts</span>${note}${rows.join("")}`;
 }
+// the player-placed permanent gun store: fixed stock, straight prices
+const GUNSTORE_STOCK = ["snub", "g19", "m500"];
+function gunstoreHtml(){
+  const p = places.gunstore;
+  const close = playerPos && haversine(playerPos, p) <= 60;
+  const note = close ? "" : `<br><i style="color:#e0c84a">get within 60m to trade</i>`;
+  const wRows = GUNSTORE_STOCK.map(id => {
+    const w = weaponById(id);
+    const can = close && money >= w.price;
+    return `<div style="margin-top:5px">${w.name} — ${fmtMoney(w.price)}
+      <span style="color:#7a877a;font-size:11px">(own: ${inv[id]||0})</span>
+      <button class="gsWBtn" data-id="${id}" ${can?"":"disabled"} style="${btnCssBiz(can)}">BUY</button></div>`;
+  }).join("");
+  const aRows = AMMO_TYPES.map((a, i) => {
+    const can = close && money >= a.price;
+    return `<div style="margin-top:5px">${a.name} ×${a.box} — ${fmtMoney(a.price)}
+      <span style="color:#7a877a;font-size:11px">(you: ${ammo[a.id]||0})</span>
+      <button class="gsABtn" data-i="${i}" ${can?"":"disabled"} style="${btnCssBiz(can)}">BUY</button></div>`;
+  }).join("");
+  return `<b>Subway Guns &amp; Ammo</b><span style="font-size:11px;color:#7a877a"> licensed. mostly.</span>${note}
+    ${wRows}<hr style="border-color:#232b23;margin:8px 0"><b>Ammo</b>${aRows}`;
+}
+function refreshGunstore(){
+  if (storyMarkers.gunstore) storyMarkers.gunstore.setPopupContent(gunstoreHtml());
+}
+document.addEventListener("click", e => {
+  if (e.target.classList && e.target.classList.contains("gsWBtn")){
+    const w = weaponById(e.target.dataset.id);
+    const p = places.gunstore;
+    if (!w || !p || !playerPos || haversine(playerPos, p) > 60 || money < w.price) return;
+    money -= w.price; saveMoney(); renderMoney(true);
+    inv[w.id] = (inv[w.id] || 0) + 1;
+    saveInv(); renderInvBtn(); refreshGunstore();
+    toast(`${w.name} — paperwork's your problem now.`);
+  }
+  if (e.target.classList && e.target.classList.contains("gsABtn")){
+    const a = AMMO_TYPES[+e.target.dataset.i];
+    const p = places.gunstore;
+    if (!a || !p || !playerPos || haversine(playerPos, p) > 60 || money < a.price) return;
+    money -= a.price; saveMoney(); renderMoney(true);
+    ammo[a.id] = (ammo[a.id] || 0) + a.box;
+    saveAmmo(); renderInvBtn(); refreshGunstore();
+    toast(`${a.box} ${a.name.toLowerCase()} — boxed and bagged.`);
+  }
+});
+
 document.addEventListener("click", e => {
   if (e.target.id === "sprayHeatBtn"){
     const p = places.paynspray;
@@ -2672,8 +2744,8 @@ document.addEventListener("click", e => {
 
 // placement mode: the player taps the map to choose the exact spot
 let placing = null; // {key,label,minDist,warn,cb,pend,pendMarker}
-function placeStoryLocation(key, label, minDist, warn, cb, icon){
-  placing = {key, label, minDist, warn, cb, icon, pend:null, pendMarker:null};
+function placeStoryLocation(key, label, minDist, warn, cb, icon, slot){
+  placing = {key, label, minDist, warn, cb, icon, slot, pend:null, pendMarker:null};
   if (typeof map !== "undefined" && map && playerPos)
     map.setView([playerPos.lat, playerPos.lng], 14, {animate:true}); // zoomed out, unlocked
   $("placeTitle").innerHTML = `<b>TAP THE MAP</b> — place: ${label}`;
@@ -2704,7 +2776,10 @@ function placementConfirm(){
   if (pl.key){ // persistent story location
     places[pl.key] = {lat:pl.pend.lat, lng:pl.pend.lng, label:pl.label, icon:pl.icon};
     savePlaces();
-  } else { // one-time mission spot — lives only in the mission save
+  } else if (pl.slot){ // one of several named one-time spots
+    mission.ts[pl.slot] = {lat:pl.pend.lat, lng:pl.pend.lng};
+    saveMission();
+  } else { // single one-time mission spot
     mission.t = {lat:pl.pend.lat, lng:pl.pend.lng};
     saveMission();
   }
@@ -2734,22 +2809,27 @@ function setBanner(txt){
   b.textContent = txt;
 }
 
-// active-objective ring around a story place (marker itself is permanent)
+// active-objective rings (one or several stops)
+let missionCircles = [];
+function addMissionRing(pos){
+  missionCircles.push(L.circle([pos.lat, pos.lng], {
+    radius: CFG.collectRadius, color:"#e0c84a", weight:2, dashArray:"6 6",
+    fillColor:"#e0c84a", fillOpacity:0.08}).addTo(map));
+}
 function drawMissionRing(pos){
   clearMissionRing();
-  missionCircle = L.circle([pos.lat, pos.lng], {
-    radius: CFG.collectRadius, color:"#e0c84a", weight:2, dashArray:"6 6",
-    fillColor:"#e0c84a", fillOpacity:0.08}).addTo(map);
+  addMissionRing(pos);
 }
 function clearMissionRing(){
-  if (missionCircle) map.removeLayer(missionCircle);
-  missionCircle = null;
+  for (const c of missionCircles) map.removeLayer(c);
+  missionCircles = [];
 }
 
 // ---- cinematic page engine ----
 let cineDone = null, cinePagesArr = [], cineIdx = 0, cineLockUntil = 0;
 function cinePlay(pages, done){
   cinePagesArr = pages; cineIdx = 0; cineDone = done;
+  cineOpen = true;
   $("cine").style.display = "flex";
   cineShow();
 }
@@ -2764,6 +2844,7 @@ $("cine").addEventListener("click", () => {
   cineIdx++;
   if (cineIdx >= cinePagesArr.length){
     $("cine").style.display = "none";
+    cineOpen = false;
     const d = cineDone; cineDone = null;
     if (d) d();
   } else cineShow();
@@ -2774,6 +2855,7 @@ const sp = t => `<div class="storyText">${t}</div>`;
 // ---- Redline Digital intro (simplified from the studio original) ----
 function playRedline(done){
   const c = $("cine");
+  cineOpen = true;
   c.style.display = "flex";
   $("cineTap").style.display = "none";
   $("cineInner").innerHTML = `<div id="redlineWrap">
@@ -2876,6 +2958,7 @@ function playRedline(done){
     try{ if (osc) osc.stop(); if (ac) ac.close(); }catch(e){}
     c.removeEventListener("click", end);
     $("cine").style.display = "none";
+    cineOpen = false;
     done();
   }
   c.addEventListener("click", end); // tap skips
@@ -2951,7 +3034,61 @@ function m3sprayed(){ return [
 function m3done(){ return [
   {html:sp(`Sal's garage swallowed the hatchback and a man in coveralls was already peeling the plates before you were out of the seat.<br><br>Sal appeared with an envelope — thicker than the last one.`)},
   {html:sp(`"Two of my girls are back at work," he said. "And a certain chemist is learning to eat soup. You're useful, driver. That's rare."<br><br>He didn't say <i>come back</i>. He didn't have to.`), minMs:800},
-  {html:`<div class="titleCard" style="font-size:30px">TO BE CONTINUED</div>`, minMs:1400},
+  {html:`<div class="titleCard" style="font-size:32px">MISSION PASSED</div>`, minMs:1400},
+]; }
+
+// ---- mission 4 story pages ----
+function m4open(){ return [
+  {html:sp(`You came around the back of Static again. The bulb was lit, and Sal was outside mid-conversation with a man in a gray suit — the kind of suit that doesn't dance. The suit looked at you once, filed you somewhere, and left without a goodbye.`)},
+  {html:sp(`"Good timing, driver," Sal said, watching the suit go. "You know who Mr. Brava is? Doesn't matter. His son <b>Vinnie</b> runs an honest business fixing dishonest cars, and tonight Vinnie wants to see his girl. <b>Carmen</b>. You're picking her up from her apartment."`)},
+  {html:sp(`"One thing." Sal's voice dropped. "Her building sits deep in the wrong colors. That block belongs to people who do not love visitors. Roll in quiet. Roll out quicker."`)},
+  {html:sp(`"Straight to Vinnie's garage — and <i>move</i>. The Bravas don't like waiting, it's a family trait." He tapped the roof of the car twice.<br><br>"And driver? Eyes on the road. Not on her. Jealousy runs in that family too."`)},
+]; }
+function m4pick(){ return [
+  {html:sp(`Her block wore somebody else's colors on every pole and every jacket. You rolled in slow and gave the horn two polite taps — the kind that say <i>taxi</i>, not <i>trouble</i>. On the corner, heads turned anyway.`)},
+  {html:sp(`Carmen came out fast — she'd clearly done this before. Heels, gym bag, sunglasses at night. She crossed the sidewalk like it owed her money and got in without a word.<br><br>Then: "You're not the usual guy. Drive like the usual guy."`)},
+]; }
+function m4end(){ return [
+  {html:sp(`Vinnie's garage smelled like fresh paint over old stories. Carmen was out of the car before the handbrake clicked — she crossed the floor at a run and hit him like a wave.`)},
+  {html:sp(`He held up one finger over her shoulder. "Gimme a moment, gimme a moment—" Then he untangled himself, wiped his palm on his coveralls, and offered you his hand.<br><br>"Vinnie. Sal says you're reliable." A beat. "Sal doesn't say that."`)},
+  {html:sp(`"Come back around sometime. A reliable man's hard to find, and I might have work for one." He was already turning back to Carmen before he finished the sentence.<br><br>You saw yourself out.`)},
+  {html:`<div class="titleCard" style="font-size:32px">MISSION PASSED</div>`, minMs:1400},
+]; }
+
+// ---- mission 5 story pages ----
+function m5open(){ return [
+  {html:sp(`You knocked on Static's service door and it flew open before your second knuckle landed. Sal — but not silk-shirt Sal. This was a man with a vein working in his temple.`)},
+  {html:sp(`"You know what I found out tonight?" He didn't wait. "The Norte side has been sending a <b>pimp</b> into MY blocks. Man named <b>Silk</b>. Purple coat, gold tooth, drives like the street's named after him. He's been running business out of a parked car — using MY girls, on MY corners, and mailing the money north."`)},
+  {html:sp(`"I'm past talking. Him and the muscle he rolls with — <b>off my streets</b>. Permanently."<br><br>He pressed a folded paper into your hand. "There's a piece arranged for you. Behind the gun store by the subway — man there owes me. Package is out back."`)},
+  {html:sp(`"Do it clean, do it tonight." The door was already closing. "And driver — after this one, you and that store are gonna be good friends."`)},
+]; }
+function m5gun(){ return [
+  {html:sp(`Around the back of the store, wedged behind the dumpster where the paper said: a package wrapped in oilcloth, heavier than it looked.<br><br>A Glock, cleaned and oiled, and three full magazines. Somebody wanted this done properly.`)},
+]; }
+function m5found(){ return [
+  {html:sp(`The car was right where the girls said it would be — engine running, music low. Silk leaned on the hood in a purple coat that glowed under the streetlight, gold tooth flashing while he counted somebody else's money. Reno stood off his shoulder, watching the street the way muscle does.<br><br>Reno saw you first.`)},
+]; }
+function m5end(){ return [
+  {html:sp(`It got loud, and then it got very, very quiet. The engine was still running. The music was still playing — something slow, almost polite.<br><br>You reached in and turned the key. The block exhaled.`)},
+  {html:sp(`Word would reach Sal before you did. That's how his streets worked — bad news traveled north tonight, and it traveled fast.`)},
+  {html:`<div class="titleCard" style="font-size:32px">MISSION PASSED</div>`, minMs:1400},
+]; }
+
+// ---- mission 6 story pages ----
+function m6open(){ return [
+  {html:sp(`The service door opened before you knocked — but it wasn't Sal. The vending machine stepped out first, looked left, looked right, looked at the roofline, and only then held the door.<br><br>Sal came out adjusting his cuffs like a man about to enjoy himself.`)},
+  {html:sp(`"Driver. You'll appreciate this one." He couldn't keep the grin down. "There's a <b>police charity ball</b> tonight. Six blocks of parked cruisers and off-duty officers with open bars in their hands and paychecks burning holes in their dress uniforms."`)},
+  {html:sp(`"And what does a hard-working officer look for after his fourth scotch at a charity function?" Sal spread his hands. "<i>Company.</i> I've got girls working every corner around that venue right now. You're the shuttle service."`)},
+  {html:sp(`"Round them up — all of them, fast — and deliver them to the ball. Every minute you waste, some cop spends his money somewhere that isn't mine." He tapped the roof twice, the old signal.<br><br>"Chop chop, driver. Charity waits for no one."`)},
+]; }
+function m6full(){ return [
+  {html:sp(`Three stops later the car was full — perfume, gossip, and somebody's heels on the back of your seat. They all knew each other. They all talked at once.<br><br>From the back: "A cop ball. Sal's a genius or the devil." A pause. "Same thing."`)},
+]; }
+function m6end(){ return [
+  {html:sp(`You could hear the venue before you saw it — a band playing something brassy, and a valet line of cruisers parked nose to tail. The girls were out and working the sidewalk before you'd fully stopped, scattering into the light like they owned it.`)},
+  {html:sp(`Your phone buzzed. Sal.<br><br>"I'm watching the donations roll in from here, driver. Beautiful thing." A pause, and his voice went almost warm. "That's the last errand I got. You're past this kind of work now — Vinnie's expecting you, and Vinnie's world is bigger than mine."`)},
+  {html:sp(`"Static's door stays open. First drink's always on the house for the man who kept my streets mine."<br><br>The line went quiet. Behind you, a cop in dress blues was already counting his cash.`), minMs:800},
+  {html:`<div class="titleCard" style="font-size:32px">MISSION PASSED</div>`, minMs:1400},
 ]; }
 
 // ================= MISSION ENGINE =================
@@ -3015,13 +3152,80 @@ const MISSIONS = {
     {type:"cine", pages:m3done},
     {type:"pay", money:400, xp:400, toast:"Sal's envelope has real weight to it."},
   ]},
+  m4: {name:"DRIVE HER, DON'T LOOK", next:null,
+    giver:{letter:"S", at:"contact", after:"m3", who:"Sal"},
+    steps:[
+    {type:"cine", pages:m4open},
+    {type:"place", key:"carmen", label:"Carmen's Apartment", icon:"🚪", minDist:300,
+      banner:"tap the map: where's Carmen's building?",
+      warn:"You're choosing where Carmen lives. PERMANENT — and Sal says her block belongs to a rival set, so think about what you're walking into."},
+    {type:"goto", at:"carmen", banner:"pick up Carmen — quick and quiet",
+      toast:'Sal: "In and out, driver. That block has eyes."'},
+    {type:"cine", pages:m4pick},
+    {type:"place", key:"vinnies", label:"Vinnie's Garage", icon:"🏁", minDist:300,
+      banner:"tap the map: where's Vinnie's garage?",
+      warn:"You're choosing where Vinnie's garage sits. PERMANENT and important — Vinnie's a man worth knowing, and this place matters later."},
+    {type:"goto", at:"vinnies", banner:"get her to Vinnie — he hates waiting",
+      toast:'Carmen checks the time. "He\'s counting minutes. He does that."'},
+    {type:"cine", pages:m4end},
+    {type:"pay", money:350, xp:350, toast:"Nothing from Vinnie yet — but Sal's word got you in the door."},
+  ]},
+  m5: {name:"OFF THE CORNER", next:null,
+    giver:{letter:"S", at:"contact", after:"m4", who:"Sal"},
+    steps:[
+    {type:"cine", pages:m5open},
+    {type:"place", key:"gunstore", label:"Subway Guns & Ammo", icon:"🏪", minDist:300,
+      banner:"tap the map: where's the gun store?",
+      warn:"You're choosing where the gun store sits. PERMANENT — after tonight it's a legit shop that sells you iron and ammo whenever you need it."},
+    {type:"goto", at:"gunstore", banner:"grab the package out back",
+      toast:'The paper just says: "Behind the dumpster. Burn this too. — S"'},
+    {type:"cine", pages:m5gun},
+    {type:"give", item:"g19", ammo:{pist:60},
+      toast:"Glock 19 + 60 rounds. Somebody wants this done right."},
+    {type:"place", label:"Silk's Parking Spot", minDist:300,
+      banner:"tap the map: where's Silk parked?",
+      warn:"Where does Silk run his business from? One-time spot — NOT saved."},
+    {type:"kill", banner:"take out Silk and Reno — both of them",
+      intro:m5found,
+      targets:[
+        {name:"Silk", hp:110, wep:"snub",  pull:'Silk drops the cash and pulls a snub. "Wrong side of town, baby."'},
+        {name:"Reno", hp:100, wep:"knife", pull:'Reno flicks a blade open without a word.'},
+      ]},
+    {type:"cine", pages:m5end},
+    {type:"pay", money:500, xp:450, toast:"Sal's streets are Sal's again. He'll remember who did that."},
+  ]},
+  m6: {name:"THE CHARITY BALL", next:null,
+    giver:{letter:"S", at:"contact", after:"m5", who:"Sal"},
+    steps:[
+    {type:"cine", pages:m6open},
+    {type:"place", slot:"g1", label:"Dee's Corner", minDist:150,
+      banner:"tap the map: where's Dee working? (1 of 3)",
+      warn:"Where's Dee posted up? The girls work close tonight — one-time spot, NOT saved."},
+    {type:"place", slot:"g2", label:"Rosa's Corner", minDist:150,
+      banner:"tap the map: where's Rosa working? (2 of 3)",
+      warn:"Where's Rosa at? Close by, quick grab — one-time spot, NOT saved."},
+    {type:"place", slot:"g3", label:"Peaches' Corner", minDist:150,
+      banner:"tap the map: where's Peaches working? (3 of 3)",
+      warn:"And Peaches? Last one — one-time spot, NOT saved."},
+    {type:"place", label:"The Charity Ball", minDist:300,
+      banner:"tap the map: where's the police ball?",
+      warn:"Where's the venue? One-time spot — the party's over by morning. NOT saved.",
+      toast:'Sal: "Clock\'s running, driver. Those wallets won\'t empty themselves."'},
+    {type:"gotoAll", banner:"round up the girls — any order",
+      stops:[{slot:"g1", name:"Dee"}, {slot:"g2", name:"Rosa"}, {slot:"g3", name:"Peaches"}]},
+    {type:"cine", pages:m6full},
+    {type:"goto", at:"t", banner:"deliver them to the ball — move!",
+      toast:'From the back seat: "Step on it, sweetheart. Cops tip better before midnight."'},
+    {type:"cine", pages:m6end},
+    {type:"pay", money:600, xp:500, toast:"Sal's last envelope. Fattest one yet."},
+  ]},
 };
 
 const curStep = () => mission.id ? (MISSIONS[mission.id].steps[mission.idx] || null) : null;
 const resolveLoc = at => at === "t" ? mission.t : places[at];
 
 function startMission(id){
-  mission.id = id; mission.idx = 0; mission.t = null;
+  mission.id = id; mission.idx = 0; mission.t = null; mission.ts = {};
   saveMission(); updateGiver(); runStep();
 }
 function advance(){
@@ -3033,7 +3237,7 @@ function completeMission(){
   const M = MISSIONS[mission.id];
   completed.add(mission.id); saveDone();
   const next = M.next;
-  mission.id = null; mission.idx = 0; mission.t = null;
+  mission.id = null; mission.idx = 0; mission.t = null; mission.ts = {};
   saveMission(); clearMissionRing(); setBanner(null); updateGiver();
   if (next) startMission(next);
 }
@@ -3048,14 +3252,23 @@ function runStep(){
   } else if (s.type === "place"){
     if (s.key && places[s.key]){ advance(); return; }
     placeStoryLocation(s.key || null, s.label, s.minDist, s.warn,
-      () => { if (s.toast) toast(s.toast); advance(); }, s.icon);
+      () => { if (s.toast) toast(s.toast); advance(); }, s.icon, s.slot);
   } else if (s.type === "goto" || s.type === "kill"){
     const loc = resolveLoc(s.at || "t");
     if (loc) drawMissionRing(loc);
     if (s.toast) toast(s.toast);
+  } else if (s.type === "gotoAll"){
+    clearMissionRing();
+    for (const st of s.stops)
+      if (mission.ts[st.slot]) addMissionRing(mission.ts[st.slot]);
+    if (s.toast) toast(s.toast);
   } else if (s.type === "give"){
-    inv[s.item] = (inv[s.item] || 0) + 1;
-    saveInv(); renderInvBtn();
+    if (s.item){ inv[s.item] = (inv[s.item] || 0) + 1; saveInv(); }
+    if (s.ammo){
+      for (const cal of Object.keys(s.ammo)) ammo[cal] = (ammo[cal] || 0) + s.ammo[cal];
+      saveAmmo();
+    }
+    renderInvBtn();
     if (s.toast) toast(s.toast);
     advance();
   } else if (s.type === "pay"){
@@ -3104,9 +3317,14 @@ $("moveBtn").addEventListener("click", () => {
 });
 
 function spawnTarget(s){
-  attachNpc({uid:npcSeq++, kind:"target", lat:mission.t.lat, lng:mission.t.lng,
-    wp:null, robbed:false, hp:s.hp, aggro:false, speed:1.6, wep:s.wep,
-    label:s.name, pull:s.pull});
+  const list = s.targets || [{name:s.name, hp:s.hp, wep:s.wep, pull:s.pull}];
+  list.forEach((t, i) => {
+    const p = i === 0 ? mission.t
+      : offsetPoint(mission.t.lat, mission.t.lng, 6 + i*5, Math.random()*Math.PI*2);
+    attachNpc({uid:npcSeq++, kind:"target", lat:p.lat, lng:p.lng,
+      wp:null, robbed:false, hp:t.hp, aggro:false, speed:1.6, wep:t.wep,
+      label:t.name, pull:t.pull});
+  });
 }
 
 $("mcGood").addEventListener("click", () => { if (placing && placing.pend) placementConfirm(); });
