@@ -440,6 +440,20 @@
   <button id="okEnemy" class="btn primary">DECLARE WAR</button>
 </div>
 
+<div id="scrSafety" class="screen">
+  <div class="scrInner">
+    <h1>FIELD SAFETY BRIEFING</h1>
+    <p style="text-align:left; line-height:1.55;">
+      This war is fought on <b>real streets</b>. Before you deploy:<br><br>
+      • <b>Eyes up.</b> Watch traffic, curbs, people, and everything else the map doesn't show. Look around before you look down.<br><br>
+      • <b>Never trespass.</b> Private property is off-limits — command from sidewalks, public paths, and places you're allowed to be.<br><br>
+      • <b>Never play while driving</b> or riding anything with wheels.<br><br>
+      You can't command your army if you got run over by a car. Stay alive out there, Commander.
+    </p>
+    <button id="okSafety" class="btn primary">ACKNOWLEDGED</button>
+  </div>
+</div>
+
 <div id="scrGps" class="screen">
   <div class="wfTitle">WARFRONT</div>
   <h2 id="gpsWaitH">Acquiring your position…</h2>
@@ -489,21 +503,22 @@ const CFG = {
   // range — RANDOM, so short and long gaps back-to-back are intended.
   // All on the game clock: nothing ever falls while the app is closed.
   bombTable: [
-    { lvl: 1,  intervalMin: [4, 15],   radius: [25, 35],  shells: [1, 1] },
-    { lvl: 3,  intervalMin: [3, 10],   radius: [30, 50],  shells: [1, 1] },
-    { lvl: 5,  intervalMin: [2.5, 8],  radius: [40, 70],  shells: [1, 2] },
-    { lvl: 7,  intervalMin: [2, 6],    radius: [50, 90],  shells: [1, 3] },
-    { lvl: 10, intervalMin: [1.5, 5],  radius: [60, 120], shells: [2, 4] },  // floor: 90s
+    { lvl: 1,  intervalMin: [20, 35],  radius: [18, 26],  shells: [1, 1] },
+    { lvl: 3,  intervalMin: [16, 28],  radius: [24, 38],  shells: [1, 1] },
+    { lvl: 5,  intervalMin: [12, 22],  radius: [32, 55],  shells: [1, 2] },
+    { lvl: 7,  intervalMin: [9, 16],   radius: [42, 75],  shells: [1, 2] },
+    { lvl: 10, intervalMin: [7, 12],   radius: [55, 105], shells: [2, 3] },
   ],
   bombWarnMs: 10000,          // siren + toast lead time
   bombMarkerIntelTier: 3,     // impact-point circles require this intel tier (3 = the General's eyes)
   bombBldDmg: 700,            // buildings take it heavily
   bombPlayerDmg: 60,          // standing in the circle hurts
-  firstBombGraceMin: 18,      // game-min after CC placement before shelling starts
-  // targeting: 50% near a random building (within 1.5× its footprint + spread),
-  // 50% a fully random point in the build radius. NEVER aimed at the player's
-  // live GPS — nobody gets hunted at their real house.
-  bombNearBldPct: 0.5,
+  firstBombGraceMin: 45,      // shelling only begins once a base is truly established
+  // targeting doctrine: 25% aimed near a military structure; 75% indiscriminate
+  // area bombardment anywhere within bombRandomRadius of the CC (the war zone).
+  // NEVER aimed at the player's live GPS — the war tracks the base, not the phone.
+  bombNearBldPct: 0.25,
+  bombRandomRadius: 1609,      // 1 mile of ambient, mostly-harmless shelling
   bombNearSpread: 30,
 
   // scorched earth
@@ -528,7 +543,7 @@ const CFG = {
     },
     depot: {
       name: "Supply Depot", foot: 15, hp: 1200, cost: 200, buildMin: 2,
-      inc: 20,
+      inc: 25,
       desc: "+$12 per game-minute. The economy.",
     },
     barracks: {
@@ -566,26 +581,26 @@ const CFG = {
   buildOrder: ["depot", "barracks", "watchtower", "warfactory", "repairyard", "radar"],
 
   // building repair (damaged, completed buildings become work sites)
-  repairCostFactor: 0.5,       // × building cost × missing-HP fraction
+  repairCostFactor: 0.35,      // × building cost × missing-HP fraction
   repairHpPerMin: 300,         // restored per game-minute at ×1 workforce
   maxBuildings: 15,
 
   units: {
-    builder:  { name: "Builder",        cost: 80,  trainMin: 1,   hp: 60,  speed: 1.6, workforce: 1, combat: false,
+    builder:  { name: "Builder",        cost: 80,  trainMin: 2,   hp: 60,  speed: 1.6, workforce: 1, combat: false,
                 desc: "Constructs & clears rubble automatically. Unarmed — protect them." },
-    rifleman: { name: "Rifleman",       cost: 100, trainMin: 1.5, hp: 100, speed: 1.9, dmg: 12, range: 40, rofMs: 1200, combat: true, mountable: true,
+    rifleman: { name: "Rifleman",       cost: 100, trainMin: 3,   hp: 100, speed: 1.9, dmg: 12, range: 40, rofMs: 1200, combat: true, mountable: true,
                 desc: "Basic infantry. Guards its post, engages at 40m." },
-    rocket:   { name: "Rocket Trooper", cost: 180, trainMin: 2,   hp: 90,  speed: 1.7, dmg: 60, range: 50, rofMs: 3000, combat: true, mountable: true, antiVehicle: 2,
+    rocket:   { name: "Rocket Trooper", cost: 180, trainMin: 4,   hp: 90,  speed: 1.7, dmg: 60, range: 50, rofMs: 3000, combat: true, mountable: true, antiVehicle: 2,
                 desc: "Anti-vehicle: double damage to enemy armor. Slow rate, big hit." },
-    humvee:   { name: "Humvee",         cost: 400, trainMin: 3,   hp: 300, speed: 6.0, dmg: 10, range: 45, rofMs: 700, combat: true, vehicle: true, carries: 4,
+    humvee:   { name: "Humvee",         cost: 400, trainMin: 6,   hp: 300, speed: 6.0, dmg: 10, range: 45, rofMs: 700, combat: true, vehicle: true, carries: 4,
                 desc: "Fast scout gun truck. Carries 4 infantry." },
-    tank:     { name: "Tank",           cost: 700, trainMin: 5,   hp: 600, speed: 2.5, dmg: 90, range: 55, rofMs: 3500, splash: 12, splashDmg: 45, combat: true, vehicle: true,
+    tank:     { name: "Tank",           cost: 700, trainMin: 9,   hp: 600, speed: 2.5, dmg: 90, range: 55, rofMs: 3500, splash: 12, splashDmg: 45, combat: true, vehicle: true,
                 desc: "Slow, tough, cannon with splash. The wave-breaker." },
-    struck:   { name: "Supply Truck",   cost: 250, trainMin: 2.5, hp: 200, speed: 5.0, combat: false, vehicle: true,
+    struck:   { name: "Supply Truck",   cost: 250, trainMin: 5,   hp: 200, speed: 5.0, combat: false, vehicle: true,
                 desc: "Unarmed. Auto-fetches supply caches near its post and hauls them back to base." },
-    general:  { name: "General",        cost: 800, trainMin: 4,   hp: 150, speed: 1.9, combat: false, mountable: true,
+    general:  { name: "General",        cost: 800, trainMin: 8,   hp: 150, speed: 1.9, combat: false, mountable: true,
                 desc: "Mobile command relay: full remote command, earliest attack detection with direction, and REVEALS artillery impact points. ONE allowed. Guard him with your life." },
-    messenger:{ name: "Messenger",      cost: 60,  trainMin: 1,   hp: 40,  speed: 1.2, combat: false,
+    messenger:{ name: "Messenger",      cost: 60,  trainMin: 2,   hp: 40,  speed: 1.2, combat: false,
                 desc: "Carries your orders to buildings and sites so you don't have to walk. Orders execute ONLY if he arrives alive." },
   },
   maxMessengers: 4,
@@ -625,21 +640,23 @@ const CFG = {
   maxEnemies: 20,
 
   // wave escalation table — comp ranges keyed on player level (highest row ≤ level)
+  // ring: spawn distance grows as the enemy grows — bigger forces stage farther
+  // out, and their march time (real walking speed) is your prep time.
   waveTable: [
-    { lvl: 1,  comp: { erifle: [2, 4] },                                                   intervalMin: [8, 14] },
-    { lvl: 2,  comp: { erifle: [4, 6] },                                                   intervalMin: [7, 12] },
-    { lvl: 3,  comp: { erifle: [5, 7],  erocket: [1, 2] },                                 intervalMin: [6, 10] },
-    { lvl: 5,  comp: { erifle: [6, 9],  erocket: [2, 3], ehumvee: [1, 2] },                intervalMin: [5, 8]  },
-    { lvl: 7,  comp: { erifle: [7, 10], erocket: [2, 4], ehumvee: [1, 2], etank: [1, 1] }, intervalMin: [4, 7]  },
-    { lvl: 10, comp: { erifle: [8, 12], erocket: [3, 5], ehumvee: [2, 3], etank: [1, 2] }, intervalMin: [4, 6]  },
+    { lvl: 1,  comp: { erifle: [2, 3] },                                                   intervalMin: [18, 30], ring: [600, 1000]  },
+    { lvl: 2,  comp: { erifle: [3, 5] },                                                   intervalMin: [15, 25], ring: [800, 1300]  },
+    { lvl: 4,  comp: { erifle: [4, 6],  erocket: [1, 1] },                                 intervalMin: [12, 20], ring: [1000, 1600] },
+    { lvl: 6,  comp: { erifle: [5, 8],  erocket: [1, 2], ehumvee: [1, 1] },                intervalMin: [10, 16], ring: [1300, 2000] },
+    { lvl: 8,  comp: { erifle: [7, 10], erocket: [2, 3], ehumvee: [1, 2], etank: [1, 1] }, intervalMin: [8, 14],  ring: [1600, 2400] },
+    { lvl: 11, comp: { erifle: [8, 12], erocket: [3, 5], ehumvee: [2, 3], etank: [1, 2] }, intervalMin: [7, 12],  ring: [2000, 3000] },
   ],
-  waveRing: [700, 1500],       // m spawn distance
+  waveRing: [500, 900],        // m — scout probes only; real waves use their row's ring
   waveSpread: 45,              // m scatter between wave members
   frontJitter: 60,             // ± deg per wave around the persistent front
   frontDrift: 15,              // ± deg drift of the front after each wave
   // early-DETECTION lead by intel tier. Tier 1 = none: attacks arrive unannounced.
   warnMsTiers: { 1: 0, 2: 120000, 3: 180000 },
-  firstWaveGraceMin: 15,       // guaranteed peace after CC placement: economy + first squad time
+  firstWaveGraceMin: 25,       // long quiet opening: this is a slow war
   waveClearXp: 40,
   scoutIntervalMin: [3, 6],    // between-wave harassment pairs
   scoutCount: 2,
@@ -674,7 +691,7 @@ const CFG = {
   speedPerExtra: 0.6,
   ccNudgeMax: 75,
 
-  rubbleClearCostPct: 0.25,
+  rubbleClearCostPct: 0.15,
   rubbleClearTimePct: 0.4,
 
   xp: { build: { depot: 25, barracks: 40, cc: 0, watchtower: 30, warfactory: 50, repairyard: 40, radar: 45 }, perLevel: 150, scorchRepair: 15 },
@@ -1268,7 +1285,8 @@ function spawnWave(comp, isScouts) {
     ? world.war.incoming.bearing
     : (world.war.frontBearing + rand(-CFG.frontJitter, CFG.frontJitter) + 360) % 360;
   if (!isScouts) world.war.incoming = null;
-  const dist = rand(CFG.waveRing[0], CFG.waveRing[1]);
+  const ring = isScouts ? CFG.waveRing : (waveRow().ring || CFG.waveRing);
+  const dist = rand(ring[0], ring[1]);
   const origin = offsetPoint(cc.lat, cc.lng, dist, bearing);
   let spawned = 0;
   Object.keys(comp).forEach(kind => {
@@ -1545,7 +1563,9 @@ function rollBombTarget() {
     const b = lives[randi(0, lives.length - 1)];
     return offsetPoint(b.lat, b.lng, rand(0, bldFoot(b) * 1.5 + CFG.bombNearSpread), rand(0, 360));
   }
-  return offsetPoint(cc.lat, cc.lng, rand(0, ccBuildRadius(cc)), rand(0, 360));
+  // indiscriminate area bombardment: anywhere in the mile-wide war zone around
+  // the CC. Most shells land in empty streets — ambience, craters, dread.
+  return offsetPoint(cc.lat, cc.lng, CFG.bombRandomRadius * Math.sqrt(Math.random()), rand(0, 360));
 }
 function bombRow() {
   let row = CFG.bombTable[0];
@@ -1923,7 +1943,7 @@ let pendingNames = { army: "", enemy: "" };
 let ccPlaceMode = "onboard";
 
 function showScreen(id) {
-  ["scrArmy","scrEnemy","scrGps","scrOver"].forEach(s => $(s).classList.remove("show"));
+  ["scrSafety","scrArmy","scrEnemy","scrGps","scrOver"].forEach(s => $(s).classList.remove("show"));
   if (id) $(id).classList.add("show");
 }
 $("okArmy").addEventListener("click", () => {
@@ -3690,6 +3710,13 @@ $("tutSkip").addEventListener("click", () => {
   saveWorld();
 });
 
+/* ============ safety briefing (every launch) ============ */
+let afterSafety = null;
+$("okSafety").addEventListener("click", () => {
+  showScreen(null);
+  if (afterSafety) { const f = afterSafety; afterSafety = null; f(); }
+});
+
 /* ============ system menu (gear) ============ */
 $("sysBtn").addEventListener("click", () => {
   const m = $("sysMenu");
@@ -3735,18 +3762,21 @@ if (!S.persistent) {
     initMap(cc ? { lat: cc.lat, lng: cc.lng } : { lat: 41.0814, lng: -81.5190 });
     restoreWorld(saved);
     applyCamMode();
-    started = true;
-    document.body.classList.add("playing");
-    lastEconGt = gt(); lastConGt = gt(); lastAiGt = gt();
-    refreshHud(); refreshSquadChips(); refreshWeaponBtn();
-    startGps();
-    toast(world.enemies.length
-      ? "Welcome back, commander — the attack you left is still on!"
-      : "Welcome back, commander. The front held while you were gone.");
+    afterSafety = () => {
+      started = true;
+      document.body.classList.add("playing");
+      lastEconGt = gt(); lastConGt = gt(); lastAiGt = gt();
+      refreshHud(); refreshSquadChips(); refreshWeaponBtn();
+      startGps();
+      toast(world.enemies.length
+        ? "Welcome back, commander — the attack you left is still on!"
+        : "Welcome back, commander. The front held while you were gone.");
+    };
   } else {
     flow = "army";
-    showScreen("scrArmy");
+    afterSafety = () => showScreen("scrArmy");
   }
+  showScreen("scrSafety");
 })();
 </script>
 </body>

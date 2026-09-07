@@ -154,6 +154,18 @@
   .npc-dealer{border-color:#b04ae0;box-shadow:0 0 8px rgba(176,74,224,.4)}
   .npc-buyer{border-color:#e0c84a;box-shadow:0 0 8px rgba(224,200,74,.4)}
   /* ---------- intro / missions ---------- */
+  #safety{position:absolute;inset:0;z-index:2600;display:flex;
+    background:var(--bg);flex-direction:column;align-items:center;
+    justify-content:center;padding:28px;text-align:center}
+  #safety .card{max-width:340px;border:2px solid #e0c84a;border-radius:14px;
+    background:var(--panel);padding:22px 20px;text-align:left}
+  #safety h2{font-size:20px;font-weight:900;letter-spacing:1px;color:#e0c84a;
+    margin-bottom:12px;text-align:center}
+  #safety p{font-size:14px;line-height:1.55;color:var(--text);margin-bottom:10px}
+  #safety .rule{color:#e0c84a;font-weight:700}
+  #safetyOk{display:block;width:100%;margin-top:14px;padding:14px;
+    border:none;border-radius:10px;background:var(--cash);color:#052405;
+    font-family:inherit;font-size:16px;font-weight:900;letter-spacing:1px}
   #nameOv{position:absolute;inset:0;z-index:2200;display:none;
     background:var(--bg);flex-direction:column;align-items:center;
     justify-content:center;gap:16px;padding:32px;text-align:center}
@@ -219,6 +231,11 @@
     font-size:22px;font-weight:900;font-family:Georgia,serif;color:#e0c84a;
     background:#171407;border:2px solid #e0c84a;
     box-shadow:0 0 18px rgba(224,200,74,.8);animation:jobpulse 1.4s infinite}
+  #moveBtn{position:absolute;left:50%;transform:translateX(-50%);
+    top:calc(env(safe-area-inset-top,0px) + 46px);z-index:1050;display:none;
+    padding:6px 12px;border-radius:8px;border:1px solid #7a877a;
+    background:rgba(13,15,13,.9);color:#aab5aa;font-family:inherit;
+    font-size:12px;font-weight:700}
   #startBtn{position:absolute;left:50%;transform:translateX(-50%);
     bottom:calc(env(safe-area-inset-bottom,0px) + 118px);z-index:1050;
     display:none;padding:13px 22px;border-radius:12px;
@@ -372,6 +389,18 @@
 <div id="stars"></div>
 <div id="toast"></div>
 
+<div id="safety">
+  <div class="card">
+    <h2>⚠️ REAL WORLD RULES</h2>
+    <p>The Streets is played on real sidewalks, with your real body, in the real world — which famously does not have a respawn button.</p>
+    <p><span class="rule">Eyes up.</span> Traffic, curbs, strangers, and lampposts are all playing on hardcore mode.</p>
+    <p><span class="rule">No trespassing.</span> If a mission spot lands on private property or somewhere sketchy, place it somewhere else — that's why you choose the spots.</p>
+    <p><span class="rule">Never play while driving.</span> Passenger seat or parked, always.</p>
+    <p>The cops in the game chase you. Real ones don't know you're playing. Stay out of dangerous situations — you can't finish the story from a hospital.</p>
+    <button id="safetyOk">EYES UP. LET'S RUN.</button>
+  </div>
+</div>
+
 <div id="nameOv">
   <h2>WHO ARE YOU?</h2>
   <input id="nameIn" maxlength="14" placeholder="your street name" autocomplete="off">
@@ -384,6 +413,7 @@
 </div>
 
 <div id="missionBar"></div>
+<button id="moveBtn">✏️ MOVE SPOT</button>
 <button id="startBtn">START MISSION</button>
 
 <div id="placeCard">
@@ -485,6 +515,13 @@ const store = (() => {
     };
   }
 })();
+// corrupted save data must never crash the game — bad keys fall back clean
+function jparse(key, fb){
+  try{
+    const v = store.getItem(key);
+    return v === null ? fb : JSON.parse(v);
+  }catch(e){ return fb; }
+}
 
 // ---------- config ----------
 const CFG = {
@@ -560,13 +597,13 @@ const paused = () => !started || document.visibilityState !== "visible";
 let map, playerMarker, playerPos = null;
 let jobs = [];            // {id, lat, lng, payout, type, marker, circle, cooldownUntil}
 let money = Number(store.getItem("sc_money") || 0);
-let houses = JSON.parse(store.getItem("sc_houses") || "null");
+let houses = jparse("sc_houses", null);
 if (!houses){
-  const legacy = JSON.parse(store.getItem("sc_safehouse") || "null");
+  const legacy = jparse("sc_safehouse", null);
   houses = legacy ? [legacy] : []; // your old safehouse becomes house #1, free
 }
-let garage    = JSON.parse(store.getItem("sc_garage") || "[]");
-let cargo     = JSON.parse(store.getItem("sc_cargo") || "null");
+let garage    = jparse("sc_garage", []);
+let cargo     = jparse("sc_cargo", null);
 let houseMarkers = [], destMarker = null, destCircle = null;
 let fullWarnAt = 0;
 const saveHouses = () => store.setItem("sc_houses", JSON.stringify(houses));
@@ -713,33 +750,13 @@ function initMap(center){
   });
 
   // legacy saves that somehow have no gang yet
-  if (myGang === null && mission.step !== "new") showGangPicker(null);
+  if (myGang === null && !introNeeded()) showGangPicker(null);
 
   // permanent story locations always come back
   Object.keys(places).forEach(drawStoryPlace);
 
-  // resume mission state on load (quitting mid-mission is always safe)
-  const st = mission.step;
-  setMissionStep(st);
-  if (st === "meet" && places.contact) drawMissionRing(places.contact);
-  else if (st === "pickup" && places.nyla) drawMissionRing(places.nyla);
-  else if (st === "dropoff" && places.contact) drawMissionRing(places.contact);
-  else if (st === "confirm") setupMeet();
-  else if (st === "m2place") setupNylaPlace();
-  else if (st === "arrived") cinePlay(m2open(), setupNylaPlace); // closed during the club scene
-  else if (st === "m3batplace") setupBatPlace();
-  else if (st === "m3bat" && mission.t) drawMissionRing(mission.t);
-  else if (st === "m3dealerplace") setupDealerPlace();
-  else if (st === "m3fight" && mission.t){
-    drawMissionRing(mission.t);
-    // the world save usually restores Deuce; if he's gone, he's back on his corner
-    setTimeout(() => { if (mission.step === "m3fight" && !npcs.some(n => n.kind === "target")
-      && playerPos && haversine(playerPos, mission.t) <= CFG.collectRadius) spawnDealer(); }, 1500);
-  }
-  else if (st === "m3sprayplace") dealerDown();
-  else if (st === "m3spray" && places.paynspray) drawMissionRing(places.paynspray);
-  else if (st === "m3garageplace") m3SprayDone();
-  else if (st === "m3garage" && places.salgarage) drawMissionRing(places.salgarage);
+  // resume mission state on load — one line, forever
+  if (mission.id) runStep();
   updateGiver();
 }
 
@@ -818,7 +835,7 @@ const AMMO_TYPES = [
   {id:"snip",  name:"Sniper rounds",  box:10, price:120},
 ];
 const ammoType = id => AMMO_TYPES.find(a => a.id === id);
-let ammo = JSON.parse(store.getItem("sc_ammo") || "{}"); // cal -> rounds
+let ammo = jparse("sc_ammo", {}); // cal -> rounds
 const saveAmmo = () => store.setItem("sc_ammo", JSON.stringify(ammo));
 let lastDryToast = 0;
 // melee swings free; guns eat a round or refuse to fire
@@ -842,8 +859,8 @@ const SHOP_RANGE = 60;          // m — must be this close to trade
 const SHOP_NEAR  = 3000;        // one dealer somewhere within this bubble; leave it and a new one spawns
 const RESTOCK_MS = 20*60*1000;  // game-time between restocks
 
-let shops = JSON.parse(store.getItem("sc_shops") || "[]"); // {lat,lng,stock,restockAt}
-let inv   = JSON.parse(store.getItem("sc_inv")   || "{}"); // id -> count
+let shops = jparse("sc_shops", []); // {lat,lng,stock,restockAt}
+let inv   = jparse("sc_inv", {}); // id -> count
 let equipped = store.getItem("sc_equip") || "";
 const saveShops = () => store.setItem("sc_shops",
   JSON.stringify(shops.map(s => ({lat:s.lat, lng:s.lng, stock:s.stock, restockAt:s.restockAt}))));
@@ -1039,7 +1056,7 @@ const GANGS = [
 ];
 // custom gang names (player-renamed) layered over the defaults
 {
-  const gn = JSON.parse(store.getItem("sc_gangnames") || "{}");
+  const gn = jparse("sc_gangnames", {});
   for (const k of Object.keys(gn)) if (GANGS[k]) GANGS[k].name = gn[k];
 }
 let myGang = store.getItem("sc_gang") === null ? null : Number(store.getItem("sc_gang"));
@@ -1215,7 +1232,7 @@ function strikeNpc(n){
     removeNpc(n);
     if (n.kind === "target"){
       addXp(100);
-      dealerDown();
+      if (curStep() && curStep().type === "kill") advance();
     } else {
       addXp(40);
       toast(`${GANGS[n.gang].name} soldier down.`);
@@ -1240,7 +1257,7 @@ const BIZ_PATHS = [
 const pathOf = b => BIZ_PATHS.find(p => p.id === b.path);
 const BIZ_RANGE = 60, BIZ_NEAR = 2500;
 
-let bizzes = JSON.parse(store.getItem("sc_biz") || "[]"); // owned — permanent
+let bizzes = jparse("sc_biz", []); // owned — permanent
 let bizSeq = Number(store.getItem("sc_bizseq") || 0);
 let bizSale = null; // one for-sale opportunity floats near the player
 const saveBiz = () => { store.setItem("sc_biz", JSON.stringify(bizzes.map(b =>
@@ -1441,8 +1458,8 @@ const DRUGS = [
   {id:"her",   name:"Heroin", base:400},
 ];
 const drugById = id => DRUGS.find(d => d.id === id);
-let onDrugs = JSON.parse(store.getItem("sc_drugs") || "{}"); // pockets
-let stash   = JSON.parse(store.getItem("sc_stash") || "{}"); // safehouse
+let onDrugs = jparse("sc_drugs", {}); // pockets
+let stash   = jparse("sc_stash", {}); // safehouse
 const saveDrugs = () => { store.setItem("sc_drugs", JSON.stringify(onDrugs));
   store.setItem("sc_stash", JSON.stringify(stash)); };
 const pocketsEmpty = () => !Object.values(onDrugs).some(q => q > 0);
@@ -1557,11 +1574,11 @@ setInterval(() => {
     // mission target: fights back, doesn't run, doesn't forget
     if (n.kind === "target"){
       const d = haversine(n, playerPos);
-      if (!n.aggro && d < 40){ n.aggro = true; toast("Deuce pulls a blade. \"Wrong corner, friend.\""); }
+      if (!n.aggro && d < 40){ n.aggro = true; if (n.pull) toast(n.pull); }
       if (n.aggro){
         const gc = gangCombat(n);
         if (d <= gc.range){
-          lastAttacker = "Deuce";
+          lastAttacker = n.label || "the target";
           damage(gc.dps * 0.4);
         } else if (d < 300){
           const step = Math.min(1.8 * 0.4, d);
@@ -1754,8 +1771,9 @@ function buySafehouseHere(){
     if (!(k in territory)) claimCell(k, myGang);
   }
   updateShBtn();
-  if (mission.step === "house" && houses.length === 1){
-    cinePlay(ch3(), setupMeet);
+  const cs = curStep();
+  if (cs && cs.type === "claimHouse" && houses.length === 1){
+    advance();
   } else {
     toast(price === 0
       ? "First safehouse — on the house. Stolen cars go here."
@@ -1887,7 +1905,8 @@ function setPlayerPos(pos, keepView){
     map.setView([pos.lat, pos.lng], 16);
     restorePursuit(pos);
     $("status").textContent = devMode ? "dev mode" : "GPS locked";
-  } else if (!keepView){
+  } else if (!keepView && !placing){
+    // free camera while picking a mission spot — the map is yours to browse
     map.panTo([pos.lat, pos.lng], {animate:true, duration:.25});
   }
   maintainJobs();
@@ -1899,38 +1918,29 @@ function update(){
   if (!playerPos) return;
   const now = gt();
 
-  // mission arrivals
-  if (mission.step === "meet" && places.contact
-      && haversine(playerPos, places.contact) <= CFG.collectRadius){
-    missionArrived();
-  } else if (mission.step === "pickup" && places.nyla
-      && haversine(playerPos, places.nyla) <= CFG.collectRadius){
-    nylaPickedUp();
-  } else if (mission.step === "dropoff" && places.contact
-      && haversine(playerPos, places.contact) <= CFG.collectRadius){
-    m2Complete();
-  } else if (mission.step === "m3bat" && mission.t
-      && haversine(playerPos, mission.t) <= CFG.collectRadius){
-    setMissionStep("m3dealerplace");
-    clearMissionRing();
-    inv["bat"] = (inv["bat"] || 0) + 1;
-    saveInv(); renderInvBtn();
-    cinePlay(m3bat(), setupDealerPlace);
-  } else if (mission.step === "m3fight" && mission.t
-      && haversine(playerPos, mission.t) <= CFG.collectRadius
-      && !npcs.some(n => n.kind === "target")){
-    cinePlay(m3found(), spawnDealer);
-  } else if (mission.step === "m3spray" && places.paynspray
-      && haversine(playerPos, places.paynspray) <= CFG.collectRadius){
-    m3SprayDone();
-  } else if (mission.step === "m3garage" && places.salgarage
-      && haversine(playerPos, places.salgarage) <= CFG.collectRadius){
-    m3Complete();
+  // mission arrivals — one generic check for every mission ever
+  {
+    const s = curStep();
+    if (s && (s.type === "goto" || s.type === "kill")){
+      const loc = resolveLoc(s.at || "t");
+      if (loc && haversine(playerPos, loc) <= CFG.collectRadius){
+        if (s.type === "goto") advance();
+        else if (!npcs.some(n => n.kind === "target"))
+          cinePlay(s.intro(), () => spawnTarget(s));
+      }
+    }
   }
 
+  // mid-mission spot fix button
+  $("moveBtn").style.display = canMoveSpot() ? "block" : "none";
+
   // mission giver proximity: START MISSION button
-  $("startBtn").style.display =
-    (giverReady() && haversine(playerPos, places.contact) <= 60) ? "block" : "none";
+  {
+    const oid = offeredMission();
+    const g = oid && MISSIONS[oid].giver;
+    $("startBtn").style.display =
+      (g && places[g.at] && haversine(playerPos, places[g.at]) <= 60) ? "block" : "none";
+  }
 
   // arriving with cargo
   if (cargo){
@@ -2510,7 +2520,7 @@ function saveWorld(){
     jobs: jobs.map(j => ({lat:j.lat, lng:j.lng, t:j.typeIdx, p:j.payout, cd:j.cooldownUntil})),
     npcs: npcs.map(n => ({uid:n.uid, kind:n.kind, lat:n.lat, lng:n.lng,
       robbed:n.robbed, speed:n.speed, stock:n.stock, wants:n.wants,
-      gang:n.gang, hp:n.hp, aggro:n.aggro, wep:n.wep})),
+      gang:n.gang, hp:n.hp, aggro:n.aggro, wep:n.wep, label:n.label, pull:n.pull})),
     terr: territory,
     copsRel: cops.map(c => ({kind:c.kind, dLat:c.lat - playerPos.lat,
       dLng:c.lng - playerPos.lng, hp:c.hp})),
@@ -2527,12 +2537,13 @@ window.addEventListener("pagehide", saveWorld);
 let pendingPursuit = null;
 
 function restoreWorld(){
-  const w = JSON.parse(store.getItem("sc_world") || "null");
+  const w = jparse("sc_world", null);
   if (!w) return;
   for (const j of w.jobs || []) createJob(j.lat, j.lng, j.t ?? 0, j.p || 0, j.cd || 0);
   for (const n of w.npcs || []) attachNpc({uid:n.uid, kind:n.kind, lat:n.lat, lng:n.lng,
     wp:null, robbed:!!n.robbed, speed:n.speed || 1.4, stock:n.stock, wants:n.wants,
-    gang:n.gang, hp:n.hp ?? 60, aggro:!!n.aggro, wep:n.wep || null});
+    gang:n.gang, hp:n.hp ?? 60, aggro:!!n.aggro, wep:n.wep || null,
+    label:n.label, pull:n.pull});
   territory = w.terr || {};
   npcSeq = w.npcSeq || npcSeq;
   stars = w.stars || 0;
@@ -2563,17 +2574,47 @@ function restorePursuit(pos){
 
 // ---------- intro & missions ----------
 let pname = store.getItem("sc_name") || "";
-let mission = JSON.parse(store.getItem("sc_mission") || "null");
-if (!mission){
-  const hasProgress = money > 0 || houses.length > 0 || myGang !== null;
-  mission = hasProgress ? {step:"done"} : {step:"new"};
+let completed = new Set(jparse("sc_mdone", []));
+const saveDone = () => store.setItem("sc_mdone", JSON.stringify([...completed]));
+let mission = {id:null, idx:0, t:null};
+const saveMission = () => store.setItem("sc_mission",
+  JSON.stringify({id:mission.id, idx:mission.idx, t:mission.t, v:2}));
+
+// migrate old step-string saves into the engine format
+{
+  const raw = jparse("sc_mission", null);
+  if (raw && raw.v === 2){
+    mission = {id:raw.id || null, idx:raw.idx || 0, t:raw.t || null};
+  } else if (raw && raw.step){
+    const MAP = {
+      house:["m1",0], confirm:["m1",2], meet:["m1",3], arrived:["m1",4],
+      done1:["m2",0,["m1"]],
+      m2place:["m2",1,["m1"]], pickup:["m2",2,["m1"]], dropoff:["m2",4,["m1"]],
+      done2:[null,0,["m1","m2"]],
+      m3batplace:["m3",1,["m1","m2"]], m3bat:["m3",2,["m1","m2"]],
+      m3dealerplace:["m3",5,["m1","m2"]], m3fight:["m3",6,["m1","m2"]],
+      m3sprayplace:["m3",7,["m1","m2"]], m3spray:["m3",9,["m1","m2"]],
+      m3garageplace:["m3",10,["m1","m2"]], m3garage:["m3",12,["m1","m2"]],
+      done3:[null,0,["m1","m2","m3"]],
+      done:[null,0,["m1","m2","m3"]],
+    };
+    const mm = MAP[raw.step];
+    if (mm){
+      mission = {id:mm[0], idx:mm[1], t:raw.t || null};
+      (mm[2] || []).forEach(x => completed.add(x));
+      saveDone();
+    }
+    saveMission();
+  }
 }
-const saveMission = () => store.setItem("sc_mission", JSON.stringify(
-  {step:mission.step, t:mission.t, d:mission.d}));
+// intro plays only for truly fresh saves
+const introNeeded = () => !completed.size && !mission.id && !pname
+  && money === 0 && houses.length === 0 && myGang === null;
+
 let missionMarker = null, missionCircle = null;
 
 // ---- persistent story locations: the player places them, the story keeps them ----
-let places = JSON.parse(store.getItem("sc_places") || "{}"); // key -> {lat,lng,label}
+let places = jparse("sc_places", {}); // key -> {lat,lng,label}
 const savePlaces = () => store.setItem("sc_places", JSON.stringify(places));
 const storyMarkers = {};
 
@@ -2633,6 +2674,8 @@ document.addEventListener("click", e => {
 let placing = null; // {key,label,minDist,warn,cb,pend,pendMarker}
 function placeStoryLocation(key, label, minDist, warn, cb, icon){
   placing = {key, label, minDist, warn, cb, icon, pend:null, pendMarker:null};
+  if (typeof map !== "undefined" && map && playerPos)
+    map.setView([playerPos.lat, playerPos.lng], 14, {animate:true}); // zoomed out, unlocked
   $("placeTitle").innerHTML = `<b>TAP THE MAP</b> — place: ${label}`;
   $("placeWarn").textContent = warn + ` (at least ${minDist}m from where you stand)`;
   $("placeCard").style.display = "block";
@@ -2670,6 +2713,7 @@ function placementConfirm(){
   $("placeCard").style.display = "none";
   $("missionConfirm").style.display = "none";
   if (pl.key) drawStoryPlace(pl.key);
+  if (playerPos) map.setView([playerPos.lat, playerPos.lng], 16, {animate:true}); // camera back on you
   pl.cb();
 }
 // one-time spot (never saved as a story place)
@@ -2885,102 +2929,7 @@ function m2end(){ return [
 ]; }
 
 // ---- mission steps ----
-function setMissionStep(step){
-  mission.step = step;
-  saveMission();
-  if (step === "house") setBanner("📍 LAY LOW — claim your free safehouse (🏠 button)");
-  else if (step === "meet") setBanner("📍 THE GUY — get to the marked spot");
-  else if (step === "confirm") setBanner("📍 THE GUY — tap the map to place the meet");
-  else if (step === "m2place") setBanner("📍 THE PICKUP — tap the map: where's she waiting?");
-  else if (step === "pickup") setBanner("📍 THE PICKUP — go get Nyla");
-  else if (step === "dropoff") setBanner("📍 NO TROUBLE — bring her back to Club Static");
-  else if (step === "m3batplace") setBanner("📍 BAD MEDICINE — tap the map: where's a bat?");
-  else if (step === "m3bat") setBanner("📍 BAD MEDICINE — go grab the bat");
-  else if (step === "m3dealerplace") setBanner("📍 BAD MEDICINE — tap the map: where does Deuce deal?");
-  else if (step === "m3fight") setBanner("📍 BAD MEDICINE — deal with Deuce");
-  else if (step === "m3sprayplace") setBanner("📍 BAD MEDICINE — place Clean Slate Customs");
-  else if (step === "m3spray") setBanner("📍 BAD MEDICINE — get the car painted");
-  else if (step === "m3garageplace") setBanner("📍 BAD MEDICINE — place Sal's garage");
-  else if (step === "m3garage") setBanner("📍 BAD MEDICINE — deliver the car to Sal");
-  else setBanner(null);
-}
-
-function setupMeet(){
-  setMissionStep("confirm");
-  placeStoryLocation("contact", "Club Static (back door)", 300,
-    "Heads up: you're choosing where Club Static sits. This spot is PERMANENT — the next missions keep coming back here, so pick a real place you can actually walk or drive to.",
-    () => {
-      setMissionStep("meet");
-      drawMissionRing(places.contact);
-      toast("Ray settles into the seat. \"Don't get pulled over.\"");
-    }, "🚪");
-}
-
-$("mcGood").addEventListener("click", () => { if (placing && placing.pend) placementConfirm(); });
-$("mcMove").addEventListener("click", () => { if (placing) placementAgain(); });
-
-function missionArrived(){
-  setMissionStep("arrived");
-  clearMissionRing(); // the club stays on the map forever — you'll be back
-  cinePlay(ch4(), () => {
-    money += 150; saveMoney(); renderMoney(true); showGain(150);
-    addXp(200);
-    toast("Ray palms you a fold of bills before the door takes him.");
-    cinePlay(m2open(), setupNylaPlace);
-  });
-}
-
-function setupNylaPlace(){
-  setMissionStep("m2place");
-  placeStoryLocation("nyla", "Nyla's Place", 300,
-    "You're choosing where Nyla's waiting. This spot is PERMANENT too — she lives there, and the story remembers. Somewhere you can really get to.",
-    () => {
-      setMissionStep("pickup");
-      drawMissionRing(places.nyla);
-      toast("Sal, from the doorway: \"Careful with my night, driver.\"");
-    }, "🚪");
-}
-
-function nylaPickedUp(){
-  setMissionStep("dropoff");
-  clearMissionRing();
-  cinePlay(m2pick(), () => {
-    drawMissionRing(places.contact);
-    toast("Nyla, from the passenger seat: \"The club. And take the smooth roads.\"");
-  });
-}
-
-function m2Complete(){
-  setMissionStep("done2");
-  clearMissionRing();
-  cinePlay(m2end(), () => {
-    money += 250; saveMoney(); renderMoney(true); showGain(250);
-    addXp(300);
-    toast("Sal's money is crisp. The streets are yours — for now.");
-    updateGiver();
-  });
-}
-
-// ---- mission givers (GTA letter markers) ----
-let giverMarker = null;
-const giverReady = () => mission.step === "done2" && places.contact;
-function updateGiver(){
-  if (giverReady() && !giverMarker && typeof map !== "undefined" && map){
-    giverMarker = L.marker([places.contact.lat, places.contact.lng], {
-      icon: L.divIcon({className:"", html:'<div class="giver">S</div>',
-        iconSize:[38,38], iconAnchor:[19,19]}), zIndexOffset: 1000
-    }).addTo(map).bindPopup("<b>Sal</b><br>has work for you.");
-  } else if (!giverReady() && giverMarker){
-    map.removeLayer(giverMarker);
-    giverMarker = null;
-  }
-}
-$("startBtn").addEventListener("click", () => {
-  $("startBtn").style.display = "none";
-  if (mission.step === "done2") startM3();
-});
-
-// ---- MISSION 3: BAD MEDICINE ----
+// ---- mission 3 story pages ----
 function m3open(){ return [
   {html:sp(`You rolled back around to Static's service door, looking for the work Sal promised. The bulb was lit. Before you could knock, the vending machine stepped out, pressed an envelope into your hand, and went back inside without a word.`)},
   {html:`<div class="letter">Driver —<br><br>There's a new product on the street. They call it <b>Glow</b>. Some corner chemist has been selling it to my girls, and two of them can't work and one of them can't stand up.<br><br>His name is Deuce. Find him. Bring a baseball bat. Use the bat.<br><br>He drives a hatchback he's very proud of. Take it, get it painted, and bring it to my garage. Consider it his apology.<br><br>Burn this.<br>— S</div>`, minMs:1200},
@@ -3005,78 +2954,192 @@ function m3done(){ return [
   {html:`<div class="titleCard" style="font-size:30px">TO BE CONTINUED</div>`, minMs:1400},
 ]; }
 
-function startM3(){
-  updateGiver();
-  cinePlay(m3open(), () => {
-    setMissionStep("m3batplace");
-    setupBatPlace();
-  });
+// ================= MISSION ENGINE =================
+// A mission is a list of steps. Each step TYPE is coded exactly once:
+//   cine {pages} | place {key?,label,minDist,warn,icon} | goto {at}
+//   kill {name,hp,wep,intro,pull} | give {item} | pay {money,xp} | claimHouse
+// Any step can carry banner:"..." and toast:"..."
+const MISSIONS = {
+  m1: {name:"FIRST DAY OUT", next:"m2", steps:[
+    {type:"claimHouse", banner:"claim your free safehouse (\ud83c\udfe0 button)"},
+    {type:"cine", pages:ch3},
+    {type:"place", key:"contact", label:"Club Static (back door)", icon:"\ud83d\udeaa", minDist:300,
+      banner:"tap the map to place the meet",
+      warn:"Heads up: you're choosing where Club Static sits. This spot is PERMANENT — the next missions keep coming back here, so pick a real place you can actually walk or drive to."},
+    {type:"goto", at:"contact", banner:"get to Club Static",
+      toast:'Ray settles into the seat. "Don\'t get pulled over."'},
+    {type:"cine", pages:ch4},
+    {type:"pay", money:150, xp:200, toast:"Ray palms you a fold of bills before the door takes him."},
+  ]},
+  m2: {name:"NO TROUBLE", next:null, steps:[
+    {type:"cine", pages:m2open},
+    {type:"place", key:"nyla", label:"Nyla's Place", icon:"\ud83d\udeaa", minDist:300,
+      banner:"tap the map: where's she waiting?",
+      warn:"You're choosing where Nyla's waiting. This spot is PERMANENT too — she lives there, and the story remembers. Somewhere you can really get to."},
+    {type:"goto", at:"nyla", banner:"go get Nyla",
+      toast:'Sal, from the doorway: "Careful with my night, driver."'},
+    {type:"cine", pages:m2pick},
+    {type:"goto", at:"contact", banner:"bring her back to Club Static",
+      toast:'Nyla, from the passenger seat: "The club. And take the smooth roads."'},
+    {type:"cine", pages:m2end},
+    {type:"pay", money:250, xp:300, toast:"Sal's money is crisp. The streets are yours — for now."},
+  ]},
+  m3: {name:"BAD MEDICINE", next:null,
+    giver:{letter:"S", at:"contact", after:"m2", who:"Sal"},
+    steps:[
+    {type:"cine", pages:m3open},
+    {type:"place", label:"The Bat", minDist:200,
+      banner:"tap the map: where's a bat?",
+      warn:"Where's a bat lying around? One-time spot — this one is NOT saved."},
+    {type:"goto", at:"t", banner:"go grab the bat"},
+    {type:"give", item:"bat"},
+    {type:"cine", pages:m3bat},
+    {type:"place", label:"Deuce's Corner", minDist:300,
+      banner:"tap the map: where does Deuce deal?",
+      warn:"Where does Deuce deal? One-time spot — this one is NOT saved either.",
+      toast:"Bat on the seat. Time to make a house call."},
+    {type:"kill", name:"Deuce", hp:120, wep:"knife", intro:m3found,
+      banner:"deal with Deuce", pull:'Deuce pulls a blade. "Wrong corner, friend."'},
+    {type:"cine", pages:m3car},
+    {type:"place", key:"paynspray", label:"Clean Slate Customs", icon:"\ud83c\udfa8", minDist:300,
+      banner:"place Clean Slate Customs",
+      warn:"You're choosing where Clean Slate Customs operates. PERMANENT and important — it clears police heat and resprays boosted cars from now on."},
+    {type:"goto", at:"paynspray", banner:"get the car painted",
+      toast:"The hatchback hums along. Deuce kept it nice."},
+    {type:"cine", pages:m3sprayed},
+    {type:"place", key:"salgarage", label:"Sal's Garage", icon:"\ud83d\udd27", minDist:300,
+      banner:"place Sal's garage",
+      warn:"You're choosing where Sal's garage sits. PERMANENT — future work runs through here."},
+    {type:"goto", at:"salgarage", banner:"deliver the car to Sal",
+      toast:"One delivery left. Keep it clean."},
+    {type:"cine", pages:m3done},
+    {type:"pay", money:400, xp:400, toast:"Sal's envelope has real weight to it."},
+  ]},
+};
+
+const curStep = () => mission.id ? (MISSIONS[mission.id].steps[mission.idx] || null) : null;
+const resolveLoc = at => at === "t" ? mission.t : places[at];
+
+function startMission(id){
+  mission.id = id; mission.idx = 0; mission.t = null;
+  saveMission(); updateGiver(); runStep();
 }
-function setupBatPlace(){
-  placeMissionSpot("The Bat", 200,
-    "Where's a bat lying around? One-time spot — this one is NOT saved.",
+function advance(){
+  mission.idx++;
+  saveMission();
+  runStep();
+}
+function completeMission(){
+  const M = MISSIONS[mission.id];
+  completed.add(mission.id); saveDone();
+  const next = M.next;
+  mission.id = null; mission.idx = 0; mission.t = null;
+  saveMission(); clearMissionRing(); setBanner(null); updateGiver();
+  if (next) startMission(next);
+}
+function runStep(){
+  const s = curStep();
+  if (!s){ completeMission(); return; }
+  const M = MISSIONS[mission.id];
+  clearMissionRing();
+  setBanner(s.banner ? "\ud83d\udccd " + M.name + " — " + s.banner : null);
+  if (s.type === "cine"){
+    cinePlay(s.pages(), advance);
+  } else if (s.type === "place"){
+    if (s.key && places[s.key]){ advance(); return; }
+    placeStoryLocation(s.key || null, s.label, s.minDist, s.warn,
+      () => { if (s.toast) toast(s.toast); advance(); }, s.icon);
+  } else if (s.type === "goto" || s.type === "kill"){
+    const loc = resolveLoc(s.at || "t");
+    if (loc) drawMissionRing(loc);
+    if (s.toast) toast(s.toast);
+  } else if (s.type === "give"){
+    inv[s.item] = (inv[s.item] || 0) + 1;
+    saveInv(); renderInvBtn();
+    if (s.toast) toast(s.toast);
+    advance();
+  } else if (s.type === "pay"){
+    money += s.money; saveMoney(); renderMoney(true); showGain(s.money);
+    addXp(s.xp || 0);
+    if (s.toast) toast(s.toast);
+    advance();
+  } else if (s.type === "claimHouse"){
+    // waits — buySafehouseHere advances it
+  }
+}
+// which earlier "place" step authored the location the current step points at?
+function authoringPlaceStep(s){
+  const steps = MISSIONS[mission.id].steps;
+  for (let i = mission.idx - 1; i >= 0; i--){
+    const p = steps[i];
+    if (p.type !== "place") continue;
+    if (s.at && s.at !== "t"){ if (p.key === s.at) return p; }
+    else if (!p.key) return p; // nearest one-time spot
+  }
+  return null;
+}
+
+// mid-mission spot fix: movable until used (arrival / target spawned), then permanent
+function canMoveSpot(){
+  const s = curStep();
+  if (!s || placing || !mission.id) return false;
+  if (s.type === "goto") return true;
+  if (s.type === "kill") return !npcs.some(n => n.kind === "target");
+  return false;
+}
+$("moveBtn").addEventListener("click", () => {
+  const s = curStep();
+  if (!canMoveSpot()) return;
+  const p = authoringPlaceStep(s);
+  if (!p) return;
+  const key = s.at && s.at !== "t" ? s.at : null;
+  if (key && storyMarkers[key]){ map.removeLayer(storyMarkers[key]); delete storyMarkers[key]; }
+  clearMissionRing();
+  placeStoryLocation(key, p.label, p.minDist,
+    "Re-placing this spot. Same rules — pick somewhere you can actually reach. Once you get there, it's locked for good.",
     () => {
-      setMissionStep("m3bat");
-      drawMissionRing(mission.t);
-      toast("You know exactly where one's stashed.");
-    });
-}
-function setupDealerPlace(){
-  placeMissionSpot("Deuce's Corner", 300,
-    "Where does Deuce deal? One-time spot — this one is NOT saved either.",
-    () => {
-      setMissionStep("m3fight");
-      drawMissionRing(mission.t);
-      toast("Bat on the seat. Time to make a house call.");
-    });
-}
-function spawnDealer(){
+      drawMissionRing(resolveLoc(s.at || "t"));
+      toast("Spot moved. This one better be reachable.");
+    }, p.icon);
+});
+
+function spawnTarget(s){
   attachNpc({uid:npcSeq++, kind:"target", lat:mission.t.lat, lng:mission.t.lng,
-    wp:null, robbed:false, hp:120, aggro:false, speed:1.6, wep:"knife",
-    label:"Deuce"});
+    wp:null, robbed:false, hp:s.hp, aggro:false, speed:1.6, wep:s.wep,
+    label:s.name, pull:s.pull});
 }
-function dealerDown(){
-  setMissionStep("m3sprayplace");
-  clearMissionRing();
-  cinePlay(m3car(), () => {
-    if (places.paynspray){ // already exists from a future replay path — just drive
-      setMissionStep("m3spray");
-      drawMissionRing(places.paynspray);
-    } else {
-      placeStoryLocation("paynspray", "Clean Slate Customs", 300,
-        "You're choosing where Clean Slate Customs operates. PERMANENT and important — it clears police heat and resprays boosted cars from now on.",
-        () => {
-          setMissionStep("m3spray");
-          drawMissionRing(places.paynspray);
-          toast("The hatchback hums along. Deuce kept it nice.");
-        }, "🎨");
-    }
-  });
+
+$("mcGood").addEventListener("click", () => { if (placing && placing.pend) placementConfirm(); });
+$("mcMove").addEventListener("click", () => { if (placing) placementAgain(); });
+
+// ---- mission givers (GTA letter markers) ----
+let giverMarker = null;
+function offeredMission(){
+  if (mission.id) return null;
+  for (const [id, M] of Object.entries(MISSIONS)){
+    if (!M.giver || completed.has(id)) continue;
+    if (completed.has(M.giver.after) && places[M.giver.at]) return id;
+  }
+  return null;
 }
-function m3SprayDone(){
-  setMissionStep("m3garageplace");
-  clearMissionRing();
-  cinePlay(m3sprayed(), () => {
-    placeStoryLocation("salgarage", "Sal's Garage", 300,
-      "You're choosing where Sal's garage sits. PERMANENT — future work runs through here.",
-      () => {
-        setMissionStep("m3garage");
-        drawMissionRing(places.salgarage);
-        toast("One delivery left. Keep it clean.");
-      }, "🔧");
-  });
+function updateGiver(){
+  const id = offeredMission();
+  if (id && !giverMarker && typeof map !== "undefined" && map){
+    const g = MISSIONS[id].giver, at = places[g.at];
+    giverMarker = L.marker([at.lat, at.lng], {
+      icon: L.divIcon({className:"", html:`<div class="giver">${g.letter}</div>`,
+        iconSize:[38,38], iconAnchor:[19,19]}), zIndexOffset: 1000
+    }).addTo(map).bindPopup(`<b>${g.who}</b><br>has work for you.`);
+  } else if (!id && giverMarker){
+    map.removeLayer(giverMarker);
+    giverMarker = null;
+  }
 }
-function m3Complete(){
-  setMissionStep("done3");
-  clearMissionRing();
-  cinePlay(m3done(), () => {
-    money += 400; saveMoney(); renderMoney(true); showGain(400);
-    addXp(400);
-    inv["bat"] = Math.max(1, inv["bat"] || 0); // the bat's yours now
-    saveInv();
-    toast("Sal's envelope has real weight to it.");
-  });
-}
+$("startBtn").addEventListener("click", () => {
+  $("startBtn").style.display = "none";
+  const id = offeredMission();
+  if (id) startMission(id);
+});
 
 // ---- intro chain for fresh saves ----
 let pendingGps = true;
@@ -3094,9 +3157,9 @@ $("nameGo").addEventListener("click", () => {
   $("nameOv").style.display = "none";
   showGangPicker(() => {
     playRedline(() => {
-      cinePlay(ch1().concat(ch2()).concat(ch3().slice(0,0)), () => { // ch1+ch2 pre-game
+      cinePlay(ch1().concat(ch2()), () => {
         start(pendingGps);
-        setMissionStep("house");
+        startMission("m1");
       });
     });
   });
@@ -3130,7 +3193,7 @@ function showGangPicker(cb){
       const nn = window.prompt("Rename this set:", cur);
       if (nn && nn.trim()){
         g.name = nn.trim().slice(0, 14);
-        const gn = JSON.parse(store.getItem("sc_gangnames") || "{}");
+        const gn = jparse("sc_gangnames", {});
         gn[i] = g.name;
         store.setItem("sc_gangnames", JSON.stringify(gn));
         b.textContent = g.name.toUpperCase();
@@ -3211,8 +3274,12 @@ function renderMenu(){
 }
 renderMenu();
 
+$("safetyOk").addEventListener("click", () => {
+  $("safety").style.display = "none";
+});
+
 $("startGps").addEventListener("click", () => {
-  if (mission.step === "new") beginIntro(true);
+  if (introNeeded()) beginIntro(true);
   else start(true);
 });
 
@@ -3224,7 +3291,7 @@ $("devLink").addEventListener("click", () => {
 });
 function tryDevCode(){
   if ($("devCode").value === "0627"){
-    if (mission.step === "new") beginIntro(false);
+    if (introNeeded()) beginIntro(false);
     else start(false);
   }
   else { $("devCode").value = ""; $("devCode").placeholder = "nope"; }

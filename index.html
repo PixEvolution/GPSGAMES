@@ -25,6 +25,20 @@ button{
 #tint{position:fixed; inset:0; z-index:2; pointer-events:none;
   background:radial-gradient(ellipse at 50% 45%, rgba(50,90,30,.05) 0%, rgba(4,8,3,.42) 100%);}
 
+/* ---- safety briefing (every launch) ---- */
+#safety{position:fixed; inset:0; z-index:200; background:rgba(4,6,3,.97);
+  display:flex; flex-direction:column; align-items:center; justify-content:center; padding:26px;}
+#safety .box{width:min(360px,92vw); border:1px solid rgba(224,179,74,.5); border-radius:12px;
+  background:rgba(20,16,5,.85); padding:20px 18px; box-shadow:0 0 30px rgba(224,179,74,.15);}
+#safety h2{color:var(--amber); font-size:19px; letter-spacing:3px; text-align:center; margin-bottom:12px;}
+#safety ul{list-style:none; margin:0 0 12px;}
+#safety li{font-size:14px; color:#d8cfa8; line-height:1.55; padding:4px 0 4px 22px; position:relative;}
+#safety li::before{content:"▸"; position:absolute; left:4px; color:var(--amber);}
+#safety .tag{font-size:13px; color:var(--grn); text-align:center; letter-spacing:1px; margin-bottom:14px; line-height:1.6;}
+#safetyOk{width:100%; padding:14px 0; font-size:16px; letter-spacing:2px; border-radius:10px;
+  background:#241a08; color:var(--amber); border:1px solid var(--amber); font-weight:700;}
+#safetyOk:active{background:#3a2a0e;}
+
 /* ---- start screen ---- */
 #start{position:fixed; inset:0; z-index:100; overflow:hidden;
   background:
@@ -217,6 +231,21 @@ body.night .leaflet-tile-pane{filter:invert(1) hue-rotate(120deg) brightness(.42
 <div id="map"></div>
 <div id="tint"></div>
 <div id="hitflash"></div>
+
+<div id="safety">
+  <div class="box">
+    <h2>⚠ FIELD SAFETY BRIEFING</h2>
+    <ul>
+      <li>DEADZONE is played in the real world — the real world always comes first.</li>
+      <li>Keep your head up. Watch for cars, bikes, people, and terrain.</li>
+      <li>Never play while driving or cycling.</li>
+      <li>Never trespass — everything collects from 50m away, public space is always enough.</li>
+      <li>Be extra careful at night. Yes, night is when the game gets good. Eyes up anyway.</li>
+    </ul>
+    <div class="tag">The zombies aren't real. The cars are.<br>If you don't survive IRL, you won't survive the game.</div>
+    <button id="safetyOk">UNDERSTOOD — STAY ALERT</button>
+  </div>
+</div>
 
 <div id="start">
   <div class="fog" id="fog1"></div><div class="fog" id="fog2"></div>
@@ -1697,6 +1726,7 @@ function initWorld(lat,lng){
   refreshHud(); refreshAction(); save();
   if(S.hp<=0){ S.hp=1; } // never load into an instant death screen
 }
+$("safetyOk").addEventListener("click",()=>{ $("safety").style.display="none"; });
 (function initStartScreen(){
   const hasSave = gameTime>0 || S.scavenged>0 || S.kills>0 || S.deaths>0 || !!S.base;
   if(hasSave){
