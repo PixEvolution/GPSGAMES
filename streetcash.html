@@ -166,6 +166,22 @@
   #safetyOk{display:block;width:100%;margin-top:14px;padding:14px;
     border:none;border-radius:10px;background:var(--cash);color:#052405;
     font-family:inherit;font-size:16px;font-weight:900;letter-spacing:1px}
+  .ioBtn{padding:9px 12px;border-radius:8px;border:1px solid #2a332a;
+    background:transparent;color:#7a877a;font-family:inherit;font-size:12px;
+    font-weight:700;letter-spacing:1px}
+  #ioPanel{position:absolute;inset:0;z-index:2500;display:none;
+    background:rgba(5,7,5,.96);align-items:center;justify-content:center;padding:22px}
+  .ioCard{width:100%;max-width:360px;background:var(--panel);border:2px solid #2a332a;
+    border-radius:14px;padding:18px}
+  .ioCard h2{font-size:20px;font-weight:900;letter-spacing:1px;color:var(--cash)}
+  .ioCard p{font-size:12px;color:#7a877a;margin:8px 0;line-height:1.5}
+  #ioText{width:100%;height:120px;border-radius:8px;border:1px solid #2a332a;
+    background:var(--bg);color:var(--text);font-family:monospace;font-size:11px;
+    padding:8px;resize:none;outline:none;word-break:break-all}
+  #ioGo{flex:1;padding:12px;border:none;border-radius:9px;background:var(--cash);
+    color:#052405;font-family:inherit;font-size:14px;font-weight:900}
+  #ioCancel{flex:1;padding:12px;border:1px solid #2a332a;border-radius:9px;
+    background:transparent;color:#7a877a;font-family:inherit;font-size:14px;font-weight:900}
   #nameOv{position:absolute;inset:0;z-index:2200;display:none;
     background:var(--bg);flex-direction:column;align-items:center;
     justify-content:center;gap:16px;padding:32px;text-align:center}
@@ -181,6 +197,10 @@
   .storyText{font-family:Georgia,'Times New Roman',serif;font-size:19px;
     line-height:1.65;color:#d8dfd8;max-width:340px;text-align:left}
   .storyText b{color:var(--cash)}
+  #cineBack{position:absolute;top:calc(env(safe-area-inset-top,0px) + 14px);left:14px;
+    display:none;padding:8px 14px;border-radius:8px;border:1px solid #2a332a;
+    background:rgba(13,15,13,.8);color:#7a877a;font-family:inherit;
+    font-size:13px;font-weight:700;z-index:5}
   #cineTap{position:absolute;bottom:calc(env(safe-area-inset-bottom,0px) + 22px);
     color:#4a554a;font-size:12px;letter-spacing:2px;animation:tapblink 1.6s infinite}
   @keyframes tapblink{50%{opacity:.25}}
@@ -231,10 +251,15 @@
     font-size:22px;font-weight:900;font-family:Georgia,serif;color:#e0c84a;
     background:#171407;border:2px solid #e0c84a;
     box-shadow:0 0 18px rgba(224,200,74,.8);animation:jobpulse 1.4s infinite}
-  #moveBtn{position:absolute;left:50%;transform:translateX(-50%);
+  #moveBtn{position:absolute;left:50%;transform:translateX(-50%) translateX(-64px);
     top:calc(env(safe-area-inset-top,0px) + 46px);z-index:1050;display:none;
     padding:6px 12px;border-radius:8px;border:1px solid #7a877a;
     background:rgba(13,15,13,.9);color:#aab5aa;font-family:inherit;
+    font-size:12px;font-weight:700}
+  #cancelBtn{position:absolute;left:50%;transform:translateX(-50%) translateX(64px);
+    top:calc(env(safe-area-inset-top,0px) + 46px);z-index:1050;display:none;
+    padding:6px 12px;border-radius:8px;border:1px solid #703a3a;
+    background:rgba(13,15,13,.9);color:#e08a8a;font-family:inherit;
     font-size:12px;font-weight:700}
   #startBtn{position:absolute;left:50%;transform:translateX(-50%);
     bottom:calc(env(safe-area-inset-bottom,0px) + 118px);z-index:1050;
@@ -316,11 +341,31 @@
   #busted h2{font-size:56px;font-weight:900;letter-spacing:6px;color:var(--danger);
     text-shadow:0 0 26px rgba(224,74,74,.7)}
   #busted p{color:var(--text);font-size:17px}
-  #toast{position:absolute;top:calc(env(safe-area-inset-top,0px) + 92px);
+  #toasts{position:absolute;top:calc(env(safe-area-inset-top,0px) + 92px);
     left:50%;transform:translateX(-50%);z-index:1100;
-    background:rgba(13,15,13,.9);border:1px solid var(--cash);border-radius:8px;
-    padding:8px 16px;font-size:14px;font-weight:700;color:var(--cash);
-    display:none;white-space:nowrap}
+    display:flex;flex-direction:column;gap:6px;align-items:center;
+    width:max-content;max-width:82vw;pointer-events:none}
+  .toastMsg{background:rgba(13,15,13,.92);border:1px solid var(--cash);
+    border-radius:8px;padding:8px 16px;font-size:14px;font-weight:700;
+    color:var(--cash);max-width:82vw;text-align:center;
+    animation:toastIn .25s ease-out;transition:opacity .5s}
+  .toastMsg.fading{opacity:0}
+  @keyframes toastIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1}}
+  #logBtn{position:absolute;top:calc(env(safe-area-inset-top,0px) + 92px);
+    right:10px;z-index:1050;width:38px;height:38px;border-radius:50%;
+    border:1px solid #2a332a;background:rgba(13,15,13,.85);color:#aab5aa;
+    font-size:17px;font-family:inherit}
+  #logPanel{position:absolute;inset:0;z-index:2150;display:none;
+    background:var(--bg);flex-direction:column;padding:
+    calc(env(safe-area-inset-top,0px) + 16px) 16px calc(env(safe-area-inset-bottom,0px) + 16px)}
+  #logPanel h2{color:var(--cash);font-size:24px;font-weight:900;letter-spacing:2px}
+  #logList{flex:1;overflow-y:auto;margin-top:12px;-webkit-overflow-scrolling:touch}
+  .logRow{padding:9px 2px;border-bottom:1px solid #1a211a;font-size:14px;
+    color:var(--text);line-height:1.45}
+  .logRow:first-child{color:var(--cash)}
+  #logClose{margin-top:12px;padding:14px;border:none;border-radius:10px;
+    background:#2a332a;color:var(--text);font-family:inherit;font-size:16px;
+    font-weight:900;letter-spacing:1px}
 
   /* ---------- overlays ---------- */
   #splash{position:absolute;inset:0;z-index:2000;
@@ -387,7 +432,13 @@
 </div>
 
 <div id="stars"></div>
-<div id="toast"></div>
+<div id="toasts"></div>
+<button id="logBtn">📜</button>
+<div id="logPanel">
+  <h2>MESSAGE LOG</h2>
+  <div id="logList"></div>
+  <button id="logClose">CLOSE</button>
+</div>
 
 <div id="safety">
   <div class="card">
@@ -401,6 +452,18 @@
   </div>
 </div>
 
+<div id="ioPanel">
+  <div class="ioCard">
+    <h2 id="ioTitle">LOAD SAVE</h2>
+    <p id="ioHint">Paste your save code below. Loading REPLACES everything currently on this device.</p>
+    <textarea id="ioText" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+    <div style="display:flex;gap:10px;margin-top:10px">
+      <button id="ioGo">LOAD IT</button>
+      <button id="ioCancel">CANCEL</button>
+    </div>
+  </div>
+</div>
+
 <div id="nameOv">
   <h2>WHO ARE YOU?</h2>
   <input id="nameIn" maxlength="14" placeholder="your street name" autocomplete="off">
@@ -408,12 +471,14 @@
 </div>
 
 <div id="cine">
+  <button id="cineBack">← BACK</button>
   <div id="cineInner"></div>
   <div id="cineTap">TAP TO CONTINUE</div>
 </div>
 
 <div id="missionBar"></div>
 <button id="moveBtn">✏️ MOVE SPOT</button>
+<button id="cancelBtn">✖ CANCEL MISSION</button>
 <button id="startBtn">START MISSION</button>
 
 <div id="placeCard">
@@ -478,6 +543,10 @@
   <div id="menuStats"></div>
   <button class="btn solid" id="startGps">START</button>
   <button id="resetBtn">RESET SAVE</button>
+  <div style="display:flex;gap:10px;margin-top:2px">
+    <button id="copySaveBtn" class="ioBtn">📋 COPY SAVE</button>
+    <button id="loadSaveBtn" class="ioBtn">📥 LOAD SAVE</button>
+  </div>
   <div id="err"></div>
   <div id="devRow">
     <span id="devEntry" style="display:none;align-items:center;gap:8px">
@@ -589,10 +658,13 @@ let gameTime = Number(store.getItem("sc_gt") || 0);
 const gt = () => gameTime;
 let started = false;
 setInterval(() => {
-  if (started && document.visibilityState === "visible" && !cineOpen) gameTime += 250;
+  if (started && document.visibilityState === "visible" && !cineOpen
+    && (typeof placing === "undefined" || !placing)) gameTime += 250;
 }, 250);
 let cineOpen = false; // any cutscene on screen freezes the world
-const paused = () => !started || document.visibilityState !== "visible" || cineOpen;
+// (placement freezes it too — declared later, checked lazily)
+const paused = () => !started || document.visibilityState !== "visible" || cineOpen
+  || (typeof placing !== "undefined" && !!placing);
 
 // ---------- state ----------
 let map, playerMarker, playerPos = null;
@@ -1064,7 +1136,7 @@ let myGang = store.getItem("sc_gang") === null ? null : Number(store.getItem("sc
 let territory = {};   // cellKey -> gang index (restored from world save)
 const terRects = {};  // cellKey -> leaflet rect (render cache)
 const CELL = 0.0015;  // ~150m grid
-const CAP_MS = 45000; // hold an enemy block this long to take it
+const CAP_MS = 90000; // hold an enemy block this long to take it — while it's CLEAR
 
 const cellKey = (lat, lng) => Math.floor(lat/CELL) + "_" + Math.floor(lng/CELL);
 function cellCenter(k){
@@ -1121,9 +1193,28 @@ function maintainTerritory(){
   }
 }
 
-// gangs expand on their own - watch the borders move
+// gangs expand on their own — slowly claiming empty ground,
+// but enemy blocks are taken through VISIBLE street wars (contests)
+let contests = {}; // cellKey -> {att, def, end}
+const contestRects = {};
+
+function drawContest(k){
+  if (contestRects[k] || cellDist(k) > 2200) return;
+  const [a, b] = k.split("_").map(Number);
+  const c = contests[k];
+  contestRects[k] = L.rectangle([[a*CELL, b*CELL], [(a+1)*CELL, (b+1)*CELL]], {
+    color: GANGS[c.att].color, weight: 2, dashArray: "4 6",
+    fillColor: GANGS[c.att].color, fillOpacity: 0.12, interactive: false
+  }).addTo(map);
+}
+function clearContestRect(k){
+  if (contestRects[k]){ map.removeLayer(contestRects[k]); delete contestRects[k]; }
+}
+
 setInterval(() => {
   if (paused() || !playerPos) return;
+  const activePer = {};
+  for (const k of Object.keys(contests)) activePer[contests[k].att] = (activePer[contests[k].att] || 0) + 1;
   for (let g = 0; g < GANGS.length; g++){
     const near = Object.keys(territory).filter(k => territory[k] === g && cellDist(k) < 2500);
     if (!near.length) continue;
@@ -1132,20 +1223,70 @@ setInterval(() => {
     const [dx, dy] = dirs[Math.floor(Math.random()*4)];
     const nk = (a+dx) + "_" + (b+dy);
     const cur = (nk in territory) ? territory[nk] : null;
-    if (cur === g) continue;
-    if (Math.random() < (cur === null ? 0.6 : 0.25)){
-      claimCell(nk, g);
-      if (cellDist(nk) < 400 && gt() - lastTerToast > 60000){
-        lastTerToast = gt();
-        toast(`The ${GANGS[g].name} just ${cur === null ? "claimed" : "took"} a block nearby.`);
+    if (cur === g || contests[nk]) continue;
+    if (cur === null){
+      if (Math.random() < 0.3) claimCell(nk, g); // empty ground: slow creep
+    } else if ((activePer[g] || 0) < 2 && Math.random() < 0.3){
+      // enemy block: open a street war you can watch — and join
+      contests[nk] = {att: g, def: cur, end: gt() + 120000 + Math.random()*120000};
+      drawContest(nk);
+      if (cellDist(nk) < 1200){
+        toast(`${GANGS[g].name} moving on a ${GANGS[cur].name} block — war's on.`);
       }
     }
   }
-}, 60000);
+}, 90000);
+
+// contested blocks resolve by street strength — stand on one to tip it
+setInterval(() => {
+  if (paused() || !playerPos) return;
+  for (const k of Object.keys(contests)){
+    const c = contests[k];
+    drawContest(k); // (re)draw if the player wandered into range
+    if (gt() < c.end) continue;
+    const [a, b] = k.split("_").map(Number);
+    let attStr = 1, defStr = 1;
+    for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]){
+      const o = territory[(a+dx) + "_" + (b+dy)];
+      if (o === c.att) attStr++;
+      if (o === c.def) defStr++;
+    }
+    if (cellKey(playerPos.lat, playerPos.lng) === k && myGang !== null){
+      if (myGang === c.att) attStr += 3;
+      if (myGang === c.def) defStr += 3;
+    }
+    const attWins = Math.random() < attStr / (attStr + defStr);
+    if (attWins) claimCell(k, c.att);
+    if (cellDist(k) < 1200){
+      toast(attWins
+        ? `${GANGS[c.att].name} took the block off the ${GANGS[c.def].name}.`
+        : `${GANGS[c.def].name} held their block — the ${GANGS[c.att].name} pulled back.`);
+    }
+    delete contests[k];
+    clearContestRect(k);
+  }
+  // cull contest rects far away (data persists, like territory)
+  for (const k of Object.keys(contestRects))
+    if (cellDist(k) > 2600) clearContestRect(k);
+}, 10000);
 
 // ---------- block capture: stand your ground on enemy turf ----------
 let capture = null; // {cell, gang, ms, nextReinf}
 const statusIdle = () => $("status").textContent = devMode ? "dev mode" : "GPS locked";
+
+const followerCount = () => npcs.filter(n => n.follow).length;
+function toggleFollow(n){
+  if (n.follow){
+    n.follow = false;
+    toast(`${GANGS[myGang].name} soldier posts up here.`);
+  } else if (followerCount() >= 3){
+    toast("Three's a crew. Somebody sits this one out first.");
+  } else {
+    n.follow = true;
+    toast(`${GANGS[myGang].name} soldier rolls with you. (${followerCount()}/3)`);
+  }
+  saveWorld();
+}
 
 function spawnGangReinforcement(g){
   const p = offsetPoint(playerPos.lat, playerPos.lng,
@@ -1163,24 +1304,32 @@ setInterval(() => {
     return;
   }
   if (!capture || capture.cell !== ck){
-    capture = {cell:ck, gang:owner, ms:0, nextReinf:8000};
-    toast(`${GANGS[owner].name} turf - hold this block to take it.`);
+    capture = {cell:ck, gang:owner, ms:0, clock:0, nextReinf:9000};
+    toast(`${GANGS[owner].name} turf — clear their soldiers and hold the block.`);
   }
-  capture.ms += 500;
-  $("status").textContent = `TAKING BLOCK ${Math.min(99, Math.round(100*capture.ms/CAP_MS))}%`;
-  if (capture.ms >= capture.nextReinf){
-    capture.nextReinf += 8000;
+  capture.clock += 500; // real time on the block, fighting or not
+  // progress only while their soldiers aren't in your face
+  const defendersUp = npcs.some(n => n.kind === "gang" && n.gang === capture.gang
+    && n.aggro && haversine(n, playerPos) < 60);
+  if (defendersUp){
+    $("status").textContent = `CLEAR THE DEFENDERS — ${Math.min(99, Math.round(100*capture.ms/CAP_MS))}%`;
+  } else {
+    capture.ms += 500;
+    $("status").textContent = `TAKING BLOCK ${Math.min(99, Math.round(100*capture.ms/CAP_MS))}%`;
+  }
+  if (capture.clock >= capture.nextReinf){
+    capture.nextReinf += 9000;
     spawnGangReinforcement(capture.gang);
     toast(`${GANGS[capture.gang].name} rolling up on you!`);
   }
   if (capture.ms >= CAP_MS){
-    const g = capture.gang;
     const [a, b] = ck.split("_").map(Number);
-    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++){
+    claimCell(ck, myGang);
+    for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]){
       const k2 = (a+dx) + "_" + (b+dy);
-      if (k2 === ck || territory[k2] === g) claimCell(k2, myGang);
+      if (territory[k2] === capture.gang) claimCell(k2, myGang);
     }
-    addXp(150);
+    addXp(120);
     toast(`Block seized for the ${GANGS[myGang].name}!`);
     capture = null;
     statusIdle();
@@ -1216,7 +1365,7 @@ function strikeNpc(n){
   if (now < nextShotAt || !playerPos) return;
   const d = haversine(playerPos, n);
   if (d > w.range){
-    toast(`Out of reach - ${Math.round(d)}m. ${w.name} works inside ${w.range}m.`);
+    rangeToast(`Out of reach - ${Math.round(d)}m. ${w.name} works inside ${w.range}m.`);
     return;
   }
   if (!spendRound(w)) return;
@@ -1235,7 +1384,7 @@ function strikeNpc(n){
       addXp(100);
       const remaining = npcs.filter(o => o.kind === "target").length;
       if (remaining > 0) toast(`${n.label} down. ${remaining} left.`);
-      else if (curStep() && curStep().type === "kill") advance();
+      else if (curStep() && (curStep().type === "kill" || curStep().type === "hunt")) advance();
     } else {
       addXp(40);
       toast(`${GANGS[n.gang].name} soldier down.`);
@@ -1512,7 +1661,7 @@ function attachNpc(n){
   n.marker = L.marker([n.lat, n.lng], {icon: npcIcon(n), zIndexOffset: 400}).addTo(map);
   if (n.kind === "gang"){
     n.marker.on("click", () => {
-      if (n.gang === myGang) toast(GANGS[myGang].name + " for life.");
+      if (n.gang === myGang) toggleFollow(n);
       else strikeNpc(n);
     });
   }
@@ -1570,7 +1719,7 @@ function removeNpc(n){
 function maintainNpcs(){
   if (!playerPos) return;
   for (const n of [...npcs])
-    if (n.kind !== "target" && haversine(playerPos, n) > NPC_CULL) removeNpc(n);
+    if (n.kind !== "target" && !n.follow && haversine(playerPos, n) > NPC_CULL) removeNpc(n);
   while (npcs.length < NPC_COUNT) spawnNpc();
 }
 
@@ -1578,9 +1727,18 @@ function maintainNpcs(){
 setInterval(() => {
   if (paused() || !playerPos || !npcs.length) return;
   for (const n of npcs){
-    // mission target: fights back, doesn't run, doesn't forget
+    // mission target: fighters press you, runners run — nobody forgets
     if (n.kind === "target"){
       const d = haversine(n, playerPos);
+      if (n.flee){
+        // he runs from you, hard-capped at his 5 mph — forever if he has to
+        const step = n.speed * 0.4;
+        const p = offsetPoint(n.lat, n.lng, step,
+          bearingBetween(playerPos, n)); // directly away
+        n.lat = p.lat; n.lng = p.lng;
+        n.marker.setLatLng([n.lat, n.lng]);
+        continue;
+      }
       if (!n.aggro && d < 40){ n.aggro = true; if (n.pull) toast(n.pull); }
       if (n.aggro){
         const gc = gangCombat(n);
@@ -1588,7 +1746,7 @@ setInterval(() => {
           lastAttacker = n.label || "the target";
           damage(gc.dps * 0.4);
         } else if (d < 300){
-          const step = Math.min(1.8 * 0.4, d);
+          const step = Math.min((n.speed || 1.8) * 0.4, d);
           const p = offsetPoint(n.lat, n.lng, step, bearingBetween(n, playerPos));
           n.lat = p.lat; n.lng = p.lng;
           n.marker.setLatLng([n.lat, n.lng]);
@@ -1625,7 +1783,7 @@ setInterval(() => {
     // your soldier backs you up against anyone aggroed
     if (n.kind === "gang" && myGang !== null && n.gang === myGang){
       const tgt = npcs.find(e => e.kind === "gang" && e.gang !== myGang && e.aggro
-        && haversine(n, e) < 80);
+        && haversine(n, e) < (n.follow ? 160 : 80));
       if (tgt){
         const d = haversine(n, tgt);
         const gc = gangCombat(n);
@@ -1636,6 +1794,17 @@ setInterval(() => {
         } else {
           const step = Math.min(1.6 * 0.4, d);
           const p = offsetPoint(n.lat, n.lng, step, bearingBetween(n, tgt));
+          n.lat = p.lat; n.lng = p.lng;
+          n.marker.setLatLng([n.lat, n.lng]);
+        }
+        continue;
+      }
+      // no fight on: followers keep formation on you
+      if (n.follow){
+        const d = haversine(n, playerPos);
+        if (d > 12){
+          const step = Math.min(2.6 * 0.4, d - 8);
+          const p = offsetPoint(n.lat, n.lng, step, bearingBetween(n, playerPos));
           n.lat = p.lat; n.lng = p.lng;
           n.marker.setLatLng([n.lat, n.lng]);
         }
@@ -1916,7 +2085,7 @@ function setPlayerPos(pos, keepView){
     // free camera while picking a mission spot — the map is yours to browse
     map.panTo([pos.lat, pos.lng], {animate:true, duration:.25});
   }
-  if (!cineOpen){
+  if (!cineOpen && !placing){
     maintainJobs();
     update();
   }
@@ -1925,17 +2094,35 @@ function setPlayerPos(pos, keepView){
 let nearestJob = null;
 function update(){
   if (!playerPos) return;
+  if (cineOpen || placing) return; // frozen world: no arrivals, no spawns, no surprises
   const now = gt();
 
   // mission arrivals — one generic check for every mission ever
   {
     const s = curStep();
-    if (s && (s.type === "goto" || s.type === "kill")){
+    if (s && (s.type === "goto" || s.type === "kill" || s.type === "hunt")){
       const loc = resolveLoc(s.at || "t");
       if (loc && haversine(playerPos, loc) <= CFG.collectRadius){
         if (s.type === "goto") advance();
-        else if (!npcs.some(n => n.kind === "target"))
+        else if (!cineOpen && !npcs.some(n => n.kind === "target"))
           cinePlay(s.intro(), () => spawnTarget(s));
+      }
+    } else if (s && s.type === "boost"){
+      const loc = resolveLoc(s.at || "t");
+      const near = loc && haversine(playerPos, loc) <= CFG.collectRadius;
+      if (near && !missionBoost){
+        missionBoost = {start: gt(), need: (6 + Math.random()*5) * 1000};
+        toast("Hotwiring… stay by the car.");
+      } else if (!near && missionBoost){
+        missionBoost = null;
+        toast("You walked off mid-wire. Start over at the car.");
+      } else if (missionBoost && gt() - missionBoost.start >= missionBoost.need){
+        missionBoost = null;
+        // same streets, same snitches as any other boost
+        if (Math.random() < 0.6 * snitchFactor())
+          applyHeat(Math.random() < 0.5 ? 1 : 2, "Someone saw you jack the car!");
+        toast("Engine's alive. She's yours — for now.");
+        advance();
       }
     } else if (s && s.type === "gotoAll"){
       for (const st of s.stops){
@@ -1956,8 +2143,27 @@ function update(){
     }
   }
 
-  // mid-mission spot fix button
+  // mid-mission spot fix + cancel buttons
   $("moveBtn").style.display = canMoveSpot() ? "block" : "none";
+  $("cancelBtn").style.display = cancelable(mission.id) ? "block" : "none";
+
+  // mission freebie: optional one-time pickup while the mission runs
+  {
+    const M = mission.id && MISSIONS[mission.id];
+    if (M && M.freebie && !mission.fb && places[M.freebie.at]
+        && haversine(playerPos, places[M.freebie.at]) <= 60){
+      mission.fb = true;
+      saveMission();
+      const f = M.freebie;
+      if (f.item){ inv[f.item] = (inv[f.item] || 0) + 1; saveInv(); }
+      if (f.ammo){
+        for (const cal of Object.keys(f.ammo)) ammo[cal] = (ammo[cal] || 0) + f.ammo[cal];
+        saveAmmo();
+      }
+      renderInvBtn();
+      toast(f.toast || "Package collected.");
+    }
+  }
 
   // mission giver proximity: START MISSION button
   {
@@ -2123,7 +2329,7 @@ function showGain(amount){
 }
 
 // cooldown ticker so markers un-grey on time
-setInterval(update, 5000);
+setInterval(() => { if (!paused()) update(); }, 5000);
 
 // ---------- heat / cops (GTA-style) ----------
 let stars = 0, cops = [], bustedUntil = 0;
@@ -2170,12 +2376,32 @@ function renderStars(){
     `<span class="${i < stars ? "lit" : ""}">★</span>`).join("");
 }
 
+let msgLog = jparse("sc_log", []);
 function toast(msg){
-  const t = $("toast");
-  t.textContent = msg; t.style.display = "block";
-  clearTimeout(toast._h);
-  toast._h = setTimeout(() => t.style.display = "none", 2500);
+  // the stack: messages coexist instead of overwriting each other
+  const box = $("toasts");
+  const el = document.createElement("div");
+  el.className = "toastMsg";
+  el.textContent = msg;
+  box.prepend(el);
+  while (box.children.length > 4) box.removeChild(box.lastChild); // keep it readable
+  const ms = Math.min(7000, 2800 + msg.length * 45); // long lines live longer
+  setTimeout(() => {
+    el.classList.add("fading");
+    setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 500);
+  }, ms);
+  // everything lands in the log
+  msgLog.unshift(msg);
+  if (msgLog.length > 60) msgLog.length = 60;
+  store.setItem("sc_log", JSON.stringify(msgLog));
 }
+$("logBtn").addEventListener("click", () => {
+  $("logList").innerHTML = msgLog.length
+    ? msgLog.map(m => `<div class="logRow">${m.replace(/</g,"&lt;")}</div>`).join("")
+    : `<div class="logRow" style="color:#7a877a">Nothing yet. The streets are quiet.</div>`;
+  $("logPanel").style.display = "flex";
+});
+$("logClose").addEventListener("click", () => $("logPanel").style.display = "none");
 
 function applyHeat(starsGained, msg){
   stars = Math.min(CFG.maxStars, stars + starsGained);
@@ -2265,6 +2491,9 @@ function busted(){
   const o = $("busted");
   o.style.display = "flex";
   setTimeout(() => o.style.display = "none", 2600);
+  // going down mid-mission fails it — the letter returns to the map
+  if (cancelable(mission.id))
+    endMissionEarly("MISSION FAILED — get patched up. The work will wait.");
 }
 
 function bearingBetween(a, b){
@@ -2280,6 +2509,12 @@ function bearingBetween(a, b){
 let violence = 0;
 let drawn = false;
 let nextShotAt = 0;
+let lastRangeToast = 0;
+function rangeToast(msg){
+  if (gt() - lastRangeToast < 4000) return;
+  lastRangeToast = gt();
+  toast(msg);
+}
 
 const currentWeapon = () => weaponById(equipped) || FISTS;
 
@@ -2325,7 +2560,7 @@ function shootAt(unit){
   const w = currentWeapon();
   const d = playerPos ? haversine(playerPos, unit) : Infinity;
   if (d > w.range){
-    toast(`Out of reach — ${Math.round(d)}m. ${w.name} works inside ${w.range}m.`);
+    rangeToast(`Out of reach — ${Math.round(d)}m. ${w.name} works inside ${w.range}m.`);
     return;
   }
   attack(unit);
@@ -2545,8 +2780,10 @@ function saveWorld(){
     jobs: jobs.map(j => ({lat:j.lat, lng:j.lng, t:j.typeIdx, p:j.payout, cd:j.cooldownUntil})),
     npcs: npcs.map(n => ({uid:n.uid, kind:n.kind, lat:n.lat, lng:n.lng,
       robbed:n.robbed, speed:n.speed, stock:n.stock, wants:n.wants,
-      gang:n.gang, hp:n.hp, aggro:n.aggro, wep:n.wep, label:n.label, pull:n.pull})),
+      gang:n.gang, hp:n.hp, aggro:n.aggro, wep:n.wep, label:n.label, pull:n.pull,
+      follow:n.follow})),
     terr: territory,
+    contests,
     copsRel: cops.map(c => ({kind:c.kind, dLat:c.lat - playerPos.lat,
       dLng:c.lng - playerPos.lng, hp:c.hp})),
     lkpOff: lkp ? {dLat: lkp.lat - playerPos.lat, dLng: lkp.lng - playerPos.lng} : null,
@@ -2568,8 +2805,9 @@ function restoreWorld(){
   for (const n of w.npcs || []) attachNpc({uid:n.uid, kind:n.kind, lat:n.lat, lng:n.lng,
     wp:null, robbed:!!n.robbed, speed:n.speed || 1.4, stock:n.stock, wants:n.wants,
     gang:n.gang, hp:n.hp ?? 60, aggro:!!n.aggro, wep:n.wep || null,
-    label:n.label, pull:n.pull});
+    label:n.label, pull:n.pull, follow:!!n.follow});
   territory = w.terr || {};
+  contests = w.contests || {};
   npcSeq = w.npcSeq || npcSeq;
   stars = w.stars || 0;
   seen = !!w.seen;
@@ -2603,13 +2841,13 @@ let completed = new Set(jparse("sc_mdone", []));
 const saveDone = () => store.setItem("sc_mdone", JSON.stringify([...completed]));
 let mission = {id:null, idx:0, t:null, ts:{}};
 const saveMission = () => store.setItem("sc_mission",
-  JSON.stringify({id:mission.id, idx:mission.idx, t:mission.t, ts:mission.ts, v:2}));
+  JSON.stringify({id:mission.id, idx:mission.idx, t:mission.t, ts:mission.ts, fb:mission.fb, v:2}));
 
 // migrate old step-string saves into the engine format
 {
   const raw = jparse("sc_mission", null);
   if (raw && raw.v === 2){
-    mission = {id:raw.id || null, idx:raw.idx || 0, t:raw.t || null, ts:raw.ts || {}};
+    mission = {id:raw.id || null, idx:raw.idx || 0, t:raw.t || null, ts:raw.ts || {}, fb:!!raw.fb};
   } else if (raw && raw.step){
     const MAP = {
       house:["m1",0], confirm:["m1",2], meet:["m1",3], arrived:["m1",4],
@@ -2636,7 +2874,7 @@ const saveMission = () => store.setItem("sc_mission",
 const introNeeded = () => !completed.size && !mission.id && !pname
   && money === 0 && houses.length === 0 && myGang === null;
 
-let missionMarker = null, missionCircle = null;
+let missionMarker = null, missionCircle = null, missionBoost = null;
 
 // ---- persistent story locations: the player places them, the story keeps them ----
 let places = jparse("sc_places", {}); // key -> {lat,lng,label}
@@ -2746,6 +2984,7 @@ document.addEventListener("click", e => {
 let placing = null; // {key,label,minDist,warn,cb,pend,pendMarker}
 function placeStoryLocation(key, label, minDist, warn, cb, icon, slot){
   placing = {key, label, minDist, warn, cb, icon, slot, pend:null, pendMarker:null};
+  $("moveBtn").style.display = "none"; // frozen world, stale buttons off
   if (typeof map !== "undefined" && map && playerPos)
     map.setView([playerPos.lat, playerPos.lng], 14, {animate:true}); // zoomed out, unlocked
   $("placeTitle").innerHTML = `<b>TAP THE MAP</b> — place: ${label}`;
@@ -2836,9 +3075,17 @@ function cinePlay(pages, done){
 function cineShow(){
   const p = cinePagesArr[cineIdx];
   $("cineInner").innerHTML = p.html;
-  cineLockUntil = Date.now() + (p.minMs || 400);
+  cineLockUntil = Date.now() + (p.minMs || 600); // double-taps land on the guard
   $("cineTap").style.display = "block";
+  $("cineBack").style.display = cineIdx > 0 ? "block" : "none";
 }
+$("cineBack").addEventListener("click", e => {
+  e.stopPropagation(); // a back-tap must never count as an advance
+  if (cineIdx > 0){
+    cineIdx--;
+    cineShow();
+  }
+});
 $("cine").addEventListener("click", () => {
   if (Date.now() < cineLockUntil) return;
   cineIdx++;
@@ -2858,6 +3105,7 @@ function playRedline(done){
   cineOpen = true;
   c.style.display = "flex";
   $("cineTap").style.display = "none";
+  $("cineBack").style.display = "none";
   $("cineInner").innerHTML = `<div id="redlineWrap">
     <canvas id="tachCv" width="300" height="300"></canvas>
     <div id="rdTitle"><span class="r">RED</span><span class="w">LINE</span></div>
@@ -3015,17 +3263,17 @@ function m2end(){ return [
 // ---- mission 3 story pages ----
 function m3open(){ return [
   {html:sp(`You rolled back around to Static's service door, looking for the work Sal promised. The bulb was lit. Before you could knock, the vending machine stepped out, pressed an envelope into your hand, and went back inside without a word.`)},
-  {html:`<div class="letter">Driver —<br><br>There's a new product on the street. They call it <b>Glow</b>. Some corner chemist has been selling it to my girls, and two of them can't work and one of them can't stand up.<br><br>His name is Deuce. Find him. Bring a baseball bat. Use the bat.<br><br>He drives a hatchback he's very proud of. Take it, get it painted, and bring it to my garage. Consider it his apology.<br><br>Burn this.<br>— S</div>`, minMs:1200},
+  {html:`<div class="letter">Driver —<br><br>There's new product on the street. <b>Fentanyl</b> — "fent," if you're buying. Some corner dealer has been pushing it to my girls, and two of them can't work and one of them can't stand up.<br><br>His name is Deuce. Find him. Bring a baseball bat. Use the bat.<br><br>He drives a hatchback he's very proud of. Take it, get it painted, and bring it to my garage. Consider it his apology.<br><br>Burn this.<br>— S</div>`, minMs:1200},
   {html:sp(`You read it twice, then held the corner to the car's lighter until it caught.<br><br>First: a bat. You knew a spot where one wouldn't be missed.`)},
 ]; }
 function m3bat(){ return [
   {html:sp(`It was right where you figured — wrapped in a trash bag, wood grain gone gray from weather, tape on the handle from somebody else's bad night.<br><br>It had a good weight to it.`)},
 ]; }
 function m3found(){ return [
-  {html:sp(`Deuce worked out in the open like a man who'd never been hit. Little baggies that glowed faintly even in daylight, a line of gray-faced customers, and a hatchback at the curb polished like a trophy.<br><br>He saw the bat before he saw your face. "Whoa whoa whoa— who sent—"`)},
+  {html:sp(`Deuce worked out in the open like a man who'd never been hit. Little blue pills in little plastic bags, a line of gray-faced customers, and a hatchback at the curb polished like a trophy.<br><br>He saw the bat before he saw your face. "Whoa whoa whoa— who sent—"`)},
 ]; }
 function m3car(){ return [
-  {html:sp(`It was done. You stood over him breathing hard, the street suddenly very quiet, the little glowing baggies scattered like teeth.<br><br>His keys were in his jacket. The hatchback started on the first turn — he really did take care of it.`)},
+  {html:sp(`It was done. You stood over him breathing hard, the street suddenly very quiet, the little blue pills scattered across the pavement like teeth.<br><br>His keys were in his jacket. The hatchback started on the first turn — he really did take care of it.`)},
   {html:sp(`Sal's letter said painted. You knew a spot that did no-questions work — first visit's always a courtesy in this business.`)},
 ]; }
 function m3sprayed(){ return [
@@ -3088,6 +3336,41 @@ function m6end(){ return [
   {html:sp(`You could hear the venue before you saw it — a band playing something brassy, and a valet line of cruisers parked nose to tail. The girls were out and working the sidewalk before you'd fully stopped, scattering into the light like they owned it.`)},
   {html:sp(`Your phone buzzed. Sal.<br><br>"I'm watching the donations roll in from here, driver. Beautiful thing." A pause, and his voice went almost warm. "That's the last errand I got. You're past this kind of work now — Vinnie's expecting you, and Vinnie's world is bigger than mine."`)},
   {html:sp(`"Static's door stays open. First drink's always on the house for the man who kept my streets mine."<br><br>The line went quiet. Behind you, a cop in dress blues was already counting his cash.`), minMs:800},
+  {html:`<div class="titleCard" style="font-size:32px">MISSION PASSED</div>`, minMs:1400},
+]; }
+
+// ---- mission 7 story pages ----
+function m7open(){ return [
+  {html:sp(`Vinnie's garage, mid-argument. Carmen sat on a workbench swinging one heel, and she did not lower her voice for your benefit.<br><br>"I'm asking a simple question, Vincenzo. When exactly do <i>I</i> get on your schedule?"<br><br>"Baby. Business first. Money buys time, time buys us—" She was already walking to the office. The door didn't slam, which somehow felt worse.`)},
+  {html:sp(`Vinnie wiped his hands on a rag like nothing happened.<br><br>"The <b>Northsiders</b> owe me money. Real money. Lately they've developed amnesia about it. One of their capos — fat man named <b>Gordo</b> — is sitting in a restaurant right now, having a long lunch that I'm effectively paying for."`)},
+  {html:sp(`"So here's the play." He held up a finger for each step. "His car's parked outside the place. You boost it. You take it to a friend of mine — they call him <b>Fuse</b> — and Fuse fits it with a persuasive accessory. Then you put it back <b>exactly</b> where you found it. Same spot. Same angle."`)},
+  {html:sp(`"Gordo eats slow." Vinnie checked his watch. "But nobody eats forever. <i>Move.</i>"`)},
+]; }
+function m7bomb(){ return [
+  {html:sp(`Fuse's door rattled down behind the car and the room went workshop-quiet. Fuse turned out to be a small man with steady hands and eyes that had seen too many bright flashes. He circled the car once, nodded to himself, and disappeared under the dash, humming.`)},
+  {html:sp(`Twenty minutes. Then he rolled out, patted the fender like a good dog, and hit the door switch.<br><br>"Ignition trigger. A classic — the classics work." Daylight poured back in. "Drive gentle, friend. Like you're carrying soup."`)},
+]; }
+function m7end(){ return [
+  {html:sp(`Same spot. Same angle. You lined the wheels up with the same oil stain and armed it the way Fuse showed you — two switches, one breath. Then you got out and walked. Not fast. Just gone.<br><br>You found shade across the street and a wall worth leaning on.`)},
+  {html:sp(`Gordo came out picking his teeth, said something that made the valet laugh the way employees laugh, and crossed to his car with the unhurried walk of a man who's never once been wrong about anything.<br><br>Door. Seat. Key.`)},
+  {html:sp(`The ignition turned and the street turned white. Windows sang for two blocks. The car jumped its own length and came down burning, and every alarm in the district started singing backup.<br><br>Your phone buzzed once.<br><br>"Debt's settled. — V"`), minMs:900},
+  {html:`<div class="titleCard" style="font-size:32px">MISSION PASSED</div>`, minMs:1400},
+]; }
+
+// ---- mission 8 story pages ----
+function m8open(){ return [
+  {html:sp(`You found Vinnie on a creeper under a sedan, only his boots and his opinions visible.<br><br>"You know what moves more money than cars, driver?" He rolled out, wiping his hands. "<b>Fent</b>. Sal had you crack down on the retail. Me? I'm interested in the <i>wholesale</i>."`)},
+  {html:sp(`"Problem is, there's an independent operator in my way. Runs a noodle stand — good noodles, allegedly — but the stand's a front. The real menu's pressed blue pills under the counter. They call him <b>Noodles</b>, because the streets are not creative."`)},
+  {html:sp(`"He's done. Permanently done." Vinnie's voice was flat as a feeler gauge. "If you're light on iron, there's a package behind the gun store — piece and rounds, on me. Take it or don't."`)},
+  {html:sp(`"One more thing." He pointed a wrench at you. "His corner sits deep in hostile colors, and those boys consider Noodles a paying tenant. They will <b>not</b> like you visiting. In, done, out."`)},
+]; }
+function m8run(){ return [
+  {html:sp(`You made the stand from half a block out — steam, a line of customers, and a man behind the counter whose eyes were doing math the moment they landed on you. Whatever number he got, he didn't like it.`)},
+  {html:sp(`He dropped the ladle mid-order, ducked under the counter flap, and came up running — surprisingly light on his feet for a man built like a soup dumpling — heading for one of several cars he definitely kept for exactly this.<br><br>Behind you, jackets in hostile colors started peeling off walls.`)},
+]; }
+function m8end(){ return [
+  {html:sp(`Wherever it ended, it ended. Noodles ran out of blocks before you ran out of patience, and the little blue pills scattered from his jacket like confetti at a very bad parade.`)},
+  {html:sp(`Your phone buzzed while you were still catching your breath.<br><br>"Wholesale's open. Come by the garage sometime — Carmen says you're the only employee I got with manners. — V"`), minMs:800},
   {html:`<div class="titleCard" style="font-size:32px">MISSION PASSED</div>`, minMs:1400},
 ]; }
 
@@ -3219,13 +3502,49 @@ const MISSIONS = {
     {type:"cine", pages:m6end},
     {type:"pay", money:600, xp:500, toast:"Sal's last envelope. Fattest one yet."},
   ]},
+  m7: {name:"LONG LUNCH", next:null,
+    giver:{letter:"V", at:"vinnies", after:"m6", who:"Vinnie"},
+    steps:[
+    {type:"cine", pages:m7open},
+    {type:"place", label:"Gordo's Parked Car", minDist:300,
+      banner:"tap the map: where's Gordo parked?",
+      warn:"Where's the restaurant parking? One-time spot — NOT saved. You'll be coming back to this exact spot with the car, so remember it."},
+    {type:"boost", banner:"boost Gordo's car — quick and quiet",
+      toast:'Vinnie: "Eyes open. Capos park where people watch."'},
+    {type:"place", key:"bombshop", label:"Fuse's Bomb Shop", icon:"💣", minDist:300,
+      banner:"tap the map: where's Fuse's shop?",
+      warn:"You're choosing where Fuse operates. PERMANENT — a man who wires cars is worth keeping around."},
+    {type:"goto", at:"bombshop", banner:"get the car to Fuse — drive like you're carrying soup"},
+    {type:"cine", pages:m7bomb},
+    {type:"goto", at:"t", banner:"put it back EXACTLY where it was — Gordo's still eating",
+      toast:"Gentle on the brakes. Gentle on everything."},
+    {type:"cine", pages:m7end},
+    {type:"pay", money:800, xp:600, toast:"Vinnie pays like a man who just got paid. Because he did."},
+  ]},
+  m8: {name:"OUT OF THE SOUP", next:null,
+    giver:{letter:"V", at:"vinnies", after:"m7", who:"Vinnie"},
+    freebie:{at:"gunstore", item:"g19", ammo:{pist:30},
+      toast:"Fuse-taped package behind the store: Glock + 30 rounds, courtesy of V."},
+    steps:[
+    {type:"cine", pages:m8open},
+    {type:"place", label:"The Noodle Stand", minDist:300,
+      banner:"tap the map: where's Noodles set up?",
+      warn:"Where's the stand? One-time spot — NOT saved. His corner runs hostile colors, and remember: there's a FREE piece + ammo waiting behind your gun store if you swing by on the way.",
+      toast:"Free package behind the gun store if you need iron. Your call."},
+    {type:"hunt", name:"Noodles", hp:90, ambush:3,
+      banner:"run down Noodles — he can't run forever",
+      intro:m8run,
+      pull:null},
+    {type:"cine", pages:m8end},
+    {type:"pay", money:750, xp:650, toast:"Vinnie's envelope smells faintly of motor oil and victory."},
+  ]},
 };
 
 const curStep = () => mission.id ? (MISSIONS[mission.id].steps[mission.idx] || null) : null;
 const resolveLoc = at => at === "t" ? mission.t : places[at];
 
 function startMission(id){
-  mission.id = id; mission.idx = 0; mission.t = null; mission.ts = {};
+  mission.id = id; mission.idx = 0; mission.t = null; mission.ts = {}; mission.fb = false;
   saveMission(); updateGiver(); runStep();
 }
 function advance(){
@@ -3253,7 +3572,7 @@ function runStep(){
     if (s.key && places[s.key]){ advance(); return; }
     placeStoryLocation(s.key || null, s.label, s.minDist, s.warn,
       () => { if (s.toast) toast(s.toast); advance(); }, s.icon, s.slot);
-  } else if (s.type === "goto" || s.type === "kill"){
+  } else if (s.type === "goto" || s.type === "kill" || s.type === "boost" || s.type === "hunt"){
     const loc = resolveLoc(s.at || "t");
     if (loc) drawMissionRing(loc);
     if (s.toast) toast(s.toast);
@@ -3316,15 +3635,62 @@ $("moveBtn").addEventListener("click", () => {
     }, p.icon);
 });
 
+// missions 1–2 are the on-ramp: no free roam until they're done, so no bailing
+const cancelable = id => id && id !== "m1" && id !== "m2";
+function endMissionEarly(reason){
+  // shared by the cancel button and death-mid-mission
+  if (placing){
+    if (placing.pendMarker) map.removeLayer(placing.pendMarker);
+    placing = null;
+    $("placeCard").style.display = "none";
+    $("missionConfirm").style.display = "none";
+  }
+  for (const n of [...npcs]) if (n.kind === "target") removeNpc(n);
+  missionBoost = null;
+  mission.id = null; mission.idx = 0; mission.t = null; mission.ts = {}; mission.fb = false;
+  saveMission();
+  clearMissionRing();
+  setBanner(null);
+  updateGiver();
+  toast(reason);
+}
+let cancelArm = 0;
+$("cancelBtn").addEventListener("click", () => {
+  if (!cancelable(mission.id)) return;
+  if (gt() - cancelArm > 3000){
+    cancelArm = gt();
+    $("cancelBtn").textContent = "✖ SURE? TAP AGAIN";
+    setTimeout(() => $("cancelBtn").textContent = "✖ CANCEL MISSION", 3000);
+    return;
+  }
+  $("cancelBtn").textContent = "✖ CANCEL MISSION";
+  endMissionEarly("Mission dropped. The letter's back on the map when you want it.");
+});
+
 function spawnTarget(s){
   const list = s.targets || [{name:s.name, hp:s.hp, wep:s.wep, pull:s.pull}];
+  const flee = s.type === "hunt";
   list.forEach((t, i) => {
     const p = i === 0 ? mission.t
       : offsetPoint(mission.t.lat, mission.t.lng, 6 + i*5, Math.random()*Math.PI*2);
     attachNpc({uid:npcSeq++, kind:"target", lat:p.lat, lng:p.lng,
-      wp:null, robbed:false, hp:t.hp, aggro:false, speed:1.6, wep:t.wep,
-      label:t.name, pull:t.pull});
+      wp:null, robbed:false, hp:t.hp, aggro:flee, speed:flee ? 2.2 : 1.6, // 5 mph, never more
+      wep:t.wep, label:t.name, pull:t.pull, flee});
   });
+  // hunt ambush: the local set does NOT like you visiting
+  if (s.ambush){
+    let tg = territoryAt(mission.t);
+    if (tg === null || tg === myGang){
+      const others = GANGS.map((g, i) => i).filter(i => i !== myGang);
+      tg = others[Math.floor(Math.random() * others.length)];
+    }
+    for (let i = 0; i < s.ambush; i++){
+      const p = offsetPoint(mission.t.lat, mission.t.lng, 25 + Math.random()*45, Math.random()*Math.PI*2);
+      attachNpc({uid:npcSeq++, kind:"gang", gang:tg, lat:p.lat, lng:p.lng,
+        wp:null, robbed:false, hp:60, aggro:true, speed:1.5, wep:rollGangWeapon()});
+    }
+    toast(`${GANGS[tg].name} soldiers move on you — Noodles is their tenant.`);
+  }
 }
 
 $("mcGood").addEventListener("click", () => { if (placing && placing.pend) placementConfirm(); });
@@ -3494,6 +3860,64 @@ renderMenu();
 
 $("safetyOk").addEventListener("click", () => {
   $("safety").style.display = "none";
+});
+
+// ---- save transfer: the whole game state as a paste-anywhere code ----
+const SAVE_TAG = "STREETS1.";
+function exportSave(){
+  const d = {};
+  for (const k of store.allKeys()) if (k.startsWith("sc_")) d[k] = store.getItem(k);
+  const json = JSON.stringify({v:1, d});
+  return SAVE_TAG + btoa(unescape(encodeURIComponent(json)));
+}
+$("copySaveBtn").addEventListener("click", async () => {
+  const code = exportSave();
+  let copied = false;
+  try{ await navigator.clipboard.writeText(code); copied = true; }catch(e){}
+  if (copied){
+    $("copySaveBtn").textContent = "✅ COPIED";
+    setTimeout(() => $("copySaveBtn").textContent = "📋 COPY SAVE", 2000);
+  } else {
+    // clipboard blocked: show the code for manual copy
+    $("ioTitle").textContent = "YOUR SAVE CODE";
+    $("ioHint").textContent = "Copy this whole code and keep it somewhere safe (Notes works great).";
+    $("ioText").value = code;
+    $("ioGo").style.display = "none";
+    $("ioPanel").style.display = "flex";
+    $("ioText").focus(); $("ioText").select();
+  }
+});
+$("loadSaveBtn").addEventListener("click", () => {
+  $("ioTitle").textContent = "LOAD SAVE";
+  $("ioHint").textContent = "Paste your save code below. Loading REPLACES everything currently on this device.";
+  $("ioText").value = "";
+  $("ioGo").style.display = "block";
+  $("ioPanel").style.display = "flex";
+  $("ioText").focus();
+});
+$("ioCancel").addEventListener("click", () => $("ioPanel").style.display = "none");
+$("ioGo").addEventListener("click", () => {
+  const raw = $("ioText").value.trim().replace(/\s+/g, "");
+  if (!raw.startsWith(SAVE_TAG)){
+    $("ioHint").textContent = "That doesn't look like a save code — it should start with " + SAVE_TAG;
+    return;
+  }
+  let data;
+  try{
+    data = JSON.parse(decodeURIComponent(escape(atob(raw.slice(SAVE_TAG.length)))));
+  }catch(e){
+    $("ioHint").textContent = "Code is damaged or incomplete — make sure you pasted ALL of it.";
+    return;
+  }
+  if (!data || data.v !== 1 || typeof data.d !== "object"){
+    $("ioHint").textContent = "Unrecognized save format.";
+    return;
+  }
+  // wipe current sc_ state, then write the imported one
+  for (const k of store.allKeys()) if (k.startsWith("sc_")) store.removeItem(k);
+  for (const k of Object.keys(data.d))
+    if (k.startsWith("sc_")) store.setItem(k, data.d[k]);
+  location.reload();
 });
 
 $("startGps").addEventListener("click", () => {

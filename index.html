@@ -92,6 +92,22 @@ button{
   border-radius:10px; background:rgba(16,23,8,.85); color:var(--grn); border:1px solid var(--line);
   font-family:inherit; outline:none; -webkit-user-select:text; user-select:text;}
 #devgo{width:64px; padding:12px 0; font-size:16px;}
+#iorow{position:relative; z-index:4; display:flex; gap:10px;}
+#iorow button{padding:8px 14px; font-size:12px; letter-spacing:1px; border-radius:9px;
+  background:rgba(16,23,8,.7); color:#a8c48c; border:1px solid rgba(143,217,74,.25);}
+#iopanel{position:fixed; inset:0; z-index:150; background:rgba(4,6,3,.95); display:none;
+  flex-direction:column; align-items:center; justify-content:center; padding:22px;}
+#iopanel .box{width:min(380px,94vw); border:1px solid var(--line); border-radius:12px;
+  background:rgba(10,16,6,.92); padding:18px;}
+#iopanel h2{color:var(--grn); font-size:18px; letter-spacing:3px; text-align:center; margin-bottom:8px;}
+#ioText{width:100%; height:130px; margin:10px 0; padding:10px; border-radius:9px; resize:none;
+  background:#0a0f07; color:var(--txt); border:1px solid var(--line);
+  font-family:ui-monospace,Menlo,monospace; font-size:12px; word-break:break-all;
+  -webkit-user-select:text; user-select:text; outline:none;}
+.iobtns{display:flex; gap:10px;}
+.iobtns button{flex:1; padding:12px 0; font-size:15px; letter-spacing:2px; border-radius:9px;
+  background:#14260c; color:var(--grn); border:1px solid var(--line);}
+#ioCancel{background:#1b0e0a; color:var(--red); border-color:rgba(224,74,58,.4);}
 #gpsmsg{position:relative; z-index:4; font-size:13px; color:var(--red); min-height:18px; text-align:center; max-width:86vw;}
 #start .foot{position:absolute; bottom:12px; font-size:11px; color:#4a5a3c; z-index:4;}
 
@@ -131,11 +147,19 @@ button{
   transform-origin:left; transform:scaleX(0); pointer-events:none;}
 #actbtn .lbl{position:relative; z-index:1;}
 
-/* toast */
-#toast{top:calc(env(safe-area-inset-top,0px) + 66px); left:50%; transform:translateX(-50%);
-  background:rgba(16,23,8,.95); border:1px solid var(--line); color:var(--txt);
+/* toast stack + log */
+#toasts{position:fixed; top:calc(env(safe-area-inset-top,0px) + 66px); left:50%; transform:translateX(-50%);
+  display:flex; flex-direction:column; gap:6px; align-items:center; z-index:60;
+  pointer-events:none; width:max-content; max-width:88vw;}
+.toastmsg{background:rgba(16,23,8,.95); border:1px solid var(--line); color:var(--txt);
   padding:8px 18px; border-radius:20px; font-size:14px; letter-spacing:.5px;
-  opacity:0; transition:opacity .25s; max-width:86vw; text-align:center; z-index:60;}
+  max-width:88vw; text-align:center; opacity:1; transition:opacity .5s;}
+#btnLog{position:fixed; top:calc(env(safe-area-inset-top,0px) + 52px); right:8px; z-index:20;
+  width:40px; height:40px; border-radius:10px; background:var(--panel);
+  border:1px solid var(--line); font-size:17px; color:var(--txt);}
+.logrow{padding:9px 4px; border-bottom:1px solid rgba(143,217,74,.12);
+  font-size:14px; color:#cfe6b8; line-height:1.45;}
+#loglist{overflow-y:auto; flex:1; -webkit-overflow-scrolling:touch;}
 
 /* dev controls */
 #dpad{right:12px; bottom:calc(env(safe-area-inset-bottom,0px) + 150px);
@@ -247,6 +271,15 @@ body.night .leaflet-tile-pane{filter:invert(1) hue-rotate(120deg) brightness(.42
   </div>
 </div>
 
+<div id="iopanel">
+  <div class="box">
+    <h2 id="iotitle">LOAD SAVE</h2>
+    <div class="hint" id="iohint"></div>
+    <textarea id="ioText" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
+    <div class="iobtns"><button id="ioGo">LOAD IT</button><button id="ioCancel">CANCEL</button></div>
+  </div>
+</div>
+
 <div id="start">
   <div class="fog" id="fog1"></div><div class="fog" id="fog2"></div>
   <svg id="skyline" viewBox="0 0 400 120" preserveAspectRatio="none">
@@ -275,6 +308,10 @@ body.night .leaflet-tile-pane{filter:invert(1) hue-rotate(120deg) brightness(.42
     <button class="bigbtn" id="devgo">✓</button>
   </div>
   <button class="bigbtn" id="btnReset">RESET SAVE</button>
+  <div id="iorow">
+    <button id="copySaveBtn">📋 COPY SAVE</button>
+    <button id="loadSaveBtn">📥 LOAD SAVE</button>
+  </div>
   <div id="gpsmsg"></div>
   <div class="foot">v1.2 — Redline Digital · GPS needs HTTPS</div>
 </div>
@@ -298,7 +335,8 @@ body.night .leaflet-tile-pane{filter:invert(1) hue-rotate(120deg) brightness(.42
   <button id="actbtn" disabled><div class="fill"></div><div class="lbl">…</div></button>
 </div>
 
-<div class="hud" id="toast"></div>
+<div class="hud" id="toasts"></div>
+<button id="btnLog">📜</button>
 
 <button id="wpnbtn">✊</button>
 <button id="drawbtn">✊<br>DRAW</button>
@@ -334,6 +372,12 @@ body.night .leaflet-tile-pane{filter:invert(1) hue-rotate(120deg) brightness(.42
     <button class="tabbtn" data-tab="build">BUILD</button>
   </div>
   <div id="baselist"></div>
+</div>
+
+<div class="overlay" id="logpanel">
+  <h2>MESSAGE LOG</h2>
+  <button class="ovclose" data-close="logpanel">✕</button>
+  <div id="loglist"></div>
 </div>
 
 <div class="overlay" id="trade">
@@ -496,6 +540,7 @@ if(S.base){ // pre-siege saves: give existing walls their HP pool
    and the real-world day counter / night mode. */
 let started=false;
 let gameTime=Number(localStorage.getItem(K_GT)||0);
+if(!isFinite(gameTime)||gameTime<0) gameTime=0; // corrupted dz_gt must not poison gt()
 const gt=()=>gameTime;
 const paused=()=>!started || document.visibilityState!=="visible";
 setInterval(()=>{ if(started && document.visibilityState==="visible") gameTime+=250; },250);
@@ -561,11 +606,31 @@ let drawn=false, manualTarget=null, lastSwing=0, lastDryToast=0, lastHurtSfx=0;
 const $=id=>document.getElementById(id);
 
 /* ---------------- toast + sfx ---------------- */
-let toastT=null;
-function toast(msg,ms=2200){
-  const t=$("toast"); t.innerHTML=msg; t.style.opacity=1;
-  clearTimeout(toastT); toastT=setTimeout(()=>t.style.opacity=0,ms);
+const msgLog=(function(){ // jparse-style: corrupted dz_log must not crash boot
+  try{ const v=localStorage.getItem("dz_log"); const a=v?JSON.parse(v):[]; return Array.isArray(a)?a:[]; }
+  catch(e){ return []; }
+})();
+function logMsg(m){
+  msgLog.unshift(m); if(msgLog.length>60) msgLog.length=60;
+  try{ localStorage.setItem("dz_log", JSON.stringify(msgLog)); }catch(e){}
 }
+function toast(msg){
+  logMsg(String(msg).replace(/<[^>]*>/g,"")); // log keeps plain text
+  const wrap=$("toasts");
+  const t=document.createElement("div");
+  t.className="toastmsg"; t.innerHTML=msg;
+  wrap.prepend(t);
+  while(wrap.children.length>4) wrap.lastChild.remove();
+  const dur=Math.min(7000, 2800+String(msg).length*45); // longer messages linger
+  setTimeout(()=>{ t.style.opacity=0; setTimeout(()=>t.remove(),500); }, dur);
+}
+function escLog(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;"); }
+$("btnLog").addEventListener("click",()=>{
+  $("loglist").innerHTML=msgLog.length
+    ? msgLog.map(m=>'<div class="logrow">'+escLog(m)+'</div>').join("")
+    : '<div class="hint">Nothing logged yet — events land here as they happen.</div>';
+  $("logpanel").style.display="flex";
+});
 let AC=null;
 function ac(){
   if(!AC){ try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
@@ -1783,6 +1848,55 @@ $("btnReset").addEventListener("click",()=>{
   for(const k of Object.keys(localStorage)) if(k.startsWith("dz_")) localStorage.removeItem(k);
   location.reload();
 });
+
+/* ---------------- clipboard save transfer ---------------- */
+const SAVE_TAG="DEADZONE1."; // unique per game — same origin hosts all three
+function saveKeys(){ return Object.keys(localStorage).filter(k=>k.startsWith("dz_")&&k!=="dz_dev"); } // dev unlock stays device-local
+function exportSave(){
+  const d={};
+  for(const k of saveKeys()) d[k]=localStorage.getItem(k);
+  const json=JSON.stringify({v:1,d});
+  return SAVE_TAG+btoa(unescape(encodeURIComponent(json))); // unicode-safe: saves hold emoji + typed names
+}
+function showIo(mode,codeText){
+  $("iopanel").style.display="flex";
+  if(mode==="load"){
+    $("iotitle").textContent="LOAD SAVE";
+    $("iohint").textContent="Paste a DEADZONE save code. Loading REPLACES everything currently on this device.";
+    $("ioText").value=""; $("ioGo").style.display="";
+    setTimeout(()=>$("ioText").focus(),60);
+  } else {
+    $("iotitle").textContent="YOUR SAVE CODE";
+    $("iohint").textContent="Clipboard was blocked — select the code below and copy it manually.";
+    $("ioText").value=codeText; $("ioGo").style.display="none";
+    setTimeout(()=>{ $("ioText").focus(); $("ioText").select(); },60);
+  }
+}
+function importSave(raw){
+  raw=String(raw||"").trim().replace(/\s+/g,""); // notes apps inject line wraps
+  if(!raw.startsWith(SAVE_TAG)){ $("iohint").textContent="That doesn't look like a DEADZONE code — it should start with "+SAVE_TAG; return false; }
+  let data;
+  try{ data=JSON.parse(decodeURIComponent(escape(atob(raw.slice(SAVE_TAG.length))))); }
+  catch(e){ $("iohint").textContent="Code is damaged or incomplete — make sure you pasted ALL of it."; return false; }
+  if(!data || data.v!==1 || typeof data.d!=="object" || data.d===null){ $("iohint").textContent="Unrecognized save format."; return false; }
+  // three gates passed — only now touch existing state:
+  for(const k of saveKeys()) localStorage.removeItem(k);
+  for(const k of Object.keys(data.d)) if(k.startsWith("dz_")&&k!=="dz_dev") localStorage.setItem(k,data.d[k]);
+  location.reload(); // boot pipeline + migrations sanitize the rest
+  return true;
+}
+$("copySaveBtn").addEventListener("click",async()=>{
+  const code=exportSave();
+  let copied=false;
+  try{ await navigator.clipboard.writeText(code); copied=true; }catch(e){}
+  if(copied){
+    $("copySaveBtn").textContent="✅ COPIED";
+    setTimeout(()=>{ $("copySaveBtn").textContent="📋 COPY SAVE"; },2000);
+  } else showIo("show",code); // some webviews block clipboard — never skip the fallback
+});
+$("loadSaveBtn").addEventListener("click",()=>showIo("load"));
+$("ioCancel").addEventListener("click",()=>{ $("iopanel").style.display="none"; });
+$("ioGo").addEventListener("click",()=>importSave($("ioText").value));
 
 </script>
 </body>

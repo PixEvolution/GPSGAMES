@@ -88,6 +88,7 @@
     background:rgba(16,20,9,0.92); border:1px solid #55613a; color:#dde6c8; border-radius:6px;
     padding:8px 14px; font-size:13px; font-weight:600; max-width:100%; text-align:center;
     animation:toastIn 0.18s ease-out;
+    transition:opacity 0.5s;
   }
   .toast.warn { border-color:#a33; color:#f3cfc7; }
   @keyframes toastIn { from { opacity:0; transform:translateY(-6px);} to { opacity:1; transform:none;} }
@@ -323,6 +324,18 @@
   </div>
 </div>
 
+<div id="ioPanel" style="position:fixed; z-index:70; inset:0; display:none; flex-direction:column; align-items:center; justify-content:center; background:rgba(8,10,4,0.9); padding:16px;">
+  <div style="width:94vw; max-width:440px; background:rgba(14,18,8,0.98); border:1px solid #55613a; border-radius:10px; padding:14px; display:flex; flex-direction:column; gap:8px;">
+    <div id="ioTitle" style="font-size:12px; letter-spacing:0.14em; font-weight:800; color:#8fa070;">LOAD SAVE</div>
+    <div id="ioHint" style="font-size:11px; color:#a9b78d; line-height:1.4;"></div>
+    <textarea id="ioText" spellcheck="false" style="width:100%; height:110px; background:#10140a; color:#cfe0a2; border:1px solid #333d20; border-radius:6px; font-family:monospace; font-size:11px; padding:8px; -webkit-user-select:text; user-select:text;"></textarea>
+    <div style="display:flex; gap:8px;">
+      <button id="ioGo" class="btn primary" style="flex:1;">LOAD IT</button>
+      <button id="ioCancel" class="btn" style="flex:1;">CANCEL</button>
+    </div>
+  </div>
+</div>
+
 <div id="logPanel">
   <div id="logHead">
     <div id="logTitle">FIELD REPORTS</div>
@@ -348,6 +361,8 @@
 <div id="cornerCol" class="hud">
   <div id="sysMenu" style="display:none; flex-direction:column; gap:6px; margin-bottom:6px;">
     <button id="devBtn" class="btn">DEV</button>
+    <button id="copySaveBtn" class="btn">📋 COPY SAVE</button>
+    <button id="loadSaveBtn" class="btn">📥 LOAD SAVE</button>
     <button id="resetBtn" class="btn danger">RESET</button>
   </div>
   <button id="sysBtn" class="btn" style="padding:9px 13px;">⚙</button>
@@ -723,8 +738,11 @@ function toast(msg, warn) {
   const t = document.createElement("div");
   t.className = "toast" + (warn ? " warn" : "");
   t.textContent = msg;
-  $("toasts").appendChild(t);
-  setTimeout(() => t.remove(), 3500);
+  const box = $("toasts");
+  box.prepend(t);                              // newest on top
+  while (box.children.length > 4) box.lastChild.remove();
+  const dur = Math.min(7000, 2800 + msg.length * 45);   // longer reports linger
+  setTimeout(() => { t.style.opacity = "0"; setTimeout(() => t.remove(), 500); }, dur);
   // every toast is also filed as a field report (persisted with the world)
   if (world) {
     if (!world.log) world.log = [];
@@ -800,6 +818,14 @@ const S = (() => {
     persistent: ok,
     get(k) { if (ok) { try { return localStorage.getItem(k); } catch (e) {} } return (k in mem) ? mem[k] : null; },
     set(k, v) { if (ok) { try { localStorage.setItem(k, String(v)); return; } catch (e) {} } mem[k] = String(v); },
+    allKeys() {
+      const set = {};
+      Object.keys(mem).forEach(k => set[k] = 1);
+      if (ok) { try {
+        for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k) set[k] = 1; }
+      } catch (e) {} }
+      return Object.keys(set);
+    },
     wipePrefix(p) {
       Object.keys(mem).forEach(k => { if (k.indexOf(p) === 0) delete mem[k]; });
       if (ok) { try {
@@ -941,8 +967,8 @@ function ensurePlayerMarker() {
     playerMarker = L.marker([playerPos.lat, playerPos.lng], { icon, zIndexOffset: 900 }).addTo(map);
     playerMarker.on("click", () => {
       if (!started || !sel) return;
-      const guards = selectedEntries().filter(e =>
-        CFG.units[e.data.kind].combat && CFG.units[e.data.kind].dmg && e.data.state !== "MOUNTED");
+      const guards = splitSupplyRun(selectedEntries().filter(e =>
+        CFG.units[e.data.kind].combat && CFG.units[e.data.kind].dmg && e.data.state !== "MOUNTED"));
       if (!guards.length) return;
       const { ok, outE } = commandable(guards);
       ok.forEach(e => {
@@ -1776,7 +1802,7 @@ function buildCache(data) {
   const entry = { data, marker, ring };
   marker.on("click", () => {
     if (!started || !sel) return;   // no selection: popup opens as normal
-    const movers = selectedEntries().filter(e => e.data.state !== "MOUNTED" && e.data.kind !== "messenger");
+    const movers = splitSupplyRun(selectedEntries().filter(e => e.data.state !== "MOUNTED" && e.data.kind !== "messenger"));
     if (!movers.length) return;
     marker.closePopup();
     const { ok, outE } = commandable(movers);
@@ -2297,7 +2323,7 @@ function executeErrand(mEntry) {
   } else if (errand.type === "order") {
     const o = errand.order;
     const targets = live.units.filter(e =>
-      errand.unitIds.indexOf(e.data.id) >= 0 && e.data.state !== "MOUNTED" && e.data.hp > 0);
+      errand.unitIds.indexOf(e.data.id) >= 0 && e.data.state !== "MOUNTED" && e.data.hp > 0 && !onSupplyRun(e.data));
     let applied = 0;
     targets.forEach(e => {
       const t = e.data, tm = CFG.units[t.kind];
@@ -2721,9 +2747,9 @@ function onFriendlyUnitTap(entry) {
     if (infantry.length) { orderMount(infantry, entry); return; }
   }
   if (sel) {
-    const guards = selectedEntries().filter(e =>
+    const guards = splitSupplyRun(selectedEntries().filter(e =>
       CFG.units[e.data.kind].combat && CFG.units[e.data.kind].dmg &&
-      e.data.state !== "MOUNTED" && e.data.id !== tapped.id);
+      e.data.state !== "MOUNTED" && e.data.id !== tapped.id));
     if (guards.length) { orderEscort(guards, entry); return; }
   }
   selectUnit(entry);
@@ -2742,6 +2768,8 @@ function orderEscort(entries, targetEntry) {
   saveWorld();
 }
 function orderMount(entries, hvEntry) {
+  entries = splitSupplyRun(entries);
+  if (!entries.length) return;
   const hv = hvEntry.data;
   const space = CFG.units.humvee.carries - hv.mounted.length -
     world.units.filter(u => u.state === "MOUNT" && u.mountId === hv.id).length;
@@ -2832,6 +2860,14 @@ function commandable(entries) {
   return { ok, out: outArr.length, outE: outArr };
 }
 /* out-of-range units can still be commanded — by runner. Returns # routed. */
+/* a unit on a supply run finishes it — no re-tasking until the goods are banked */
+function onSupplyRun(u) { return u.state === "FETCH" || (u.state === "RETURN" && u.carry > 0); }
+function splitSupplyRun(entries) {
+  const free = [], busy = [];
+  entries.forEach(e => (onSupplyRun(e.data) ? busy : free).push(e));
+  if (busy.length) toast(busy.length + " on a supply run — they'll deliver before taking new orders.");
+  return free;
+}
 function centroidOf(entries) {
   let la = 0, ln = 0;
   entries.forEach(e => { la += e.data.lat; ln += e.data.lng; });
@@ -2847,7 +2883,7 @@ function routeOrderByRunner(outE, order) {
   return targets.length;
 }
 function orderMove(entries, latlng) {
-  const movable = entries.filter(e => e.data.state !== "MOUNTED");
+  const movable = splitSupplyRun(entries.filter(e => e.data.state !== "MOUNTED"));
   const { ok, out } = commandable(movable);
   ok.forEach(e => {
     const u = e.data;
@@ -2863,8 +2899,8 @@ function orderMove(entries, latlng) {
   saveWorld();
 }
 function orderAttack(entries, enemyEntry) {
-  const combatEntries = entries.filter(e => CFG.units[e.data.kind].combat && CFG.units[e.data.kind].dmg && e.data.state !== "MOUNTED");
-  if (!combatEntries.length) { toast("Nothing armed in that selection.", true); return; }
+  const combatEntries = splitSupplyRun(entries.filter(e => CFG.units[e.data.kind].combat && CFG.units[e.data.kind].dmg && e.data.state !== "MOUNTED"));
+  if (!combatEntries.length) { toast("Nothing armed and free in that selection.", true); return; }
   const { ok, out, outE } = commandable(combatEntries);
   ok.forEach(e => {
     const u = e.data;
@@ -2879,7 +2915,7 @@ function orderAttack(entries, enemyEntry) {
 }
 $("ordGuard").addEventListener("click", () => {
   if (!sel) return;
-  const { ok, out, outE } = commandable(selectedEntries().filter(e => e.data.state !== "MOUNTED"));
+  const { ok, out, outE } = commandable(splitSupplyRun(selectedEntries().filter(e => e.data.state !== "MOUNTED")));
   ok.forEach(e => {
     const u = e.data;
     if (u.kind === "messenger" && u.errand) { clearErrand(e, true); toast("Runner held — carried orders cancelled, funds returned."); }
@@ -3172,6 +3208,14 @@ setInterval(() => {
         break;
       }
       case "FETCH": {  // sent to retrieve a supply cache
+        if (meta.combat && meta.dmg) {
+          const threat = nearestEnemyTo({ lat: u.lat, lng: u.lng }, meta.range);
+          if (threat && now >= entry.nextShotGt) {
+            entry.nextShotGt = now + meta.rofMs;
+            fireAtEnemy(entry, meta, threat.entry);
+            break;   // stand and fight this tick, resume the run when clear
+          }
+        }
         const ce = live.caches.find(c => c.data.id === u.cacheId);
         if (!ce) { u.cacheId = null; u.state = meta.combat ? "GUARD" : "IDLE"; u.post = { lat: u.lat, lng: u.lng }; break; }
         const cp = { lat: ce.data.lat, lng: ce.data.lng };
@@ -3289,6 +3333,14 @@ setInterval(() => {
         break;
       }
       case "RETURN": {  // hauling supplies to base, then standing down / rolling home
+        if (u.carry > 0 && meta.combat && meta.dmg) {
+          const threat = nearestEnemyTo({ lat: u.lat, lng: u.lng }, meta.range);
+          if (threat && now >= entry.nextShotGt) {
+            entry.nextShotGt = now + meta.rofMs;
+            fireAtEnemy(entry, meta, threat.entry);
+            break;
+          }
+        }
         if (u.carry > 0) {
           const bank = nearestBank(u);
           if (!bank) { u.state = meta.combat ? "GUARD" : "IDLE"; u.post = { lat: u.lat, lng: u.lng }; break; }
@@ -3500,6 +3552,7 @@ setInterval(() => {
   refreshHud();
   ensurePlayerMarker();   // grace pulse on/off
   tutTick();
+  $("freeOpsBadge").style.display = freeOps() ? "block" : "none";
 
   // LIVE popups: re-render any open building/scorch popup so countdowns
   // tick and completed states appear the moment they happen.
@@ -3715,6 +3768,50 @@ let afterSafety = null;
 $("okSafety").addEventListener("click", () => {
   showScreen(null);
   if (afterSafety) { const f = afterSafety; afterSafety = null; f(); }
+});
+
+/* ============ clipboard save transfer ============ */
+const SAVE_TAG = "WARFRONT1.";
+function exportSave() {
+  const d = {};
+  for (const k of S.allKeys()) if (k.indexOf("wf_") === 0) d[k] = S.get(k);
+  const json = JSON.stringify({ v: 1, d });
+  return SAVE_TAG + btoa(unescape(encodeURIComponent(json)));   // unicode-safe
+}
+function openIoPanel(mode, code) {
+  $("ioPanel").style.display = "flex";
+  $("ioText").value = code || "";
+  $("ioGo").style.display = mode === "import" ? "" : "none";
+  $("ioTitle").textContent = mode === "import" ? "LOAD SAVE" : "YOUR SAVE CODE";
+  $("ioHint").textContent = mode === "import"
+    ? "Paste a WARFRONT save code. Loading REPLACES everything currently on this device."
+    : "Clipboard was blocked — select and copy this code manually.";
+  if (mode === "export") { $("ioText").focus(); $("ioText").select(); }
+}
+$("copySaveBtn").addEventListener("click", async () => {
+  const code = exportSave();
+  let copied = false;
+  try { await navigator.clipboard.writeText(code); copied = true; } catch (e) {}
+  if (copied) {
+    $("copySaveBtn").textContent = "✅ COPIED";
+    setTimeout(() => { $("copySaveBtn").textContent = "📋 COPY SAVE"; }, 2000);
+  } else {
+    openIoPanel("export", code);
+  }
+});
+$("loadSaveBtn").addEventListener("click", () => openIoPanel("import", ""));
+$("ioCancel").addEventListener("click", () => { $("ioPanel").style.display = "none"; });
+$("ioGo").addEventListener("click", () => {
+  const raw = $("ioText").value.trim().replace(/\s+/g, "");   // notes apps inject line wraps
+  if (raw.indexOf(SAVE_TAG) !== 0) { toast("That doesn't look like a WARFRONT save — it should start with " + SAVE_TAG, true); return; }
+  let data;
+  try { data = JSON.parse(decodeURIComponent(escape(atob(raw.slice(SAVE_TAG.length))))); }
+  catch (e) { toast("Save code is damaged or incomplete — paste ALL of it.", true); return; }
+  if (!data || data.v !== 1 || typeof data.d !== "object") { toast("Unrecognized save format.", true); return; }
+  // three gates passed — only now touch existing state
+  S.wipePrefix("wf_");
+  for (const k of Object.keys(data.d)) if (k.indexOf("wf_") === 0) S.set(k, data.d[k]);
+  location.reload();   // boot pipeline (incl. migrations + safe parses) sanitizes
 });
 
 /* ============ system menu (gear) ============ */
