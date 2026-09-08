@@ -308,6 +308,7 @@
 </div>
 
 <div id="gpsChip" class="hud">GPS —</div>
+<div id="freeOpsBadge" style="position:fixed; z-index:12; top:calc(84px + env(safe-area-inset-top)); left:8px; display:none; background:#3a2410; border:1px solid #b8863a; color:#f0cc84; border-radius:6px; padding:5px 9px; font-size:10px; font-weight:800; letter-spacing:0.08em;">⚠ FREE OPS — DEV GODMODE ON</div>
 <div id="waveChip" class="hud"></div>
 
 <div id="camCol" class="hud">
@@ -2984,6 +2985,10 @@ function logErr(where, e) {
   _errLogged[key] = true;
   toast("Internal error in " + where + ": " + e.message, true);
 }
+// surface ANY uncaught error in the field log — phones hide the console
+window.addEventListener("error", ev => {
+  try { logErr("game", { message: (ev && ev.message) || "unknown" }); } catch (x) {}
+});
 
 let lastConGt = gt();
 setInterval(() => {
@@ -3549,10 +3554,13 @@ function refreshHud() {
 }
 setInterval(() => {
   if (paused()) return;                                   // pause guard FIRST
-  refreshHud();
-  ensurePlayerMarker();   // grace pulse on/off
-  tutTick();
-  $("freeOpsBadge").style.display = freeOps() ? "block" : "none";
+  try {
+    refreshHud();
+    ensurePlayerMarker();   // grace pulse on/off
+    tutTick();
+    const fb = $("freeOpsBadge");
+    if (fb) fb.style.display = freeOps() ? "block" : "none";
+  } catch (e) { logErr("UI tick", e); }
 
   // LIVE popups: re-render any open building/scorch popup so countdowns
   // tick and completed states appear the moment they happen.
