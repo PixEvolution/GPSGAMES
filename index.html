@@ -1739,6 +1739,28 @@ document.addEventListener("contextmenu",e=>{
   if(!e.target.closest(".leaflet-popup")) e.preventDefault();
 });
 
+/* ---------------- orientation / viewport fix ----------------
+   Leaflet doesn't notice container size changes, so rotating
+   portrait->landscape->back leaves the tile pane offset (everything
+   looks shifted left). iOS also reports stale dimensions for a beat
+   after orientationchange, so we invalidate twice: fast + settled. */
+function fixViewport(){
+  window.scrollTo(0,0); // iOS can scroll the fixed layout during rotation
+  if(map){
+    map.invalidateSize();
+    if(playerPos) map.setView(playerPos, map.getZoom(), {animate:false});
+  }
+}
+let rotT1=null, rotT2=null;
+function onViewportChange(){
+  clearTimeout(rotT1); clearTimeout(rotT2);
+  rotT1=setTimeout(fixViewport,250);
+  rotT2=setTimeout(fixViewport,800);
+}
+window.addEventListener("resize",onViewportChange);
+window.addEventListener("orientationchange",onViewportChange);
+if(window.visualViewport) window.visualViewport.addEventListener("resize",onViewportChange);
+
 /* ---------------- restore + boot ---------------- */
 function restoreWorld(){ // rebuild every saved entity via the builders
   try{

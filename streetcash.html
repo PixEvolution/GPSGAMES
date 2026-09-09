@@ -225,12 +225,15 @@
   #rdTitle .w{color:#fff}
   #rdSub{font-family:Consolas,monospace;font-size:22px;font-weight:900;
     letter-spacing:6px;color:#00b9a2;opacity:0}
-  #missionBar{position:absolute;top:calc(env(safe-area-inset-top,0px) + 10px);
-    left:50%;transform:translateX(-50%);z-index:1050;display:none;
-    background:rgba(13,15,13,.92);border:1px solid #e0c84a;border-radius:8px;
-    padding:7px 14px;font-size:13px;font-weight:700;color:#e0c84a;
-    max-width:60vw;text-align:center;white-space:nowrap;overflow:hidden;
-    text-overflow:ellipsis}
+  #missionUi{position:absolute;top:calc(env(safe-area-inset-top,0px) + 8px);
+    left:50%;transform:translateX(-50%);z-index:1050;
+    display:flex;flex-direction:column;align-items:center;gap:6px;
+    width:56vw;max-width:300px;pointer-events:none}
+  #missionBar{display:none;background:rgba(13,15,13,.92);
+    border:1px solid #e0c84a;border-radius:8px;padding:7px 12px;
+    font-size:12px;font-weight:700;color:#e0c84a;text-align:center;
+    line-height:1.4;max-width:100%;pointer-events:auto}
+  #missionBtns{display:flex;gap:8px}
   #missionConfirm{position:absolute;left:14px;right:14px;
     bottom:calc(env(safe-area-inset-bottom,0px) + 96px);z-index:1400;
     display:none;background:rgba(13,15,13,.95);border:2px solid #e0c84a;
@@ -251,16 +254,12 @@
     font-size:22px;font-weight:900;font-family:Georgia,serif;color:#e0c84a;
     background:#171407;border:2px solid #e0c84a;
     box-shadow:0 0 18px rgba(224,200,74,.8);animation:jobpulse 1.4s infinite}
-  #moveBtn{position:absolute;left:50%;transform:translateX(-50%) translateX(-64px);
-    top:calc(env(safe-area-inset-top,0px) + 46px);z-index:1050;display:none;
-    padding:6px 12px;border-radius:8px;border:1px solid #7a877a;
-    background:rgba(13,15,13,.9);color:#aab5aa;font-family:inherit;
-    font-size:12px;font-weight:700}
-  #cancelBtn{position:absolute;left:50%;transform:translateX(-50%) translateX(64px);
-    top:calc(env(safe-area-inset-top,0px) + 46px);z-index:1050;display:none;
-    padding:6px 12px;border-radius:8px;border:1px solid #703a3a;
-    background:rgba(13,15,13,.9);color:#e08a8a;font-family:inherit;
-    font-size:12px;font-weight:700}
+  #moveBtn{display:none;padding:6px 12px;border-radius:8px;
+    border:1px solid #7a877a;background:rgba(13,15,13,.9);color:#aab5aa;
+    font-family:inherit;font-size:12px;font-weight:700;pointer-events:auto}
+  #cancelBtn{display:none;padding:6px 12px;border-radius:8px;
+    border:1px solid #703a3a;background:rgba(13,15,13,.9);color:#e08a8a;
+    font-family:inherit;font-size:12px;font-weight:700;pointer-events:auto}
   #startBtn{position:absolute;left:50%;transform:translateX(-50%);
     bottom:calc(env(safe-area-inset-bottom,0px) + 118px);z-index:1050;
     display:none;padding:13px 22px;border-radius:12px;
@@ -341,7 +340,7 @@
   #busted h2{font-size:56px;font-weight:900;letter-spacing:6px;color:var(--danger);
     text-shadow:0 0 26px rgba(224,74,74,.7)}
   #busted p{color:var(--text);font-size:17px}
-  #toasts{position:absolute;top:calc(env(safe-area-inset-top,0px) + 92px);
+  #toasts{position:absolute;top:calc(env(safe-area-inset-top,0px) + 128px);
     left:50%;transform:translateX(-50%);z-index:1100;
     display:flex;flex-direction:column;gap:6px;align-items:center;
     width:max-content;max-width:82vw;pointer-events:none}
@@ -476,9 +475,13 @@
   <div id="cineTap">TAP TO CONTINUE</div>
 </div>
 
-<div id="missionBar"></div>
-<button id="moveBtn">✏️ MOVE SPOT</button>
-<button id="cancelBtn">✖ CANCEL MISSION</button>
+<div id="missionUi">
+  <div id="missionBar"></div>
+  <div id="missionBtns">
+    <button id="moveBtn">✏️ MOVE SPOT</button>
+    <button id="cancelBtn">✖ CANCEL</button>
+  </div>
+</div>
 <button id="startBtn">START MISSION</button>
 
 <div id="placeCard">
@@ -3659,11 +3662,11 @@ $("cancelBtn").addEventListener("click", () => {
   if (!cancelable(mission.id)) return;
   if (gt() - cancelArm > 3000){
     cancelArm = gt();
-    $("cancelBtn").textContent = "✖ SURE? TAP AGAIN";
-    setTimeout(() => $("cancelBtn").textContent = "✖ CANCEL MISSION", 3000);
+    $("cancelBtn").textContent = "✖ SURE?";
+    setTimeout(() => $("cancelBtn").textContent = "✖ CANCEL", 3000);
     return;
   }
-  $("cancelBtn").textContent = "✖ CANCEL MISSION";
+  $("cancelBtn").textContent = "✖ CANCEL";
   endMissionEarly("Mission dropped. The letter's back on the map when you want it.");
 });
 

@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>WARFRONT</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" crossorigin=""></script>
 <style>
   * {
     -webkit-user-select: none;
@@ -470,6 +470,15 @@
   </div>
 </div>
 
+<div id="scrIntro" class="screen">
+  <div class="scrInner">
+    <h1 id="introHead">SITUATION BRIEFING</h1>
+    <p id="introText" style="text-align:left; line-height:1.65; min-height:9em; transition:opacity 0.35s;"></p>
+    <button id="introNext" class="btn primary">CONTINUE</button>
+    <button id="introSkip" class="btn" style="margin-top:6px; font-size:11px; padding:7px;">SKIP BRIEFING</button>
+  </div>
+</div>
+
 <div id="scrGps" class="screen">
   <div class="wfTitle">WARFRONT</div>
   <h2 id="gpsWaitH">Acquiring your position…</h2>
@@ -518,12 +527,13 @@ const CFG = {
   // Scheduler: after each strike, roll the next delay from the interval
   // range — RANDOM, so short and long gaps back-to-back are intended.
   // All on the game clock: nothing ever falls while the app is closed.
+  // shelling is the ROUTINE face of the war — invasions are the rare one.
   bombTable: [
-    { lvl: 1,  intervalMin: [20, 35],  radius: [18, 26],  shells: [1, 1] },
-    { lvl: 3,  intervalMin: [16, 28],  radius: [24, 38],  shells: [1, 1] },
-    { lvl: 5,  intervalMin: [12, 22],  radius: [32, 55],  shells: [1, 2] },
-    { lvl: 7,  intervalMin: [9, 16],   radius: [42, 75],  shells: [1, 2] },
-    { lvl: 10, intervalMin: [7, 12],   radius: [55, 105], shells: [2, 3] },
+    { lvl: 1,  intervalMin: [18, 32],  radius: [18, 26],  shells: [1, 1] },
+    { lvl: 3,  intervalMin: [14, 26],  radius: [24, 38],  shells: [1, 1] },
+    { lvl: 5,  intervalMin: [11, 20],  radius: [32, 55],  shells: [1, 2] },
+    { lvl: 7,  intervalMin: [8, 15],   radius: [42, 75],  shells: [1, 2] },
+    { lvl: 10, intervalMin: [6, 11],   radius: [55, 105], shells: [2, 3] },
   ],
   bombWarnMs: 10000,          // siren + toast lead time
   bombMarkerIntelTier: 3,     // impact-point circles require this intel tier (3 = the General's eyes)
@@ -656,15 +666,17 @@ const CFG = {
   maxEnemies: 20,
 
   // wave escalation table — comp ranges keyed on player level (highest row ≤ level)
-  // ring: spawn distance grows as the enemy grows — bigger forces stage farther
-  // out, and their march time (real walking speed) is your prep time.
+  // THE LONG WAR: invasions are rare, significant EVENTS — hours of game time
+  // apart, launched from OTHER TOWNS kilometers away. The convoy physically
+  // marches the whole distance at real speeds: vehicles arrive first, infantry
+  // follows. You can watch it crawl across the map, and sortie to meet it.
   waveTable: [
-    { lvl: 1,  comp: { erifle: [2, 3] },                                                   intervalMin: [18, 30], ring: [600, 1000]  },
-    { lvl: 2,  comp: { erifle: [3, 5] },                                                   intervalMin: [15, 25], ring: [800, 1300]  },
-    { lvl: 4,  comp: { erifle: [4, 6],  erocket: [1, 1] },                                 intervalMin: [12, 20], ring: [1000, 1600] },
-    { lvl: 6,  comp: { erifle: [5, 8],  erocket: [1, 2], ehumvee: [1, 1] },                intervalMin: [10, 16], ring: [1300, 2000] },
-    { lvl: 8,  comp: { erifle: [7, 10], erocket: [2, 3], ehumvee: [1, 2], etank: [1, 1] }, intervalMin: [8, 14],  ring: [1600, 2400] },
-    { lvl: 11, comp: { erifle: [8, 12], erocket: [3, 5], ehumvee: [2, 3], etank: [1, 2] }, intervalMin: [7, 12],  ring: [2000, 3000] },
+    { lvl: 1,  comp: { erifle: [2, 3] },                                                   intervalMin: [90, 200],  ring: [3500, 5500]   },
+    { lvl: 2,  comp: { erifle: [3, 5] },                                                   intervalMin: [80, 170],  ring: [4000, 6500]   },
+    { lvl: 4,  comp: { erifle: [4, 6],  erocket: [1, 1] },                                 intervalMin: [70, 150],  ring: [4500, 7500]   },
+    { lvl: 6,  comp: { erifle: [5, 8],  erocket: [1, 2], ehumvee: [1, 1] },                intervalMin: [60, 130],  ring: [5500, 9000]   },
+    { lvl: 8,  comp: { erifle: [7, 10], erocket: [2, 3], ehumvee: [1, 2], etank: [1, 1] }, intervalMin: [55, 110],  ring: [7000, 11000]  },
+    { lvl: 11, comp: { erifle: [8, 12], erocket: [3, 5], ehumvee: [2, 3], etank: [1, 2] }, intervalMin: [45, 90],   ring: [9000, 14000]  },
   ],
   waveRing: [500, 900],        // m — scout probes only; real waves use their row's ring
   waveSpread: 45,              // m scatter between wave members
@@ -672,7 +684,7 @@ const CFG = {
   frontDrift: 15,              // ± deg drift of the front after each wave
   // early-DETECTION lead by intel tier. Tier 1 = none: attacks arrive unannounced.
   warnMsTiers: { 1: 0, 2: 120000, 3: 180000 },
-  firstWaveGraceMin: 25,       // long quiet opening: this is a slow war
+  firstWaveGraceMin: 45,       // long quiet opening: this is a slow war
   waveClearXp: 40,
   scoutIntervalMin: [3, 6],    // between-wave harassment pairs
   scoutCount: 2,
@@ -1327,8 +1339,10 @@ function spawnWave(comp, isScouts) {
   if (!isScouts) {
     world.war.waveActive = true;
     world.war.waveNum = (world.war.waveNum || 0) + 1;
-    sfx("horn");
-    toast(world.enemyName + " forces spotted — " + (compDesc(comp) || spawned + " hostiles") + " from the " + compass(bearing) + "!", true);
+    const tier = intelTier();
+    if (tier >= 3)      { sfx("horn"); toast("FIELD INTEL — a " + world.enemyName + " convoy has departed: " + compDesc(comp) + ", approaching from the " + compass(bearing) + ". You have time — use it.", true); }
+    else if (tier >= 2) { sfx("horn"); toast("RADAR CONTACT — a " + world.enemyName + " convoy is on the move, bearing " + compass(bearing) + ". Composition unknown.", true); }
+    // no intel: silence — you find out when they get close (or you spot them)
   } else if (spawned) {
     toast(world.enemyName + " scouts probing the perimeter.", true);
   }
@@ -1377,30 +1391,32 @@ setInterval(() => {
   }
 
   if (!war.waveActive) {
-    // No countdowns, no scheduled-event framing. Attacks simply HAPPEN.
-    // Radar/General buy early DETECTION — reported like field intel, not a timer.
-    const tier = intelTier();
-    if (!war.warned && tier >= 2 && gt() >= war.nextWaveGt - CFG.warnMsTiers[tier]) {
-      war.warned = true;
-      const row = waveRow();
-      war.incoming = {
-        comp: rollComp(row),
-        bearing: (war.frontBearing + rand(-CFG.frontJitter, CFG.frontJitter) + 360) % 360,
-      };
-      if (tier >= 3) toast("FIELD INTEL — " + compDesc(war.incoming.comp) + " marshaling to the " + compass(war.incoming.bearing) + ". Contact imminent.", true);
-      else           toast("RADAR CONTACT — " + compDesc(war.incoming.comp) + " inbound. Prepare positions.", true);
-    }
+    // Convoys depart from distant towns and physically march here. Radar or the
+    // General detect the DEPARTURE — hours of warning, because the distance is
+    // real. Without intel, you learn when someone sees them.
     if (gt() >= war.nextWaveGt) {
-      const row = waveRow();
-      spawnWave(war.incoming ? war.incoming.comp : rollComp(row), false);
+      spawnWave(rollComp(waveRow()), false);
     } else if (war.waveNum > 0 && gt() >= war.scoutsGt && world.enemies.length === 0) {
       // scouts only start once the war has actually begun — never during the opening peace
       spawnWave({ erifle: CFG.scoutCount }, true);
       scheduleScouts();
     }
   } else {
+    // unspotted convoys get called in when they close on the base
+    if (!war.spotted && world.enemies.some(e => !e.scout)) {
+      const cc0 = world.buildings.find(b => b.kind === "cc");
+      if (cc0) {
+        const near = world.enemies.find(e => !e.scout && haversine({ lat: e.lat, lng: e.lng }, { lat: cc0.lat, lng: cc0.lng }) < 900);
+        if (near) {
+          war.spotted = true;
+          sfx("horn");
+          toast(world.enemyName + " forces spotted approaching from the " + compass(bearingBetween({ lat: cc0.lat, lng: cc0.lng }, { lat: near.lat, lng: near.lng })) + "!", true);
+        }
+      }
+    }
     if (world.enemies.length === 0) {
       war.waveActive = false;
+      war.spotted = false;
       addXp(CFG.waveClearXp);
       toast("Attack repelled — " + world.armyName + " holds this ground.", false);
       scheduleNextWave();
@@ -1970,7 +1986,7 @@ let pendingNames = { army: "", enemy: "" };
 let ccPlaceMode = "onboard";
 
 function showScreen(id) {
-  ["scrSafety","scrArmy","scrEnemy","scrGps","scrOver"].forEach(s => $(s).classList.remove("show"));
+  ["scrSafety","scrArmy","scrEnemy","scrIntro","scrGps","scrOver"].forEach(s => $(s).classList.remove("show"));
   if (id) $(id).classList.add("show");
 }
 $("okArmy").addEventListener("click", () => {
@@ -1984,11 +2000,49 @@ $("okEnemy").addEventListener("click", () => {
   const v = $("inEnemy").value.trim();
   if (!v) { toast("The enemy needs a name.", true); return; }
   pendingNames.enemy = v;
+  startIntro();
+});
+
+/* ---- situation briefing: why here, why you, what you'll be doing ---- */
+function introPages() {
+  const A = pendingNames.army, E = pendingNames.enemy;
+  return [
+    "Three weeks ago, the lines went quiet.\n\nNo orders came down. No relief column arrived. The radio traffic thinned, then stopped. Whatever is happening out there, one thing is now certain: the chain of command ends with whoever is still standing.",
+    "You are still standing.\n\nYou hold a commission, a working radio, and the loyalty of the few who stayed — builders, riflemen, a couple of kids fast on their feet. Under standing emergency doctrine, that makes you the ranking officer here.\n\nWhoever you were before, you are now the commander of " + A + ".",
+    E + " is real, organized, and closer than anyone wants to believe.\n\nTheir guns are already registered on this grid — you will hear the shells before you ever see a soldier. Their convoys move between towns, absorbing every place that cannot say no.\n\nThis place will be asked. Your job is the answer.",
+    "Your orders — yours alone, because no one is left to give them:\n\n■ ESTABLISH a command post on ground you know.\n■ BUILD depots, barracks, defenses — an economy that can take a hit.\n■ RAISE a force and command it in the field.\n■ SEND runners to carry orders where you cannot walk.\n■ HOLD this land, however long it takes.\n\nIt starts the way every army starts: one flag, on one street.\n\nGo place your Command Center, Commander.",
+  ];
+}
+let introPage = 0;
+function startIntro() {
+  introPage = 0;
+  showScreen("scrIntro");
+  renderIntroPage();
+}
+function renderIntroPage() {
+  const pages = introPages();
+  const el = $("introText");
+  el.style.opacity = "0";
+  setTimeout(() => {
+    el.textContent = pages[introPage];
+    el.style.whiteSpace = "pre-line";
+    $("introHead").textContent = introPage === pages.length - 1 ? "YOUR ORDERS" : "SITUATION BRIEFING";
+    $("introNext").textContent = introPage === pages.length - 1 ? "TAKE COMMAND" : "CONTINUE";
+    el.style.opacity = "1";
+  }, 200);
+}
+function introDone() {
   flow = "awaitFix";
   showScreen("scrGps");
   startGps();
   if (playerPos) { flow = "placeCC"; ccPlaceMode = "onboard"; startCCPlacement(); }
+}
+$("introNext").addEventListener("click", () => {
+  if (introPage >= introPages().length - 1) { introDone(); return; }
+  introPage++;
+  renderIntroPage();
 });
+$("introSkip").addEventListener("click", introDone);
 
 /* ============ PLACEMENT ============ */
 let placement = null;
@@ -2702,6 +2756,26 @@ $("wepBtn").addEventListener("click", () => {
 });
 
 /* ============ SELECTION & ORDERS ============ */
+function missionOf(u) {
+  switch (u.state) {
+    case "GUARD":  return "Guarding";
+    case "HOLD":   return "Holding position";
+    case "MOVE":   return "Moving to position";
+    case "ATTACK": return "Engaging the enemy";
+    case "ESCORT": return u.escortId === "PLAYER" ? "Guarding YOU" : "Escorting";
+    case "FETCH":  return "Supply run: retrieving cache";
+    case "RETURN": return u.carry > 0 ? "Supply run: hauling " + fmtCash(u.carry) + " home" : (u.kind === "struck" ? "Returning to post" : "Standing down");
+    case "TOWORK": return "Heading to a work site";
+    case "WORK":   return "Constructing";
+    case "FLEE":   return "Falling back!";
+    case "ERRAND": return u.errand ? "Carrying orders: " + errandDesc(u.errand) : "Carrying orders";
+    case "MOUNT":  return "Boarding a Humvee";
+    case "MOUNTED":return "Riding";
+    case "TOFETCH":return "Fetching a cache";
+    case "IDLE":   return "Awaiting orders";
+    default:       return u.state;
+  }
+}
 let sel = null;
 
 function isSelected(entry) {
@@ -2731,8 +2805,8 @@ function setSelection(next, label) {
 function selectUnit(entry) {
   if (placement) return;
   const u = entry.data, meta = CFG.units[u.kind];
-  let extra = "";
-  if (u.kind === "humvee") extra = " · " + u.mounted.length + "/" + meta.carries + " aboard";
+  let extra = " · " + missionOf(u);
+  if (u.kind === "humvee") extra = " · " + u.mounted.length + "/" + meta.carries + " aboard" + extra;
   setSelection({ type: "unit", id: u.id },
     meta.name + (meta.combat ? " · SQ" + u.squad : "") + " · " + Math.ceil(u.hp) + "hp" + extra);
 }
@@ -2987,7 +3061,15 @@ function logErr(where, e) {
 }
 // surface ANY uncaught error in the field log — phones hide the console
 window.addEventListener("error", ev => {
-  try { logErr("game", { message: (ev && ev.message) || "unknown" }); } catch (x) {}
+  try {
+    let msg = (ev && ev.message) || "unknown";
+    if (msg === "Script error.") msg = "a browser-censored error (likely harmless map-library hiccup)";
+    const where = ev && ev.filename ? ev.filename.split("/").pop() + ":" + (ev.lineno || "?") : "";
+    logErr("game" + (where ? " (" + where + ")" : ""), { message: msg });
+  } catch (x) {}
+});
+window.addEventListener("unhandledrejection", ev => {
+  try { logErr("game (async)", { message: (ev && ev.reason && ev.reason.message) || String(ev.reason || "unknown") }); } catch (x) {}
 });
 
 let lastConGt = gt();
@@ -3560,6 +3642,15 @@ setInterval(() => {
     tutTick();
     const fb = $("freeOpsBadge");
     if (fb) fb.style.display = freeOps() ? "block" : "none";
+    // live mission readout for a single selected unit
+    if (sel && sel.type === "unit") {
+      const e = live.units.find(x => x.data.id === sel.id);
+      if (e) {
+        const u = e.data;
+        const lbl = CFG.units[u.kind].name + " · " + Math.ceil(u.hp) + "hp · " + missionOf(u);
+        if ($("selLbl").textContent !== lbl) $("selLbl").textContent = lbl;
+      }
+    }
   } catch (e) { logErr("UI tick", e); }
 
   // LIVE popups: re-render any open building/scorch popup so countdowns
