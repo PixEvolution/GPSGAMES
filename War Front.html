@@ -124,8 +124,8 @@
   /* ============ SQUAD BAR ============ */
   #squadWrap {
     position:fixed; z-index:15; left:50%; transform:translateX(-50%);
-    bottom:calc(8px + env(safe-area-inset-bottom));
-    display:none; flex-direction:column; gap:6px; align-items:center; width:96vw; max-width:460px;
+    bottom:calc(2px + env(safe-area-inset-bottom));
+    display:none; flex-direction:column; gap:5px; align-items:center; width:96vw; max-width:460px;
   }
   body.playing #squadWrap { display:flex; }
   #orderRow { display:none; gap:6px; align-items:center; width:100%; justify-content:center; }
@@ -372,8 +372,10 @@
 <div id="toasts" class="hud"></div>
 
 <div id="squadWrap">
+  <div id="missionBar" style="display:none; width:100%; background:rgba(14,18,8,0.92); border:1px solid #45502c; border-radius:5px; padding:5px 9px; font-size:11px; color:#b9c795; text-align:center;"></div>
   <div id="orderRow">
     <div id="selLbl">—</div>
+    <button id="ordFollow" class="btn">👁</button>
     <button id="ordGuard" class="btn">GUARD</button>
     <button id="ordRally" class="btn">RALLY</button>
     <button id="ordDismount" class="btn">EXIT</button>
@@ -965,6 +967,7 @@ function initMap(center) {
   });
 
   map.on("click", onMapTap);
+  map.on("dragstart", () => { if (followId) { followId = null; refreshFollowBtn(); } });
   applyCamMode();
 }
 
@@ -2756,6 +2759,12 @@ $("wepBtn").addEventListener("click", () => {
 });
 
 /* ============ SELECTION & ORDERS ============ */
+let followId = null;
+function refreshFollowBtn() {
+  const b = $("ordFollow");
+  b.classList.toggle("primary", !!followId);
+  b.textContent = followId ? "👁 ON" : "👁";
+}
 function missionOf(u) {
   switch (u.state) {
     case "GUARD":  return "Guarding";
@@ -2789,6 +2798,7 @@ function isSelected(entry) {
 function selectedEntries() { return live.units.filter(isSelected); }
 function clearSelection() {
   sel = null;
+  followId = null; refreshFollowBtn();
   $("orderRow").classList.remove("show");
   document.querySelectorAll(".sqChip").forEach(c => c.classList.remove("sel"));
   live.units.forEach(refreshUnitMarker);
@@ -2805,8 +2815,10 @@ function setSelection(next, label) {
 function selectUnit(entry) {
   if (placement) return;
   const u = entry.data, meta = CFG.units[u.kind];
-  let extra = " · " + missionOf(u);
-  if (u.kind === "humvee") extra = " · " + u.mounted.length + "/" + meta.carries + " aboard" + extra;
+  if (followId && followId !== u.id) { followId = null; }
+  refreshFollowBtn();
+  let extra = "";
+  if (u.kind === "humvee") extra = " · " + u.mounted.length + "/" + meta.carries + " aboard";
   setSelection({ type: "unit", id: u.id },
     meta.name + (meta.combat ? " · SQ" + u.squad : "") + " · " + Math.ceil(u.hp) + "hp" + extra);
 }
@@ -3015,6 +3027,15 @@ $("ordRally").addEventListener("click", () => {
   if (!sel) return;
   if (!playerPos) { toast("No position to rally to.", true); return; }
   orderMove(selectedEntries(), { lat: playerPos.lat, lng: playerPos.lng });
+});
+$("ordFollow").addEventListener("click", () => {
+  if (!sel || sel.type !== "unit") { toast("Select a single unit to follow.", true); return; }
+  followId = followId === sel.id ? null : sel.id;
+  refreshFollowBtn();
+  if (followId) {
+    const e = live.units.find(x => x.data.id === followId);
+    if (e) map.panTo([e.data.lat, e.data.lng], { animate: true });
+  }
 });
 $("ordClear").addEventListener("click", clearSelection);
 
@@ -3642,14 +3663,22 @@ setInterval(() => {
     tutTick();
     const fb = $("freeOpsBadge");
     if (fb) fb.style.display = freeOps() ? "block" : "none";
-    // live mission readout for a single selected unit
+    // live mission readout for a single selected unit — full width, never cut off
+    const mb = $("missionBar");
     if (sel && sel.type === "unit") {
       const e = live.units.find(x => x.data.id === sel.id);
       if (e) {
         const u = e.data;
-        const lbl = CFG.units[u.kind].name + " · " + Math.ceil(u.hp) + "hp · " + missionOf(u);
+        const lbl = CFG.units[u.kind].name + " · " + Math.ceil(u.hp) + "hp";
         if ($("selLbl").textContent !== lbl) $("selLbl").textContent = lbl;
-      }
+        const m = "MISSION: " + missionOf(u);
+        mb.style.display = "block";
+        if (mb.textContent !== m) mb.textContent = m;
+        if (followId === u.id) map.panTo([u.lat, u.lng], { animate: true, duration: 0.45 });
+      } else { mb.style.display = "none"; }
+    } else {
+      mb.style.display = "none";
+      followId = null; refreshFollowBtn();
     }
   } catch (e) { logErr("UI tick", e); }
 
@@ -3816,7 +3845,7 @@ const TUT = [
   { done: () => world.buildings.some(b => b.kind === "depot"),
     text: "1/7 — Your CC pays $8/min; a Supply Depot pays $20/min more. Tap BUILD, pick Supply Depot, tap open ground inside your circle, CONFIRM." },
   { done: () => world.buildings.some(b => b.kind === "depot" && b.progress >= 1),
-    text: "2/7 — Nothing builds itself: someone must be ON SITE. Walk to the depot site (dev: D-pad) and stand there — YOU count as workforce." },
+    text: "2/7 — Nothing builds itself: someone must be ON SITE. Walk to the depot site and stand there — YOU count as workforce." },
   { done: () => builderCount() >= 1 || world.buildings.some(b => (b.queue||[]).some(q => q.kind === "builder")),
     text: "3/7 — Income online. Tap your Command Center and TRAIN BUILDER ($100) so construction runs without you." },
   { done: () => world.buildings.some(b => b.kind === "barracks" && b.progress >= 1),

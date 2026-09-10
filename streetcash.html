@@ -1363,6 +1363,10 @@ function gangCombat(n){
 }
 
 function strikeNpc(n){
+  if (n.van){
+    rangeToast("Rounds spark off the armor — RAM it with weight, don't shoot it.");
+    return;
+  }
   const w = currentWeapon();
   const now = gt();
   if (now < nextShotAt || !playerPos) return;
@@ -1637,8 +1641,9 @@ function npcIcon(n){
     n.maxhp = n.maxhp || Math.max(n.hp, 1);
     const pct = Math.max(0, Math.round(100 * n.hp / n.maxhp));
     const bar = pct < 100 ? `<div class="uhp"><i style="width:${pct}%"></i></div>` : "";
+    const face = n.van ? "🚚" : "🧍";
     return L.divIcon({className:"", html:
-      `<div class="npc" style="border-color:var(--danger);box-shadow:0 0 10px rgba(224,74,74,.7)">🧍${bar}</div>`,
+      `<div class="npc" style="border-color:var(--danger);box-shadow:0 0 10px rgba(224,74,74,.7)">${face}${bar}</div>`,
       iconSize:[28,28], iconAnchor:[14,14]});
   }
   if (n.kind === "gang"){
@@ -1734,12 +1739,39 @@ setInterval(() => {
     if (n.kind === "target"){
       const d = haversine(n, playerPos);
       if (n.flee){
-        // he runs from you, hard-capped at his 5 mph — forever if he has to
-        const step = n.speed * 0.4;
+        // runners hold their cap; vans start fast and cook down to ~1 mph
+        let spd = n.speed;
+        if (n.van){
+          const el = (gt() - (n.spawnGt || gt())) / 1000;
+          spd = Math.max(0.45, n.speed * (1 - el / 260));
+          if (spd < 3 && !n.slowToasted){
+            n.slowToasted = true;
+            toast("The van's engine is cooking — it's losing pace fast.");
+          }
+        }
+        const step = spd * 0.4;
         const p = offsetPoint(n.lat, n.lng, step,
           bearingBetween(playerPos, n)); // directly away
         n.lat = p.lat; n.lng = p.lng;
         n.marker.setLatLng([n.lat, n.lng]);
+        if (n.van){
+          // inside the ram circle: metal folds
+          if (d <= n.ramR){
+            n.hp -= n.ramDps * 0.4;
+            n.marker.setIcon(npcIcon(n));
+            if (n.hp <= 0){
+              removeNpc(n);
+              if (curStep() && curStep().type === "ram") advance();
+              continue;
+            }
+          }
+          // the derby draws cruisers, one star at a time
+          if (gt() >= n.nextHeat){
+            n.nextHeat = gt() + 20000;
+            if (stars < 3 && Math.random() < 0.35)
+              applyHeat(1, "A cruiser clocks the demolition derby!");
+          }
+        }
         continue;
       }
       if (!n.aggro && d < 40){ n.aggro = true; if (n.pull) toast(n.pull); }
@@ -2103,10 +2135,17 @@ function update(){
   // mission arrivals — one generic check for every mission ever
   {
     const s = curStep();
-    if (s && (s.type === "goto" || s.type === "kill" || s.type === "hunt")){
+    if (s && (s.type === "goto" || s.type === "kill" || s.type === "hunt" || s.type === "ram")){
       const loc = resolveLoc(s.at || "t");
       if (loc && haversine(playerPos, loc) <= CFG.collectRadius){
-        if (s.type === "goto") advance();
+        if (s.type === "goto"){
+          if (s.needClean && stars > 0){
+            rangeToast("Lose the cops first — you don't bring heat to this door.");
+          } else {
+            if (s.clearHeat && stars > 0) clearHeat(s.clearHeat);
+            advance();
+          }
+        }
         else if (!cineOpen && !npcs.some(n => n.kind === "target"))
           cinePlay(s.intro(), () => spawnTarget(s));
       }
@@ -2574,7 +2613,7 @@ setInterval(() => {
   if (paused() || !drawn || !playerPos) return;
   const hostiles = cops.concat(
     npcs.filter(n => (n.kind === "gang" && myGang !== null && n.gang !== myGang && n.aggro)
-      || (n.kind === "target" && n.aggro)));
+      || (n.kind === "target" && n.aggro && !n.van)));
   if (!hostiles.length) return;
   let best = null, bd = Infinity;
   for (const c of hostiles){
@@ -2784,7 +2823,8 @@ function saveWorld(){
     npcs: npcs.map(n => ({uid:n.uid, kind:n.kind, lat:n.lat, lng:n.lng,
       robbed:n.robbed, speed:n.speed, stock:n.stock, wants:n.wants,
       gang:n.gang, hp:n.hp, aggro:n.aggro, wep:n.wep, label:n.label, pull:n.pull,
-      follow:n.follow})),
+      follow:n.follow, flee:n.flee, van:n.van, ramR:n.ramR, ramDps:n.ramDps,
+      spawnGt:n.spawnGt})),
     terr: territory,
     contests,
     copsRel: cops.map(c => ({kind:c.kind, dLat:c.lat - playerPos.lat,
@@ -2808,7 +2848,9 @@ function restoreWorld(){
   for (const n of w.npcs || []) attachNpc({uid:n.uid, kind:n.kind, lat:n.lat, lng:n.lng,
     wp:null, robbed:!!n.robbed, speed:n.speed || 1.4, stock:n.stock, wants:n.wants,
     gang:n.gang, hp:n.hp ?? 60, aggro:!!n.aggro, wep:n.wep || null,
-    label:n.label, pull:n.pull, follow:!!n.follow});
+    label:n.label, pull:n.pull, follow:!!n.follow, flee:!!n.flee, van:!!n.van,
+    ramR:n.ramR || 0, ramDps:n.ramDps || 0, nextHeat: gt() + 15000,
+    spawnGt: n.spawnGt ?? gt()});
   territory = w.terr || {};
   contests = w.contests || {};
   npcSeq = w.npcSeq || npcSeq;
@@ -2844,13 +2886,13 @@ let completed = new Set(jparse("sc_mdone", []));
 const saveDone = () => store.setItem("sc_mdone", JSON.stringify([...completed]));
 let mission = {id:null, idx:0, t:null, ts:{}};
 const saveMission = () => store.setItem("sc_mission",
-  JSON.stringify({id:mission.id, idx:mission.idx, t:mission.t, ts:mission.ts, fb:mission.fb, v:2}));
+  JSON.stringify({id:mission.id, idx:mission.idx, t:mission.t, ts:mission.ts, fb:mission.fb, amb:mission.amb, v:2}));
 
 // migrate old step-string saves into the engine format
 {
   const raw = jparse("sc_mission", null);
   if (raw && raw.v === 2){
-    mission = {id:raw.id || null, idx:raw.idx || 0, t:raw.t || null, ts:raw.ts || {}, fb:!!raw.fb};
+    mission = {id:raw.id || null, idx:raw.idx || 0, t:raw.t || null, ts:raw.ts || {}, fb:!!raw.fb, amb:!!raw.amb};
   } else if (raw && raw.step){
     const MAP = {
       house:["m1",0], confirm:["m1",2], meet:["m1",3], arrived:["m1",4],
@@ -3377,6 +3419,42 @@ function m8end(){ return [
   {html:`<div class="titleCard" style="font-size:32px">MISSION PASSED</div>`, minMs:1400},
 ]; }
 
+// ---- mission 9 story pages ----
+function m9open(){ return [
+  {html:sp(`Vinnie had a map spread across a hood and the look of a man who'd been thinking about money in motion.<br><br>"Payroll van. <b>Armored</b>. Makes its rounds every week, fat with cash, driven by two guards who get paid to be brave right up until they don't."`)},
+  {html:sp(`"Now listen — shooting an armored van is donating ammo. Won't scratch it." He knocked twice on the hood under the map. "You want it open, you <b>hit it</b>. Something heavy, again and again. Steel folds before nerve does — those guards will bail the moment the ride stops feeling bulletproof."`)},
+  {html:sp(`"When they run, the van's yours. Take it to a warehouse down at the docks — my people are waiting there, and they are <i>very</i> good at opening things."`)},
+  {html:sp(`"One more thing, driver." He folded the map. "That van has a route and a schedule. It will not wait around for you. Find it, hit it, take it. <b>Go.</b>"`)},
+]; }
+function m9chase(){ return [
+  {html:sp(`You heard it before you saw it — a diesel note with money inside. The van rolled through the intersection ahead, boxy and gray and riding low on its springs, and the driver's mirror caught you sitting there a beat too long.<br><br>It didn't stop at the next sign.`)},
+]; }
+function m9guards(){ return [
+  {html:sp(`One more hit did it. The van shuddered, ground half a block on a dead axle, and quit.<br><br>Both doors burst at once — two guards out and sprinting in two directions, helmets bouncing, done being brave for this pay grade. One of them was already on his radio.`)},
+]; }
+function m9end(){ return [
+  {html:sp(`The warehouse door was rolling up before you'd finished the turn. Vinnie's people moved like a pit crew — the van swallowed whole, chains and crowbars already singing against the back doors.`)},
+  {html:sp(`A man in a dockworker's coat handed you an envelope and nodded at the street behind you.<br><br>"Cops? Handled. Around here, nobody saw a van. Nobody's seen a van in years."`), minMs:800},
+  {html:`<div class="titleCard" style="font-size:32px">MISSION PASSED</div>`, minMs:1400},
+]; }
+
+// ---- mission 10 story pages ----
+function m10open(){ return [
+  {html:sp(`A black four-door sat on the lift with its wheels off, and Vinnie was talking to its owner — a heavyset man in a good coat who stood like the floor belonged to him.<br><br>"Driver — this is <b>Enzo</b>. Enzo, this is the one I told you about."<br><br>Enzo looked you over the way men like him look over tools. Apparently you passed.`)},
+  {html:sp(`"My friend here needs a ride while his car's up," Vinnie said. "Straight home, nothing fancy." He caught your eye over Enzo's shoulder. "And come back after — I might have another wheel job for you."`)},
+  {html:sp(`Enzo settled into the loaner — a black four-door, of course — and waited until you'd pulled out of the lot.<br><br>"Change of plans." He said it like weather. "There's a laundry across town. The owners have developed a memory problem about their <i>protection</i> payments. We'll stop there first."`)},
+  {html:sp(`"Drive," Enzo said, and unbuttoned his coat.`)},
+]; }
+function m10ambush(){ return [
+  {html:sp(`Enzo went in alone, unhurried, a man collecting what's his.<br><br>Then the front window blew OUT — muzzle flashes strobing inside, glass on the sidewalk like ice — and Enzo came back through the door at a speed that did not match his build.`)},
+  {html:sp(`He hit the seat and the door in one motion.<br><br>"<b>AMBUSH.</b> They knew. They KNEW I was coming—" A round starred the rear glass. "DRIVE. <i>Now.</i> GO GO GO!"`)},
+]; }
+function m10end(){ return [
+  {html:sp(`Enzo got out slow, straightening his coat, breathing through his nose like a bull deciding something.<br><br>"An ambush. For <i>me</i>." He said it twice, quieter the second time, which was worse. "They bought something today. We're going to make sure they pay full price."`)},
+  {html:sp(`He nodded at the restaurant behind him — warm light, white tablecloths, a name in script over the door.<br><br>"You drive well under fire. Come back around, there's more work for a man who doesn't panic." He walked toward the doors, and two men you hadn't noticed opened them for him.`), minMs:800},
+  {html:`<div class="titleCard" style="font-size:32px">MISSION PASSED</div>`, minMs:1400},
+]; }
+
 // ================= MISSION ENGINE =================
 // A mission is a list of steps. Each step TYPE is coded exactly once:
 //   cine {pages} | place {key?,label,minDist,warn,icon} | goto {at}
@@ -3541,6 +3619,45 @@ const MISSIONS = {
     {type:"cine", pages:m8end},
     {type:"pay", money:750, xp:650, toast:"Vinnie's envelope smells faintly of motor oil and victory."},
   ]},
+  m9: {name:"MONEY IN MOTION", next:null,
+    giver:{letter:"V", at:"vinnies", after:"m8", who:"Vinnie"},
+    steps:[
+    {type:"cine", pages:m9open},
+    {type:"place", label:"The Van's Route", minDist:400,
+      banner:"tap the map: where do you cut off the van?",
+      warn:"Where do you intercept the route? One-time spot — NOT saved. The van runs, so pick ground you can chase across."},
+    {type:"ram", name:"Armored Van", hp:130, speed:6.5, radius:35, dps:6,
+      banner:"ram the van — stay on its bumper until it dies",
+      intro:m9chase},
+    {type:"cine", pages:m9guards},
+    {type:"place", key:"docks", label:"Dockside Warehouse", icon:"⚓", minDist:300,
+      banner:"tap the map: where's the dock warehouse?",
+      warn:"You're choosing where Vinnie's dock crew operates. PERMANENT — people who make things disappear are worth keeping."},
+    {type:"goto", at:"docks", clearHeat:"The dock crew makes some calls. Nobody saw a van.",
+      banner:"deliver the van to the docks — shake what heat you can",
+      toast:"The van pulls left and drinks fuel — but it drives."},
+    {type:"cine", pages:m9end},
+    {type:"pay", money:900, xp:700, toast:"Heaviest envelope yet. Payroll money spends beautifully."},
+  ]},
+  m10: {name:"THE PASSENGER", next:null,
+    giver:{letter:"V", at:"vinnies", after:"m9", who:"Vinnie"},
+    steps:[
+    {type:"cine", pages:m10open},
+    {type:"place", label:"The Laundry", minDist:300,
+      banner:"tap the map: where's the laundry?",
+      warn:"Where's the laundry that stopped paying? One-time spot — NOT saved."},
+    {type:"goto", at:"t", banner:"take Enzo to the laundry",
+      toast:'Enzo, from the back seat: "Smooth and legal, driver. I like arriving calm."'},
+    {type:"cine", pages:m10ambush},
+    {type:"place", key:"enzos", label:"Enzo's Restaurant", icon:"🍝", minDist:300,
+      banner:"tap the map: where's Enzo's restaurant?",
+      warn:"You're choosing where Enzo holds court. PERMANENT and important — this man clearly has more work."},
+    {type:"goto", at:"enzos", chase:4, needClean:true,
+      banner:"get Enzo to his restaurant — lose ALL the heat first",
+      toast:'Enzo reloads without looking down. "They will regret the window. And driver — I do not walk past police."'},
+    {type:"cine", pages:m10end},
+    {type:"pay", money:850, xp:700, toast:"Enzo tips like a man who plans to use you again."},
+  ]},
 };
 
 const curStep = () => mission.id ? (MISSIONS[mission.id].steps[mission.idx] || null) : null;
@@ -3548,6 +3665,7 @@ const resolveLoc = at => at === "t" ? mission.t : places[at];
 
 function startMission(id){
   mission.id = id; mission.idx = 0; mission.t = null; mission.ts = {}; mission.fb = false;
+  mission.amb = false;
   saveMission(); updateGiver(); runStep();
 }
 function advance(){
@@ -3575,10 +3693,16 @@ function runStep(){
     if (s.key && places[s.key]){ advance(); return; }
     placeStoryLocation(s.key || null, s.label, s.minDist, s.warn,
       () => { if (s.toast) toast(s.toast); advance(); }, s.icon, s.slot);
-  } else if (s.type === "goto" || s.type === "kill" || s.type === "boost" || s.type === "hunt"){
+  } else if (s.type === "goto" || s.type === "kill" || s.type === "boost" || s.type === "hunt" || s.type === "ram"){
     const loc = resolveLoc(s.at || "t");
     if (loc) drawMissionRing(loc);
     if (s.toast) toast(s.toast);
+    // some drives come with company
+    if (s.type === "goto" && s.chase && !mission.amb && playerPos){
+      mission.amb = true;
+      saveMission();
+      spawnAmbush(playerPos, s.chase, "They're on you — GO!");
+    }
   } else if (s.type === "gotoAll"){
     clearMissionRing();
     for (const st of s.stops)
@@ -3651,6 +3775,7 @@ function endMissionEarly(reason){
   for (const n of [...npcs]) if (n.kind === "target") removeNpc(n);
   missionBoost = null;
   mission.id = null; mission.idx = 0; mission.t = null; mission.ts = {}; mission.fb = false;
+  mission.amb = false;
   saveMission();
   clearMissionRing();
   setBanner(null);
@@ -3672,28 +3797,38 @@ $("cancelBtn").addEventListener("click", () => {
 
 function spawnTarget(s){
   const list = s.targets || [{name:s.name, hp:s.hp, wep:s.wep, pull:s.pull}];
-  const flee = s.type === "hunt";
+  const flee = s.type === "hunt" || s.type === "ram";
+  const van = s.type === "ram";
   list.forEach((t, i) => {
     const p = i === 0 ? mission.t
       : offsetPoint(mission.t.lat, mission.t.lng, 6 + i*5, Math.random()*Math.PI*2);
     attachNpc({uid:npcSeq++, kind:"target", lat:p.lat, lng:p.lng,
-      wp:null, robbed:false, hp:t.hp, aggro:flee, speed:flee ? 2.2 : 1.6, // 5 mph, never more
-      wep:t.wep, label:t.name, pull:t.pull, flee});
+      wp:null, robbed:false, hp:t.hp, aggro:flee,
+      speed: van ? (s.speed || 6.5) : flee ? 2.2 : 1.6, // van ~14.5mph, runner 5mph
+      wep:t.wep, label:t.name, pull:t.pull, flee, van,
+      ramR: van ? (s.radius || 35) : 0, ramDps: van ? (s.dps || 6) : 0,
+      nextHeat: van ? gt() + 15000 : 0, spawnGt: gt()});
   });
-  // hunt ambush: the local set does NOT like you visiting
-  if (s.ambush){
-    let tg = territoryAt(mission.t);
-    if (tg === null || tg === myGang){
-      const others = GANGS.map((g, i) => i).filter(i => i !== myGang);
-      tg = others[Math.floor(Math.random() * others.length)];
-    }
-    for (let i = 0; i < s.ambush; i++){
-      const p = offsetPoint(mission.t.lat, mission.t.lng, 25 + Math.random()*45, Math.random()*Math.PI*2);
-      attachNpc({uid:npcSeq++, kind:"gang", gang:tg, lat:p.lat, lng:p.lng,
-        wp:null, robbed:false, hp:60, aggro:true, speed:1.5, wep:rollGangWeapon()});
-    }
-    toast(`${GANGS[tg].name} soldiers move on you — Noodles is their tenant.`);
+  if (s.ambush) spawnAmbush(mission.t, s.ambush,
+    `${"$"}{GANGS[ambushGang(mission.t)].name} soldiers move on you — this is their block.`);
+}
+
+function ambushGang(at){
+  let tg = territoryAt(at);
+  if (tg === null || tg === myGang){
+    const others = GANGS.map((g, i) => i).filter(i => i !== myGang);
+    tg = others[Math.floor(Math.random() * others.length)];
   }
+  return tg;
+}
+function spawnAmbush(at, count, msg){
+  const tg = ambushGang(at);
+  for (let i = 0; i < count; i++){
+    const p = offsetPoint(at.lat, at.lng, 25 + Math.random()*45, Math.random()*Math.PI*2);
+    attachNpc({uid:npcSeq++, kind:"gang", gang:tg, lat:p.lat, lng:p.lng,
+      wp:null, robbed:false, hp:60, aggro:true, speed:1.5, wep:rollGangWeapon()});
+  }
+  toast(msg || `${"$"}{GANGS[tg].name} soldiers move on you!`);
 }
 
 $("mcGood").addEventListener("click", () => { if (placing && placing.pend) placementConfirm(); });
