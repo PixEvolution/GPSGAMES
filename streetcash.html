@@ -205,9 +205,9 @@
     color:#4a554a;font-size:12px;letter-spacing:2px;animation:tapblink 1.6s infinite}
   @keyframes tapblink{50%{opacity:.25}}
   .titleCard{font-size:52px;font-weight:900;letter-spacing:6px;color:var(--text);
-    animation:titleIn 2s ease-out forwards}
+    white-space:nowrap;animation:titleIn 2s ease-out forwards}
   @keyframes titleIn{
-    0%{letter-spacing:26px;opacity:0;text-shadow:none}
+    0%{letter-spacing:14px;opacity:0;text-shadow:none}
     60%{opacity:1}
     100%{letter-spacing:6px;text-shadow:0 0 30px rgba(74,224,74,.6)}}
   .paper{background:#e8e4d8;color:#1a1a1a;max-width:340px;padding:22px;
@@ -4460,6 +4460,11 @@ setInterval(() => {
       if (!hostile) continue;
       const d = haversine(playerPos, n);
       if (d < hd && d < 120){ hd = d; h = n; } // fights are local, not manhunts
+    }
+    // taking a block? DO NOT get baited off it — defenders come to you
+    if (h && aiTask && aiTask.kind === "turf"
+      && cellKey(h.lat, h.lng) !== cellKey(aiTask.at.lat, aiTask.at.lng)){
+      h = null;
     }
     if (h && hd > Math.max(2, currentWeapon().range * 0.7)){
       aiSay("closing on the fight");
