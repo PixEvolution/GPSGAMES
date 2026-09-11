@@ -527,11 +527,6 @@
 
 <div id="speeds">
   <button class="spd" id="tapToggle" style="border-color:#e0c84a;color:#e0c84a">TAP ✕</button>
-  <button class="spd" id="rndSpd">RND</button>
-  <button class="spd" data-v="1.5">WALK</button>
-  <button class="spd" data-v="4">RUN</button>
-  <button class="spd" data-v="8">BIKE</button>
-  <button class="spd on" data-v="20">CAR</button>
 </div>
 
 <div id="dpad">
@@ -2786,18 +2781,7 @@ setInterval(() => {
 }, HEAT_TICK);
 
 // ---------- dev movement (arrows / WASD + speed) ----------
-let devSpeed = 20; // m/s, default CAR
-let rndSpeed = false, nextRndAt = 0;
-function rollRndSpeed(){
-  const mph = 1 + Math.random() * 99;
-  devSpeed = mph * 0.447;
-  nextRndAt = gt() + (1 + Math.random() * 99) * 1000; // next roll: 1–100s away
-  toast(`🎲 New pace: ${Math.round(mph)} mph`);
-}
-setInterval(() => {
-  if (!rndSpeed || paused() || gt() < nextRndAt) return;
-  rollRndSpeed();
-}, 1000);
+// one speed law for everybody, dev keys included: roads 1–100 mph, off-road 1–10
 const keys = new Set();
 const KEYMAP = {
   ArrowUp:"N", KeyW:"N", ArrowDown:"S", KeyS:"S",
@@ -2814,19 +2798,6 @@ document.addEventListener("keyup", e => {
   if (KEYMAP[e.code]) keys.delete(KEYMAP[e.code]);
 });
 
-document.querySelectorAll(".spd").forEach(b => {
-  b.addEventListener("click", () => {
-    document.querySelectorAll(".spd").forEach(x => x.classList.remove("on"));
-    b.classList.add("on");
-    if (b.id === "rndSpd"){
-      rndSpeed = true;
-      rollRndSpeed();
-      return;
-    }
-    rndSpeed = false;
-    devSpeed = Number(b.dataset.v);
-  });
-});
 
 // dev: tap-to-move toggle (off by default — no accidental teleports)
 let tapMove = false;
@@ -2860,7 +2831,9 @@ setInterval(() => {
   if (keys.has("E")) dx += 1;
   if (keys.has("W")) dx -= 1;
   if (!dx && !dy) return;
-  const step = devSpeed * (TICK/1000);           // meters this tick
+  if (gt() >= aiPace.at) rollAiPace();
+  const onR = destOnRoad(playerPos);
+  const step = (onR ? aiPace.road : Math.min(aiPace.off, aiPace.road)) * (TICK/1000);
   const bearing = Math.atan2(dx, dy);            // 0 = north
   setPlayerPos(offsetPoint(playerPos.lat, playerPos.lng, step, bearing));
 }, TICK);
@@ -3997,7 +3970,7 @@ function spectBlock(e){
   e.preventDefault();
   if (gt() - lastSpectToast > 5000){
     lastSpectToast = gt();
-    toast("🤖 Auto's driving. You've got cutscenes, the speed bar, 📜 and 🎥.");
+    toast("🤖 Auto's driving. You've got cutscenes, 📜 and 🎥.");
   }
 }
 // clicks: block everything not allowlisted — but the AI's synthetic clicks pass
@@ -4068,6 +4041,7 @@ async function ensureRoads(){
   roadBusy = false;
 }
 function buildRoadGraph(j){
+  roadSideCache = new Map();
   const nodes = new Map(), adj = new Map();
   for (const el of (j.elements || [])){
     if (el.type !== "way" || !el.geometry) continue;
@@ -4085,7 +4059,30 @@ function buildRoadGraph(j){
       prevId = id; prev = {lat:g.lat, lng:g.lon};
     });
   }
-  roadG = {nodes, adj, ids:[...nodes.keys()]};
+  // densified points every ~25m along every street — for "is this spot roadside?"
+  const pts = [];
+  for (const [id, edges] of adj){
+    const a = nodes.get(id);
+    pts.push(a);
+    for (const e of edges){
+      if (e.id < id) continue; // each segment once
+      const b = nodes.get(e.id);
+      const steps = Math.floor(e.d / 25);
+      for (let s2 = 1; s2 <= steps; s2++)
+        pts.push({lat: a.lat + (b.lat - a.lat) * s2/(steps+1),
+                  lng: a.lng + (b.lng - a.lng) * s2/(steps+1)});
+    }
+  }
+  roadG = {nodes, adj, ids:[...nodes.keys()], pts};
+}
+function nearRoad(p, maxD){
+  if (!roadG) return false;
+  let bd = maxD;
+  for (const r of roadG.pts){
+    if (Math.abs(r.lat - p.lat) * 111320 > bd) continue;
+    if (haversine(p, r) < bd) return true;
+  }
+  return false;
 }
 function nearestRoadNode(p, maxD){
   if (!roadG) return null;
@@ -4131,6 +4128,17 @@ function roadRoute(from, to){
 // ---------- SHARED NPC FRAMEWORK (ports to WARFRONT) ----------
 // Movement: roads first because roads are fastest — 1–100 mph on them,
 // 1–10 mph anywhere else. Every AI rolls its own pace on its own clock.
+// is this spot on (or beside) a street? cached — checked constantly
+let roadSideCache = new Map();
+function destOnRoad(p){
+  if (!roadG) return true; // no map data: benefit of the doubt, drive on
+  const key = Math.round(p.lat * 2e4) + "," + Math.round(p.lng * 2e4);
+  if (roadSideCache.has(key)) return roadSideCache.get(key);
+  const v = nearRoad(p, 30);
+  if (roadSideCache.size > 400) roadSideCache.clear();
+  roadSideCache.set(key, v);
+  return v;
+}
 function rollNpcPace(n){
   n.spdRoad = (1 + Math.random() * 99) * 0.447;
   n.spdOff  = (1 + Math.random() * 9) * 0.447;
@@ -4142,7 +4150,7 @@ function npcRoadStep(n, dest, dtSec){
   const d = haversine(n, dest);
   if (d < 2) return;
   let wp = dest, onRoad = false;
-  if (roadG && d > 90){
+  if (roadG && d > 60){
     const key = Math.round(dest.lat * 1e4) + "," + Math.round(dest.lng * 1e4);
     if (!n.route || n.route.key !== key)
       n.route = {key, pts: roadRoute(n, dest), i: 0};
@@ -4152,6 +4160,8 @@ function npcRoadStep(n, dest, dtSec){
       if (n.route.i < n.route.pts.length){ wp = n.route.pts[n.route.i]; onRoad = true; }
     }
   }
+  // roadside destination = drive to the door; only true off-road spots mean walking
+  if (!onRoad && destOnRoad(dest)) onRoad = true;
   const spd = onRoad ? n.spdRoad : Math.min(n.spdOff, n.spdRoad);
   const step = Math.min(spd * dtSec, haversine(n, wp));
   const p = offsetPoint(n.lat, n.lng, step, bearingBetween(n, wp));
@@ -4172,18 +4182,19 @@ function rollNpcWeapon(n){
 }
 
 // your WALK/RUN/BIKE/CAR presets are the AI's gas pedal
-const aiStep = () => devSpeed * 0.4;
 let aiRoute = null;
 let aiPace = {road: 20, off: 3, at: 0};
+function rollAiPace(){
+  aiPace = {road:(1 + Math.random()*99)*0.447, off:(1 + Math.random()*9)*0.447,
+    at: gt() + (1 + Math.random()*99)*1000};
+}
 function aiMoveToward(dest, stopAt){
   const d = haversine(playerPos, dest);
   if (d < (stopAt || 8)){ aiDest = null; aiRoute = null; return; }
   ensureRoads();
-  if (gt() >= aiPace.at)
-    aiPace = {road:(1 + Math.random()*99)*0.447, off:(1 + Math.random()*9)*0.447,
-      at: gt() + (1 + Math.random()*99)*1000};
+  if (gt() >= aiPace.at) rollAiPace();
   let wp = dest, onRoad = false;
-  if (roadG && d > 90){
+  if (roadG && d > 60){
     const key = Math.round(dest.lat * 1e4) + "," + Math.round(dest.lng * 1e4);
     if (!aiRoute || aiRoute.key !== key)
       aiRoute = {key, pts: roadRoute(playerPos, dest), i: 0};
@@ -4193,8 +4204,8 @@ function aiMoveToward(dest, stopAt){
       if (aiRoute.i < aiRoute.pts.length){ wp = aiRoute.pts[aiRoute.i]; onRoad = true; }
     }
   }
-  // RND mode: streets are fast (1–100), grass is slow (1–10). Presets override both.
-  const spd = rndSpeed ? (onRoad ? aiPace.road : Math.min(aiPace.off, aiPace.road)) : devSpeed;
+  if (!onRoad && destOnRoad(dest)) onRoad = true; // roadside job: stay in the car
+  const spd = onRoad ? aiPace.road : Math.min(aiPace.off, aiPace.road);
   const step = Math.min(spd * 0.4, haversine(playerPos, wp));
   setPlayerPos(offsetPoint(playerPos.lat, playerPos.lng, step, bearingBetween(playerPos, wp)));
 }
@@ -4711,7 +4722,7 @@ function aiRunTask(){
 }
 
 // ---------- startup ----------
-let startedOnce = false, startedOnce2 = false;
+let startedOnce = false;
 function start(useGps){
   devMode = !useGps;
   started = true;
@@ -4719,13 +4730,6 @@ function start(useGps){
   $("err").style.display = "none";
   $("devbadge").style.display = devMode ? "block" : "none";
   $("speeds").style.display = devMode ? "flex" : "none";
-  if (devMode && !startedOnce2){
-    startedOnce2 = true;
-    rndSpeed = true;
-    const rb = document.getElementById("rndSpd");
-    if (rb){ document.querySelectorAll(".spd").forEach(x=>x.classList.remove("on")); rb.classList.add("on"); }
-    rollRndSpeed();
-  }
   $("dpad").classList.toggle("show", devMode);
   if (!startedOnce){
     startedOnce = true;
