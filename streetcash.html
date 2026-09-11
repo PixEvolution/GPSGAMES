@@ -1363,7 +1363,7 @@ setInterval(() => {
 }, 500);
 
 // ---------- gang combat ----------
-let lastAttacker = null; // who beat you down, for the death screen
+let lastAttacker = null, lastAttackerAt = 0; // who beat you down, for the death screen
 
 // what a gang member carries: always strapped on their own turf,
 // only 40% carrying anywhere else — and it's a random piece either way
@@ -1801,6 +1801,7 @@ setInterval(() => {
         const gc = gangCombat(n);
         if (d <= gc.range){
           lastAttacker = n.label || "the target";
+          lastAttackerAt = gt();
           damage(gc.dps * 0.4);
         } else if (d < 300){
           const step = Math.min((n.speed || 1.8) * 0.4, d);
@@ -1828,6 +1829,7 @@ setInterval(() => {
       const gc = gangCombat(n);
       if (d <= gc.range){
         lastAttacker = GANGS[n.gang].name;
+        lastAttackerAt = gt();
         damage(gc.dps * 0.4);
       } else {
         npcRoadStep(n, playerPos, 0.4);
@@ -2306,6 +2308,7 @@ $("collect").addEventListener("click", () => {
 });
 
 function cancelChannel(reason){
+  if (channel && channel.pend) applyHeat(1, "You bolted — but somebody still called it in.");
   channel = null;
   if (reason) toast(reason);
   update();
@@ -2320,18 +2323,16 @@ setInterval(() => {
     cancelChannel("Job blown — you walked off.");
     return;
   }
-  // witnesses make their calls partway through
+  // witnesses SEE it now — the calls hit 911 only once the crime is DONE
   while (channel.calls.length && now >= channel.calls[0]){
     channel.calls.shift();
     channel.callNum++;
     if (channel.callNum === 1){
       const big = channel.wp > 200;
-      const extra = channel.armed ? 1 : 0;
-      applyHeat((big ? 2 : 1) + extra,
-        channel.armed ? "Armed robbery called in — units flooring it!"
-        : big ? "Big score — they're sending everyone!" : "Someone's calling it in!");
+      channel.pend = (big ? 2 : 1) + (channel.armed ? 1 : 0);
+      toast("Eyes on you — this gets called in the second it's done.");
     } else {
-      applyHeat(1, channel.callNum === 2 ? "Another caller — more units inbound!" : "Phones are lighting up — it's a swarm!");
+      channel.pend++;
     }
   }
 
@@ -2357,7 +2358,9 @@ setInterval(() => {
     }
     j.cooldownUntil = gt() + CFG.cooldownMs;
     setTimeout(update, CFG.cooldownMs + 500);
+    const pend = channel.pend || 0;
     channel = null;
+    if (pend) applyHeat(pend, "The calls hit 911 the moment you finished!");
     update();
     return;
   }
@@ -2568,7 +2571,8 @@ function busted(){
   bustedUntil = gt() + 8000; // brief immunity
   const extras = [hadCargo && "your cargo", hadDrugs && "everything in your pockets"]
     .filter(Boolean).join(" and ");
-  const byGang = lastAttacker;
+  // only blame an attacker if they hit you RECENTLY — old grudges don't cash checks
+  const byGang = (lastAttacker && gt() - lastAttackerAt < 12000) ? lastAttacker : null;
   lastAttacker = null;
   document.querySelector("#busted h2").textContent = byGang ? "DROPPED" : "BUSTED";
   $("bustedMsg").textContent = byGang
@@ -2755,7 +2759,7 @@ setInterval(() => {
 
     if (seen && c.kind !== "heli"){
       // arrest is physical — and only sticks if you're not resisting
-      if (d <= CFG.copCatchRadius && !drawn){ busted(); return; }
+      if (d <= CFG.copCatchRadius && !drawn){ lastAttacker = null; busted(); return; } // an arrest is an ARREST
       // force matching: they answer what you brought
       if (violence >= 2 && u.dps && d <= u.fire){
         lastAttacker = null;
