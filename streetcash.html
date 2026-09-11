@@ -2586,6 +2586,12 @@ function busted(){
   saveMoney();
   renderMoney(true);
   clearHeat();
+  // the scene CLEARS when you go down — shooters scatter, nobody camps the body
+  for (const n of [...npcs]){
+    if (n.kind === "gang" && n.gang !== myGang && n.aggro) removeNpc(n);
+    else if (n.kind === "gang" && n.gang !== myGang && haversine(n, playerPos) < 150) n.aggro = false;
+    else if (n.kind === "target" && !mission.id) removeNpc(n); // orphaned marks vanish
+  }
   bustedUntil = gt() + 8000; // brief immunity
   const extras = [hadCargo && "your cargo", hadDrugs && "everything in your pockets"]
     .filter(Boolean).join(" and ");
@@ -3858,6 +3864,7 @@ function endMissionEarly(reason){
   missionBoost = null;
   mission.id = null; mission.idx = 0; mission.t = null; mission.ts = {}; mission.fb = false;
   mission.amb = false;
+  for (const n of [...npcs]) if (n.kind === "target") removeNpc(n); // marks walk when the job dies
   saveMission();
   clearMissionRing();
   setBanner(null);
@@ -4848,8 +4855,36 @@ function aiRunTask(){
       return;
     }
     case "deal": {
-      if (!t.until) t.until = gt() + t.dur;
-      if (gt() >= t.until){ aiTask = null; toast("Shift's over. Count it later."); return; }
+      if (!t.until){
+        t.until = gt() + t.dur;
+        // starting a shift: any product sitting in the stash? Pick it up first.
+        const stashed = DRUGS.some(d => (stash[d.id]||0) > 0);
+        const pocket = DRUGS.some(d => (onDrugs[d.id]||0) > 0);
+        if (stashed && !pocket && houses.length)
+          t.pick = houses.reduce((a,b)=>haversine(playerPos,a)<haversine(playerPos,b)?a:b);
+      }
+      if (t.pick){
+        aiSay("grabbing the stash before the shift");
+        if (haversine(playerPos, t.pick) > 12){ aiMoveToward(t.pick); return; }
+        for (const d of DRUGS){
+          if ((stash[d.id]||0) > 0){ onDrugs[d.id] = (onDrugs[d.id]||0) + stash[d.id]; stash[d.id] = 0; }
+        }
+        saveDrugs(); // (persists pockets AND stash)
+        toast("Stash in pocket — time to move it.");
+        t.pick = null;
+        return;
+      }
+      if (gt() >= t.until){
+        // shift's over: whatever's unsold goes to the safe, straight away
+        if (DRUGS.some(d => (onDrugs[d.id]||0) > 0) && houses.length){
+          const h = houses.reduce((a,b)=>haversine(playerPos,a)<haversine(playerPos,b)?a:b);
+          aiTask = {kind:"hang", at:h, say:"running the leftovers to the stash", stash:true};
+        } else {
+          aiTask = null;
+          toast("Shift's over. Count it later.");
+        }
+        return;
+      }
       aiSay("dealing — " + Math.ceil((t.until - gt())/1000) + "s left on the shift");
       const carrying = DRUGS.some(d => (onDrugs[d.id]||0) > 0);
       // a buyer only counts if he WANTS something we're actually holding
@@ -4920,7 +4955,7 @@ function aiRunTask(){
           for (const d of DRUGS){
             if (onDrugs[d.id] > 0){ stash[d.id] = (stash[d.id]||0) + onDrugs[d.id]; onDrugs[d.id] = 0; }
           }
-          saveDrugs(); saveStash();
+          saveDrugs(); // (persists pockets AND stash)
           toast("Product stashed at the crib.");
         }
       }
