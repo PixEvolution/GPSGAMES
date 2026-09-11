@@ -879,8 +879,7 @@ function createJob(lat, lng, typeIdx, payout, cooldownUntil){
 }
 
 function spawnOneJob(center){
-  const dist = CFG.minDist + Math.random()*(CFG.maxDist-CFG.minDist);
-  const p = offsetPoint(center.lat, center.lng, dist, Math.random()*Math.PI*2);
+  const p = roadSpot(center, CFG.minDist, CFG.maxDist);
   const typeIdx = Math.floor(Math.random()*JOB_TYPES.length);
   const type = JOB_TYPES[typeIdx];
   const payout = type.kind === "cash" ? Math.round(CFG.payoutMin + dist*CFG.payoutPerMeter) : 0;
@@ -1081,8 +1080,7 @@ function maintainShops(){
   }
   // rare spawn, far out — there's always one dealer *somewhere* out there
   if (!shops.length){
-    const p = offsetPoint(playerPos.lat, playerPos.lng,
-      700 + Math.random()*1300, Math.random()*Math.PI*2);
+    const p = roadSpot(playerPos, 700, 2000);
     const shop = {lat:p.lat, lng:p.lng, stock:rollStock(), restockAt: gt()+RESTOCK_MS,
       ammoMult: rollAmmoMult()};
     shops.push(shop); drawShop(shop);
@@ -1316,8 +1314,7 @@ function toggleFollow(n){
 }
 
 function spawnGangReinforcement(g){
-  const p = offsetPoint(playerPos.lat, playerPos.lng,
-    120 + Math.random()*100, Math.random()*Math.PI*2);
+  const p = roadSpot(playerPos, 120, 220);
   attachNpc({uid:npcSeq++, kind:"gang", gang:g, lat:p.lat, lng:p.lng,
     wp:null, robbed:false, hp:60, aggro:true, speed:1.5, wep: rollGangWeapon(true)});
 }
@@ -1482,8 +1479,7 @@ function maintainBiz(){
     bizSale = null;
   }
   if (!bizSale){
-    const p = offsetPoint(playerPos.lat, playerPos.lng,
-      400 + Math.random()*800, Math.random()*Math.PI*2);
+    const p = roadSpot(playerPos, 400, 1200);
     bizSale = {lat:p.lat, lng:p.lng, price: Math.round((2500 + Math.random()*3500)/100)*100};
     drawSale();
   }
@@ -1594,8 +1590,7 @@ document.addEventListener("click", e => {
     if (!nearBiz(b) || b.stock < 1 || cargo) return;
     const pay = Math.round(b.stock * 1.3);
     b.stock = 0; saveBiz();
-    const d = 600 + Math.random()*900;
-    const dp = offsetPoint(playerPos.lat, playerPos.lng, d, Math.random()*Math.PI*2);
+    const dp = roadSpot(playerPos, 600, 1500);
     cargo = {kind:"package", biz:true, payout:pay, dest:{lat:dp.lat, lng:dp.lng}};
     addDestMarker();
     saveCargo(); renderCargo();
@@ -1706,8 +1701,7 @@ function attachNpc(n){
 }
 
 function spawnNpc(){
-  const dist = 150 + Math.random()*450;
-  const p = offsetPoint(playerPos.lat, playerPos.lng, dist, Math.random()*Math.PI*2);
+  const p = roadSpot(playerPos, 150, 600);
   // gang members hold their turf; occasionally roam anywhere
   const owner = territoryAt(p);
   if (owner !== null && Math.random() < 0.6){
@@ -2344,8 +2338,8 @@ setInterval(() => {
       saveCargo(); renderCargo();
       toast(`${c.name} boosted — get it home!`);
     } else {
-      const d = CFG.packDestMin + Math.random()*(CFG.packDestMax-CFG.packDestMin);
-      const dp = offsetPoint(playerPos.lat, playerPos.lng, d, Math.random()*Math.PI*2);
+      const dp = roadSpot(playerPos, CFG.packDestMin, CFG.packDestMax);
+      const d = haversine(playerPos, dp);
       cargo = {kind:"package", payout: Math.round((40 + d*CFG.packPayoutPerMeter) * payMult()),
                dest:{lat:dp.lat, lng:dp.lng}};
       addDestMarker();
@@ -2508,8 +2502,7 @@ function syncCops(){
     const haveN = cops.filter(c => c.kind === kind).length;
     const wantN = want.filter(k => k === kind).length;
     if (haveN >= wantN) continue;
-    const dist = CFG.copSpawnMin + Math.random()*(CFG.copSpawnMax-CFG.copSpawnMin);
-    const p = offsetPoint(anchor.lat, anchor.lng, dist, Math.random()*Math.PI*2);
+    const p = roadSpot(anchor, CFG.copSpawnMin, CFG.copSpawnMax);
     addUnit(kind, p.lat, p.lng, UNIT_DEFS[kind].hp);
   }
 }
@@ -2761,7 +2754,7 @@ setInterval(() => {
     } else {
       if (!c.wp || haversine(c, c.wp) < 15){
         const r = Math.sqrt(Math.random()) * searchRadius();
-        c.wp = offsetPoint(lkp.lat, lkp.lng, r, Math.random()*Math.PI*2);
+        c.wp = roadSpot(lkp, r * 0.6, Math.max(r, 60));
       }
       target = c.wp;
     }
@@ -3065,6 +3058,10 @@ function placeStoryLocation(key, label, minDist, warn, cb, icon, slot){
   $("missionConfirm").style.display = "none";
 }
 function placementTap(latlng){
+  if (roadG && !nearRoad(latlng, 80)){
+    toast("Off the grid — pick a spot near a road.");
+    return;
+  }
   if (!placing || !playerPos) return;
   const d = haversine(playerPos, latlng);
   if (d < placing.minDist){
@@ -3851,7 +3848,7 @@ function ambushGang(at){
 function spawnAmbush(at, count, msg){
   const tg = ambushGang(at);
   for (let i = 0; i < count; i++){
-    const p = offsetPoint(at.lat, at.lng, 25 + Math.random()*45, Math.random()*Math.PI*2);
+    const p = roadSpot(at, 25, 70);
     attachNpc({uid:npcSeq++, kind:"gang", gang:tg, lat:p.lat, lng:p.lng,
       wp:null, robbed:false, hp:60, aggro:true, speed:1.5, wep:rollGangWeapon()});
   }
@@ -4139,6 +4136,21 @@ function destOnRoad(p){
   roadSideCache.set(key, v);
   return v;
 }
+// spawn placer: rolls spots until one sits near a road. Lakes, rivers and
+// open water have no roads — so nothing can ever spawn on them.
+function roadSpot(center, minR, maxR){
+  for (let i = 0; i < 12; i++){
+    const p = offsetPoint(center.lat, center.lng,
+      minR + Math.random() * (maxR - minR), Math.random() * Math.PI * 2);
+    if (!roadG || nearRoad(p, 60)) return p;
+  }
+  if (roadG && roadG.pts.length){
+    const r = roadG.pts[Math.floor(Math.random() * roadG.pts.length)];
+    return {lat: r.lat, lng: r.lng};
+  }
+  return offsetPoint(center.lat, center.lng,
+    minR + Math.random() * (maxR - minR), Math.random() * Math.PI * 2);
+}
 function rollNpcPace(n){
   n.spdRoad = (1 + Math.random() * 99) * 0.447;
   n.spdOff  = (1 + Math.random() * 9) * 0.447;
@@ -4149,7 +4161,7 @@ function npcRoadStep(n, dest, dtSec){
   if (!n.paceAt || gt() >= n.paceAt) rollNpcPace(n);
   const d = haversine(n, dest);
   if (d < 2) return;
-  let wp = dest, onRoad = false;
+  let wp = dest, onRoad = false, routeDone = false, noRoute = false;
   if (roadG && d > 60){
     const key = Math.round(dest.lat * 1e4) + "," + Math.round(dest.lng * 1e4);
     if (!n.route || n.route.key !== key)
@@ -4158,10 +4170,21 @@ function npcRoadStep(n, dest, dtSec){
       while (n.route.i < n.route.pts.length
         && haversine(n, n.route.pts[n.route.i]) < 12) n.route.i++;
       if (n.route.i < n.route.pts.length){ wp = n.route.pts[n.route.i]; onRoad = true; }
+      else routeDone = true;
+    } else noRoute = true;
+  }
+  if (!onRoad){
+    if (noRoute){
+      const nid = nearestRoadNode(n, 700);
+      if (nid){
+        const rn = roadG.nodes.get(nid);
+        if (haversine(n, rn) < 15) n.route = null;
+        else wp = rn;
+      }
+    } else if ((routeDone || d <= 60) && destOnRoad(dest)){
+      onRoad = true;
     }
   }
-  // roadside destination = drive to the door; only true off-road spots mean walking
-  if (!onRoad && destOnRoad(dest)) onRoad = true;
   const spd = onRoad ? n.spdRoad : Math.min(n.spdOff, n.spdRoad);
   const step = Math.min(spd * dtSec, haversine(n, wp));
   const p = offsetPoint(n.lat, n.lng, step, bearingBetween(n, wp));
@@ -4193,7 +4216,7 @@ function aiMoveToward(dest, stopAt){
   if (d < (stopAt || 8)){ aiDest = null; aiRoute = null; return; }
   ensureRoads();
   if (gt() >= aiPace.at) rollAiPace();
-  let wp = dest, onRoad = false;
+  let wp = dest, onRoad = false, routeDone = false, noRoute = false;
   if (roadG && d > 60){
     const key = Math.round(dest.lat * 1e4) + "," + Math.round(dest.lng * 1e4);
     if (!aiRoute || aiRoute.key !== key)
@@ -4202,9 +4225,22 @@ function aiMoveToward(dest, stopAt){
       while (aiRoute.i < aiRoute.pts.length
         && haversine(playerPos, aiRoute.pts[aiRoute.i]) < 12) aiRoute.i++;
       if (aiRoute.i < aiRoute.pts.length){ wp = aiRoute.pts[aiRoute.i]; onRoad = true; }
+      else routeDone = true;
+    } else noRoute = true;
+  }
+  if (!onRoad){
+    if (noRoute){
+      // stranded off the network: trudge to the nearest pavement FIRST, then route
+      const nid = nearestRoadNode(playerPos, 700);
+      if (nid){
+        const rn = roadG.nodes.get(nid);
+        if (haversine(playerPos, rn) < 15) aiRoute = null; // reached it — reroute
+        else wp = rn;
+      }
+    } else if ((routeDone || d <= 60) && destOnRoad(dest)){
+      onRoad = true; // curbside finish — the ONLY drive-up case
     }
   }
-  if (!onRoad && destOnRoad(dest)) onRoad = true; // roadside job: stay in the car
   const spd = onRoad ? aiPace.road : Math.min(aiPace.off, aiPace.road);
   const step = Math.min(spd * 0.4, haversine(playerPos, wp));
   setPlayerPos(offsetPoint(playerPos.lat, playerPos.lng, step, bearingBetween(playerPos, wp)));
@@ -4250,7 +4286,7 @@ setInterval(() => {
     if (!placing.pend){
       const dist = placing.minDist + 120 + Math.random() * 300;
       aiSay("picking a spot: " + placing.label);
-      placementTap(offsetPoint(playerPos.lat, playerPos.lng, dist, Math.random() * Math.PI * 2));
+      placementTap(roadSpot(playerPos, placing.minDist + 120, placing.minDist + 420));
       aiWait = 3; // a beat, so you can see the pin
     } else placementConfirm();
     return;
@@ -4429,7 +4465,7 @@ function aiTaskFor(id){
       return {kind:"hang", at:s2.at, say:s2.say, stash:s2.stash};
     }
     case "cruise":
-      return {kind:"cruise", at:offsetPoint(playerPos.lat, playerPos.lng, 300 + Math.random()*400, Math.random()*Math.PI*2), say:"cruising"};
+      return {kind:"cruise", at:roadSpot(playerPos, 300, 700), say:"cruising"};
   }
   return null;
 }
@@ -4685,7 +4721,7 @@ function aiRunTask(){
       } else {
         // work the block until a counterparty shows
         if (!t.roam || haversine(playerPos, t.roam) < 10)
-          t.roam = offsetPoint(playerPos.lat, playerPos.lng, 120 + Math.random()*150, Math.random()*Math.PI*2);
+          t.roam = roadSpot(playerPos, 120, 270);
         aiMoveToward(t.roam);
       }
       return;
