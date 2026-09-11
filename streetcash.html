@@ -4514,7 +4514,19 @@ setInterval(() => {
   aiFlee = null; // clean again — next flee picks fresh
   if (!aiTask) aiTask = aiPickTask();
   if (aiTask) aiRunTask();
+
+  // WATCHDOG: 12s of stillness on a task that should be moving = something's
+  // wedged. Drop it and re-think. (Posting up / holding a block are legit stillness.)
+  if (aiTask && aiTask.kind !== "hang" && aiTask.kind !== "turf"){
+    if (!aiStuck || haversine(playerPos, aiStuck.at) > 5){
+      aiStuck = {at:{lat:playerPos.lat, lng:playerPos.lng}, since: gt()};
+    } else if (gt() - aiStuck.since > 12000){
+      aiTask = null; aiRoute = null; aiStuck = null;
+      aiSay("re-thinking…");
+    }
+  } else aiStuck = null;
 }, 400);
+let aiStuck = null;
 
 let aiTask = null;
 // THE LIST: every objective a player has. Roll it. If the roll isn't
@@ -4825,7 +4837,9 @@ function aiRunTask(){
       // a buyer only counts if he WANTS something we're actually holding
       const byr = npcs.find(n => n.kind === "buyer"
         && n.wants && n.wants.some(w => (onDrugs[w.id]||0) > 0));
-      const dlr = npcs.find(n => n.kind === "dealer");
+      const dlr = npcs.find(n => n.kind === "dealer"
+        && n.stock && n.stock.some(it => it.qty > 0
+          && Math.round(drugById(it.id).base*it.mult/5)*5 <= money * 0.6));
       if (carrying && byr){
         if (haversine(playerPos, byr) > NPC_TRADE_RANGE - 3){ aiMoveToward(byr, NPC_TRADE_RANGE - 3); return; }
         let sold = 0;
@@ -4842,9 +4856,12 @@ function aiRunTask(){
           // one witness roll PER SALE — not per tick
           if (Math.random() < 0.15 * snitchFactor()) applyHeat(1, "Someone saw the deal go down…");
         }
-      } else if (!carrying && dlr && money > 300){
+      } else if (!carrying && dlr){
         if (haversine(playerPos, dlr) > NPC_TRADE_RANGE - 3){ aiMoveToward(dlr, NPC_TRADE_RANGE - 3); return; }
-        const budget = money * 0.35;
+        // budget always covers the cheapest unit — a small buy beats a frozen one
+        const cheapest = Math.min(...dlr.stock.filter(it => it.qty > 0)
+          .map(it => Math.round(drugById(it.id).base*it.mult/5)*5));
+        const budget = Math.max(money * 0.35, cheapest);
         let spent = 0;
         for (const it of dlr.stock){
           const price = Math.round(drugById(it.id).base*it.mult/5)*5;
