@@ -4050,22 +4050,56 @@ function roadsCover(p){
   return p.lat > roadBox.s + m && p.lat < roadBox.n - m
       && p.lng > roadBox.w + m && p.lng < roadBox.e - m;
 }
+// the street map is CACHED on-device: resuming the game loads roads instantly,
+// no network needed, and a failed fetch can never blind the AI again
+function saveRoadCache(b, j){
+  try {
+    const ways = [];
+    for (const el of j.elements || [])
+      if (el.type === "way" && el.geometry)
+        ways.push(el.geometry.map(g => [Math.round(g.lat*1e5)/1e5, Math.round(g.lon*1e5)/1e5]));
+    window.localStorage.setItem("meta_roads", JSON.stringify({b, ways}));
+  } catch(e){}
+}
+let roadCacheTried = false;
+function loadRoadCache(){
+  roadCacheTried = true;
+  try {
+    const raw = window.localStorage.getItem("meta_roads");
+    if (!raw) return false;
+    const d = JSON.parse(raw);
+    buildRoadGraph({elements: d.ways.map((w, i) =>
+      ({type:"way", id:"c"+i, geometry: w.map(p => ({lat:p[0], lon:p[1]}))}))});
+    roadBox = d.b;
+    return true;
+  } catch(e){ return false; }
+}
+const OVERPASS = ["https://overpass-api.de/api/interpreter",
+                  "https://overpass.kumi.systems/api/interpreter"];
+let opIdx = 0;
 async function ensureRoads(){
-  if (!playerPos || roadBusy || roadsCover(playerPos) || gt() < roadRetryAt) return;
+  if (!playerPos) return;
+  if (!roadG && !roadCacheTried && loadRoadCache() && roadsCover(playerPos)){
+    resnapWorld();
+    return; // cached streets cover us — instant, offline-proof
+  }
+  if (roadBusy || roadsCover(playerPos) || gt() < roadRetryAt) return;
   roadBusy = true;
   const b = {s:playerPos.lat - 0.02, n:playerPos.lat + 0.02,
              w:playerPos.lng - 0.028, e:playerPos.lng + 0.028}; // ~4.4km box
   try {
     const q = `[out:json][timeout:15];way[highway][highway!~"^(motorway|motorway_link)$"](${b.s},${b.w},${b.n},${b.e});out geom;`;
-    const r = await fetch("https://overpass-api.de/api/interpreter",
+    const r = await fetch(OVERPASS[opIdx],
       {method:"POST", body:"data=" + encodeURIComponent(q)});
     const j = await r.json();
     buildRoadGraph(j);
     roadBox = b;
+    saveRoadCache(b, j);
     resnapWorld(); // anything that spawned before the map arrived gets pulled onto a street
     toast(`📡 Streets mapped — ${roadG.ids.length} road points loaded.`);
   } catch(e){
-    roadRetryAt = gt() + 90000; // offline or rate-limited: beeline life for 90s, retry
+    opIdx = (opIdx + 1) % OVERPASS.length; // try the mirror next time
+    roadRetryAt = gt() + 30000;
   }
   roadBusy = false;
 }
@@ -4326,7 +4360,7 @@ let aiFlee = null;
 function aiFleeHeat(){
   const from = lkp || playerPos;
   aiSay("shaking the heat (" + stars + "★)");
-  aiTask = null; // whatever you were doing is over
+  // the task SURVIVES the chase — lose the cops, get back to business
   // ONE escape point, driven all the way — pick the next only on arrival
   if (!aiFlee || haversine(playerPos, aiFlee.at) < 40){
     aiFlee = {at: roadSpot(offsetPoint(playerPos.lat, playerPos.lng, 700,
@@ -4774,19 +4808,26 @@ function aiRunTask(){
       if (gt() >= t.until){ aiTask = null; toast("Shift's over. Count it later."); return; }
       aiSay("dealing — " + Math.ceil((t.until - gt())/1000) + "s left on the shift");
       const carrying = DRUGS.some(d => (onDrugs[d.id]||0) > 0);
-      const byr = npcs.find(n => n.kind === "buyer");
+      // a buyer only counts if he WANTS something we're actually holding
+      const byr = npcs.find(n => n.kind === "buyer"
+        && n.wants && n.wants.some(w => (onDrugs[w.id]||0) > 0));
       const dlr = npcs.find(n => n.kind === "dealer");
       if (carrying && byr){
         if (haversine(playerPos, byr) > NPC_TRADE_RANGE - 3){ aiMoveToward(byr, NPC_TRADE_RANGE - 3); return; }
+        let sold = 0;
         for (const wt of byr.wants){
           const have = onDrugs[wt.id] || 0;
           if (!have) continue;
           const per = Math.round(drugById(wt.id).base*wt.mult/5)*5;
           onDrugs[wt.id] = 0;
-          money += per * have; showGain(per * have); addXp(per * have);
+          sold += per * have;
         }
-        saveMoney(); renderMoney(true); saveDrugs();
-        if (Math.random() < 0.15 * snitchFactor()) applyHeat(1, "Someone saw the deal go down…");
+        if (sold > 0){
+          money += sold; showGain(sold); addXp(sold);
+          saveMoney(); renderMoney(true); saveDrugs();
+          // one witness roll PER SALE — not per tick
+          if (Math.random() < 0.15 * snitchFactor()) applyHeat(1, "Someone saw the deal go down…");
+        }
       } else if (!carrying && dlr && money > 300){
         if (haversine(playerPos, dlr) > NPC_TRADE_RANGE - 3){ aiMoveToward(dlr, NPC_TRADE_RANGE - 3); return; }
         const budget = money * 0.35;
