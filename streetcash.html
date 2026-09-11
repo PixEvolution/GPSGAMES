@@ -689,7 +689,8 @@ setInterval(() => {
 }, 250);
 let cineOpen = false; // any cutscene on screen freezes the world
 // (placement freezes it too — declared later, checked lazily)
-const paused = () => !started || document.visibilityState !== "visible" || cineOpen
+let logOpen = false;
+const paused = () => !started || document.visibilityState !== "visible" || cineOpen || logOpen
   || (typeof placing !== "undefined" && !!placing);
 
 // ---------- state ----------
@@ -2467,12 +2468,16 @@ $("camBtn").addEventListener("click", () => {
 });
 
 $("logBtn").addEventListener("click", () => {
+  logOpen = true;
   $("logList").innerHTML = msgLog.length
     ? msgLog.map(m => `<div class="logRow">${m.replace(/</g,"&lt;")}</div>`).join("")
     : `<div class="logRow" style="color:#7a877a">Nothing yet. The streets are quiet.</div>`;
   $("logPanel").style.display = "flex";
 });
-$("logClose").addEventListener("click", () => $("logPanel").style.display = "none");
+$("logClose").addEventListener("click", () => {
+  logOpen = false;
+  $("logPanel").style.display = "none";
+});
 
 let lastNoCallToast = 0;
 function applyHeat(starsGained, msg){
@@ -4393,7 +4398,7 @@ function nearestEnemyCell(){
 }
 
 setInterval(() => {
-  if (!autoOn || !started || cineOpen || document.visibilityState !== "visible" || !playerPos) return;
+  if (!autoOn || !started || cineOpen || logOpen || document.visibilityState !== "visible" || !playerPos) return;
   if (aiWait > 0){ aiWait--; return; }
 
   // placement: pick a sane spot and lock it
