@@ -354,6 +354,20 @@
     right:10px;z-index:1050;width:38px;height:38px;border-radius:50%;
     border:1px solid #2a332a;background:rgba(13,15,13,.85);color:#aab5aa;
     font-size:17px;font-family:inherit}
+  #camBtn{position:absolute;top:calc(env(safe-area-inset-top,0px) + 138px);
+    right:10px;z-index:1050;width:38px;height:38px;border-radius:50%;
+    border:1px solid #2a332a;background:rgba(13,15,13,.85);color:#aab5aa;
+    font-size:17px;font-family:inherit}
+  #camBtn.free{border-color:#e0c84a;color:#e0c84a;
+    box-shadow:0 0 10px rgba(224,200,74,.4)}
+  #autoBadge{position:absolute;left:10px;top:calc(env(safe-area-inset-top,0px) + 92px);
+    z-index:1050;display:none;padding:7px 12px;border-radius:8px;
+    border:1px solid #4ae0e0;background:rgba(13,15,13,.92);color:#4ae0e0;
+    font-size:12px;font-weight:700;max-width:52vw;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis}
+  #autoHome{padding:10px 16px;border-radius:9px;border:1px solid #4ae0e0;
+    background:transparent;color:#4ae0e0;font-family:inherit;font-size:13px;
+    font-weight:900;letter-spacing:1px;margin-top:2px}
   #logPanel{position:absolute;inset:0;z-index:2150;display:none;
     background:var(--bg);flex-direction:column;padding:
     calc(env(safe-area-inset-top,0px) + 16px) 16px calc(env(safe-area-inset-bottom,0px) + 16px)}
@@ -433,6 +447,7 @@
 <div id="stars"></div>
 <div id="toasts"></div>
 <button id="logBtn">📜</button>
+<button id="camBtn">📍</button>
 <div id="logPanel">
   <h2>MESSAGE LOG</h2>
   <div id="logList"></div>
@@ -475,6 +490,8 @@
   <div id="cineTap">TAP TO CONTINUE</div>
 </div>
 
+<div id="autoBadge">🤖 AUTO</div>
+
 <div id="missionUi">
   <div id="missionBar"></div>
   <div id="missionBtns">
@@ -510,6 +527,7 @@
 
 <div id="speeds">
   <button class="spd" id="tapToggle" style="border-color:#e0c84a;color:#e0c84a">TAP ✕</button>
+  <button class="spd" id="rndSpd">RND</button>
   <button class="spd" data-v="1.5">WALK</button>
   <button class="spd" data-v="4">RUN</button>
   <button class="spd" data-v="8">BIKE</button>
@@ -550,6 +568,7 @@
     <button id="copySaveBtn" class="ioBtn">📋 COPY SAVE</button>
     <button id="loadSaveBtn" class="ioBtn">📥 LOAD SAVE</button>
   </div>
+  <button id="autoHome">🤖 AUTO MODE — WATCH IT PLAY</button>
   <div id="err"></div>
   <div id="devRow">
     <span id="devEntry" style="display:none;align-items:center;gap:8px">
@@ -566,27 +585,36 @@
 // ---------- storage (survives sandboxed environments) ----------
 // real localStorage when available; silent in-memory fallback when blocked,
 // so the game always boots — it just won't persist in that environment.
+// AUTO MODE runs in its own sandbox namespace: auto_sc_* keys.
+// The real save (sc_*) is untouchable from inside it, and exports never see it.
+let SAVE_NS = "";
+try { if (window.localStorage.getItem("meta_auto") === "1") SAVE_NS = "auto_"; } catch(e){}
+const AUTO_SESSION = SAVE_NS !== "";
+const ns = k => (typeof k === "string" && k.startsWith("sc_")) ? SAVE_NS + k : k;
+
 const store = (() => {
   try {
     window.localStorage.setItem("__t", "1");
     window.localStorage.removeItem("__t");
     const ls = window.localStorage;
     return {
-      getItem: k => ls.getItem(k),
-      setItem: (k, v) => ls.setItem(k, v),
-      removeItem: k => ls.removeItem(k),
+      getItem: k => ls.getItem(ns(k)),
+      setItem: (k, v) => ls.setItem(ns(k), v),
+      removeItem: k => ls.removeItem(ns(k)),
       allKeys: () => Object.keys(ls),
     };
   } catch (e) {
     const m = {};
     return {
-      getItem: k => (k in m ? m[k] : null),
-      setItem: (k, v) => { m[k] = String(v); },
-      removeItem: k => { delete m[k]; },
+      getItem: k => (ns(k) in m ? m[ns(k)] : null),
+      setItem: (k, v) => { m[ns(k)] = String(v); },
+      removeItem: k => { delete m[ns(k)]; },
       allKeys: () => Object.keys(m),
     };
   }
 })();
+// raw meta flags live OUTSIDE the namespace
+function metaSet(k, v){ try{ v === null ? window.localStorage.removeItem(k) : window.localStorage.setItem(k, v); }catch(e){} }
 // corrupted save data must never crash the game — bad keys fall back clean
 function jparse(key, fb){
   try{
@@ -834,6 +862,7 @@ function initMap(center){
   // resume mission state on load — one line, forever
   if (mission.id) runStep();
   updateGiver();
+  if (AUTO_SESSION) setAuto(true); // sandbox session: the show goes on
 }
 
 // ---------- jobs ----------
@@ -2116,8 +2145,8 @@ function setPlayerPos(pos, keepView){
     map.setView([pos.lat, pos.lng], 16);
     restorePursuit(pos);
     $("status").textContent = devMode ? "dev mode" : "GPS locked";
-  } else if (!keepView && !placing){
-    // free camera while picking a mission spot — the map is yours to browse
+  } else if (!keepView && !placing && !freeCam){
+    // camera follows unless the player took the leash off
     map.panTo([pos.lat, pos.lng], {animate:true, duration:.25});
   }
   if (!cineOpen && !placing){
@@ -2437,6 +2466,19 @@ function toast(msg){
   if (msgLog.length > 60) msgLog.length = 60;
   store.setItem("sc_log", JSON.stringify(msgLog));
 }
+// freecam: unhook the camera, browse the whole map, tap markers in peace
+let freeCam = false;
+$("camBtn").addEventListener("click", () => {
+  freeCam = !freeCam;
+  $("camBtn").textContent = freeCam ? "🎥" : "📍";
+  $("camBtn").classList.toggle("free", freeCam);
+  if (freeCam){
+    toast("Freecam — drag anywhere, tap any marker. Tap 🎥 to snap back.");
+  } else if (playerPos){
+    map.panTo([playerPos.lat, playerPos.lng], {animate:true});
+  }
+});
+
 $("logBtn").addEventListener("click", () => {
   $("logList").innerHTML = msgLog.length
     ? msgLog.map(m => `<div class="logRow">${m.replace(/</g,"&lt;")}</div>`).join("")
@@ -2750,6 +2792,17 @@ setInterval(() => {
 
 // ---------- dev movement (arrows / WASD + speed) ----------
 let devSpeed = 20; // m/s, default CAR
+let rndSpeed = false, nextRndAt = 0;
+function rollRndSpeed(){
+  const mph = 1 + Math.random() * 99;
+  devSpeed = mph * 0.447;
+  nextRndAt = gt() + (1 + Math.random() * 99) * 1000; // next roll: 1–100s away
+  toast(`🎲 New pace: ${Math.round(mph)} mph`);
+}
+setInterval(() => {
+  if (!rndSpeed || paused() || gt() < nextRndAt) return;
+  rollRndSpeed();
+}, 1000);
 const keys = new Set();
 const KEYMAP = {
   ArrowUp:"N", KeyW:"N", ArrowDown:"S", KeyS:"S",
@@ -2759,18 +2812,24 @@ const KEYMAP = {
 const typingTarget = e => e.target && (e.target.tagName === "INPUT"
   || e.target.tagName === "TEXTAREA" || e.target.isContentEditable);
 document.addEventListener("keydown", e => {
-  if (typingTarget(e) || !devMode) return; // let people type their name, lol
+  if (typingTarget(e) || !devMode || autoOn) return; // let people type their name, lol
   if (KEYMAP[e.code]){ keys.add(KEYMAP[e.code]); e.preventDefault(); }
 });
 document.addEventListener("keyup", e => {
   if (KEYMAP[e.code]) keys.delete(KEYMAP[e.code]);
 });
 
-document.querySelectorAll(".spd[data-v]").forEach(b => {
+document.querySelectorAll(".spd").forEach(b => {
   b.addEventListener("click", () => {
-    devSpeed = Number(b.dataset.v);
-    document.querySelectorAll(".spd[data-v]").forEach(x => x.classList.remove("on"));
+    document.querySelectorAll(".spd").forEach(x => x.classList.remove("on"));
     b.classList.add("on");
+    if (b.id === "rndSpd"){
+      rndSpeed = true;
+      rollRndSpeed();
+      return;
+    }
+    rndSpeed = false;
+    devSpeed = Number(b.dataset.v);
   });
 });
 
@@ -3927,8 +3986,592 @@ function showGangPicker(cb){
   $("gangPanel").style.display = "flex";
 }
 
+// ---------- AUTO MODE: the game plays itself, you watch ----------
+// spectator lockdown: capture-phase interceptor kills every control the AI owns.
+// You keep: cutscene taps, speed presets, log, freecam, the exit badge, and menus.
+let lastSpectToast = 0;
+function spectAllowed(t){
+  return t.closest && (
+       t.closest("#cine") || t.closest("#speeds") || t.closest("#logPanel")
+    || t.closest("#splash") || t.closest("#nameOv") || t.closest("#gangPanel")
+    || t.closest("#safety") || t.closest("#busted")
+    || t.id === "logBtn" || t.id === "camBtn" || t.id === "autoBadge");
+}
+function spectBlock(e){
+  e.stopPropagation();
+  e.preventDefault();
+  if (gt() - lastSpectToast > 5000){
+    lastSpectToast = gt();
+    toast("🤖 Auto's driving. You've got cutscenes, the speed bar, 📜 and 🎥.");
+  }
+}
+// clicks: block everything not allowlisted — but the AI's synthetic clicks pass
+document.addEventListener("click", e => {
+  if (!autoOn || !started || !e.isTrusted) return;
+  if (spectAllowed(e.target)) return;
+  spectBlock(e);
+}, true);
+// touch/pointer: kill buttons, popups, and the D-pad — but leave the map draggable for freecam
+for (const ev of ["pointerdown", "touchstart", "mousedown"]){
+  document.addEventListener(ev, e => {
+    if (!autoOn || !started || !e.isTrusted) return;
+    const t = e.target;
+    if (spectAllowed(t)) return;
+    if (t.closest && (t.closest("#dpad") || t.closest("button")
+        || t.closest(".leaflet-popup") || t.closest("input"))) spectBlock(e);
+  }, true);
+}
+let autoOn = false, aiDest = null, aiWait = 0, aiNextWep = 0;
+
+function setAuto(on){
+  autoOn = on;
+  $("autoBadge").style.display = on ? "block" : "none";
+}
+function aiSay(t){ $("autoBadge").textContent = "🤖 " + t; }
+
+let autoOffArm = 0;
+$("autoBadge").addEventListener("click", () => {
+  if (gt() - autoOffArm > 3000){
+    autoOffArm = gt();
+    aiSay("tap again to exit — your real save is waiting");
+    return;
+  }
+  metaSet("meta_auto", null);
+  location.reload(); // back to the real world, real save untouched
+});
+
+// home-screen toggle: flips into (or out of) the sandbox namespace and reboots
+$("autoHome").addEventListener("click", () => {
+  metaSet("meta_auto", AUTO_SESSION ? null : "1");
+  location.reload();
+});
+
+// your WALK/RUN/BIKE/CAR presets are the AI's gas pedal
+const aiStep = () => devSpeed * 0.4;
+function aiMoveToward(dest, stopAt){
+  const d = haversine(playerPos, dest);
+  if (d < (stopAt || 8)){ aiDest = null; return; }
+  const jitter = (Math.random() - 0.5) * 0.35;
+  const p = offsetPoint(playerPos.lat, playerPos.lng,
+    Math.min(aiStep(), d), bearingBetween(playerPos, dest) + jitter);
+  setPlayerPos(p);
+}
+function aiFleeHeat(){
+  const from = lkp || playerPos;
+  const p = offsetPoint(playerPos.lat, playerPos.lng, aiStep(),
+    bearingBetween(from, playerPos) + (Math.random() - 0.5) * 0.4);
+  aiSay("shaking the heat (" + stars + "★)");
+  setPlayerPos(p);
+}
+
+// ===== the full life: shops, product, property =====
+function aiBestGun(){ return inv.ak47 ? "ak47" : inv.ar15 ? "ar15" : inv.mp5 ? "mp5"
+  : inv.m500 ? "m500" : inv.g19 ? "g19" : inv.snub ? "snub" : null; }
+function aiNeedsIron(){
+  const g = aiBestGun();
+  if (!g) return money > 900;
+  return (ammo[weaponById(g).cal] || 0) < 12 && money > 400;
+}
+function aiSetDrawn(want){
+  if (drawn !== want) $("fightBtn").click();
+}
+function nearestEnemyCell(){
+  let best = null, bd = Infinity;
+  for (const k of Object.keys(territory)){
+    if (territory[k] === myGang) continue;
+    const d = cellDist(k);
+    if (d < bd && d < 900){ bd = d; best = k; }
+  }
+  if (!best) return null;
+  const [a, b] = best.split("_").map(Number);
+  return {lat: (a + 0.5) * CELL, lng: (b + 0.5) * CELL};
+}
+
+setInterval(() => {
+  if (!autoOn || !started || cineOpen || document.visibilityState !== "visible" || !playerPos) return;
+  if (aiWait > 0){ aiWait--; return; }
+
+  // placement: pick a sane spot and lock it
+  if (placing){
+    if (!placing.pend){
+      const dist = placing.minDist + 120 + Math.random() * 300;
+      aiSay("picking a spot: " + placing.label);
+      placementTap(offsetPoint(playerPos.lat, playerPos.lng, dist, Math.random() * Math.PI * 2));
+      aiWait = 3; // a beat, so you can see the pin
+    } else placementConfirm();
+    return;
+  }
+
+  // mid-heist wiring or job channel: hold still
+  if (missionBoost){ aiSay("hotwiring…"); return; }
+  if (typeof channel !== "undefined" && channel){ aiSay("working the job…"); return; }
+
+  // mood-based loadout: a random owned weapon (or fists) every 1–100s
+  if (gt() >= aiNextWep){
+    aiNextWep = gt() + (1 + Math.random() * 99) * 1000;
+    const pool = Object.keys(inv).filter(id => inv[id] > 0);
+    pool.push(""); // bare knuckles are always on the menu
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    if (equipped !== pick){
+      equipped = pick;
+      store.setItem("sc_equipped", pick);
+      renderInvBtn();
+    }
+  }
+  // fights: iron out when trouble's close
+  const trouble = cops.length > 0
+    || npcs.some(n => (n.kind === "gang" && n.aggro && n.gang !== myGang)
+      || (n.kind === "target" && n.aggro && !n.van && haversine(n, playerPos) < 80));
+  aiSetDrawn(trouble || stars > 0);
+
+  // free-roam firefight: CLOSE THE DISTANCE — no more statue routine
+  const sNow = curStep();
+  if (!sNow && trouble && stars === 0){
+    let h = null, hd = Infinity;
+    for (const n of npcs){
+      const hostile = (n.kind === "gang" && n.aggro && n.gang !== myGang)
+        || (n.kind === "target" && n.aggro && !n.van);
+      if (!hostile) continue;
+      const d = haversine(playerPos, n);
+      if (d < hd && d < 120){ hd = d; h = n; } // fights are local, not manhunts
+    }
+    if (h && hd > Math.max(2, currentWeapon().range * 0.7)){
+      aiSay("closing on the fight");
+      aiMoveToward({lat:h.lat, lng:h.lng}, Math.max(2, currentWeapon().range * 0.7));
+      return;
+    }
+    if (h) return; // in range — let the trigger work
+  }
+
+  const s = curStep();
+  if (s){
+    if (s.type === "claimHouse"){
+      aiSay("claiming a safehouse");
+      if (houses.length === 0) buySafehouseHere();
+      return;
+    }
+    if (s.type === "goto"){
+      if (s.needClean && stars > 0){ aiFleeHeat(); return; }
+      aiSay("driving: " + (s.banner || "objective"));
+      aiMoveToward(resolveLoc(s.at || "t"));
+      return;
+    }
+    if (s.type === "gotoAll"){
+      const st = s.stops.find(x => mission.ts[x.slot]);
+      if (st){ aiSay("picking up " + st.name); aiMoveToward(mission.ts[st.slot]); }
+      return;
+    }
+    if (s.type === "boost"){ aiSay("heading to the car"); aiMoveToward(resolveLoc("t")); return; }
+    if (s.type === "kill" || s.type === "hunt" || s.type === "ram"){
+      const tgt = npcs.find(n => n.kind === "target");
+      if (!tgt){ aiSay("closing on the mark"); aiMoveToward(resolveLoc("t")); }
+      else {
+        aiSay(s.type === "ram" ? "ramming the van" : "on " + (tgt.label || "the target"));
+        // get INSIDE weapon range: fists mean nose-to-nose, a rifle means standoff
+        const reach = s.type === "ram" ? 4 : Math.max(2, currentWeapon().range * 0.7);
+        aiMoveToward({lat: tgt.lat, lng: tgt.lng}, reach);
+      }
+      return;
+    }
+    return; // cine/pay/give resolve themselves
+  }
+
+  // no mission: shake heat, then live off the list
+  if (stars > 0){ aiFleeHeat(); return; }
+  if (!aiTask) aiTask = aiPickTask();
+  if (aiTask) aiRunTask();
+}, 400);
+
+let aiTask = null;
+// THE LIST: every objective a player has. Roll it. If the roll isn't
+// doable right now (broke, doesn't exist yet), roll again. That's the whole brain.
+const AI_LIST = [
+  "storyMission",   // answer a giver's letter
+  "miniJob",        // any spawned street job (incl. car boosts & package pickups)
+  "dealDrugs",      // a dealing SHIFT: 1–1000 seconds of working the corners
+  "buyWeapon",      // gun store or roaming dealer
+  "buyAmmo",
+  "buySafehouse",
+  "buyBusiness",
+  "checkBusiness",  // swing by an owned spot, collect if there's stock
+  "robSomeone",
+  "turfWar",
+  "recruitCrew",
+  "deliverCargo",   // finish what's in the trunk
+  "paintCar",
+  "garageCar",
+  "visitPlace",     // story spots, the crib, the block
+  "cruise",
+];
+function aiTaskFor(id){
+  switch (id){
+    case "storyMission": {
+      const oid = offeredMission();
+      return oid ? {kind:"giver", oid, at:places[MISSIONS[oid].giver.at],
+        say:"seeing " + MISSIONS[oid].giver.who + " about work"} : null;
+    }
+    case "miniJob":
+      return nearestJob ? {kind:"job", at:{lat:nearestJob.lat, lng:nearestJob.lng}, say:"heading to a job"} : null;
+    case "dealDrugs": {
+      const around = npcs.some(n => n.kind === "dealer" || n.kind === "buyer");
+      if (!around && !DRUGS.some(d => (onDrugs[d.id]||0) > 0)) return null;
+      return {kind:"deal", dur:(1 + Math.random()*999)*1000, say:"starting a dealing shift"};
+    }
+    case "buyWeapon": {
+      if (places.gunstore && GUNSTORE_STOCK.some(id2 => !inv[id2] && money > weaponById(id2).price + 300))
+        return {kind:"guns", at:places.gunstore, say:"buying iron"};
+      if (shops[0] && money > 600) return {kind:"shopTrip", at:shops[0], say:"visiting the street dealer"};
+      return null;
+    }
+    case "buyAmmo":
+      return (places.gunstore && aiBestGun() && money > 300)
+        ? {kind:"guns", at:places.gunstore, say:"ammo run"} : null;
+    case "buySafehouse":
+      return (houses.length < 6 && money > housePrice() * 2)
+        ? {kind:"house", at:playerPos, say:"claiming safehouse #" + (houses.length + 1)} : null;
+    case "buyBusiness":
+      return (bizSale && money > bizSale.price + 1500)
+        ? {kind:"bizBuy", at:{lat:bizSale.lat, lng:bizSale.lng}, say:"buying property"} : null;
+    case "checkBusiness": {
+      if (!bizzes.length) return null;
+      const b = bizzes[Math.floor(Math.random()*bizzes.length)];
+      if (!b.path) return money > 1200 ? {kind:"bizSetup", uid:b.uid, at:b, say:"setting up the business"} : null;
+      return {kind:"bizCheck", uid:b.uid, at:b, say:"checking on the business"};
+    }
+    case "robSomeone": {
+      const gunUp = equipped && weaponById(equipped) && weaponById(equipped).type !== "melee"
+        && (ammo[weaponById(equipped).cal] || 0) > 0;
+      const mark = gunUp && npcs.find(n => n.kind === "civ" && !n.robbed && haversine(playerPos, n) < 500);
+      return mark ? {kind:"rob", uid:mark.uid, at:mark, say:"picking out a mark"} : null;
+    }
+    case "turfWar": {
+      const cell = myGang !== null && nearestEnemyCell();
+      return cell ? {kind:"turf", at:cell, say:"taking a block for the " + GANGS[myGang].name} : null;
+    }
+    case "recruitCrew": {
+      if (myGang === null || followerCount() >= 3) return null;
+      const pal = npcs.find(n => n.kind === "gang" && n.gang === myGang && !n.follow);
+      return pal ? {kind:"recruit", uid:pal.uid, at:pal, say:"picking up one of the crew"} : null;
+    }
+    case "deliverCargo":
+      return (cargo && cargo.kind === "package" && cargo.dest)
+        ? {kind:"deliver", at:cargo.dest, say:"running the delivery"} : null;
+    case "paintCar":
+      return (cargo && cargo.kind === "car" && !cargo.sprayed && places.paynspray && money > 400)
+        ? {kind:"paintCar", at:places.paynspray, say:"getting the car painted"} : null;
+    case "garageCar": {
+      if (!cargo || cargo.kind !== "car" || !houses.length) return null;
+      const home = houses.reduce((a,b)=>haversine(playerPos,a)<haversine(playerPos,b)?a:b);
+      return garage.length < totalCapacity() ? {kind:"garageCar", at:home, say:"bringing the car home"} : null;
+    }
+    case "visitPlace": {
+      const spots = [];
+      for (const k of Object.keys(places)) spots.push({at:places[k], say:"swinging by " + (places[k].label || "an old haunt")});
+      for (const h of houses) spots.push({at:h, say:"posting up at the crib", stash:true});
+      const mine = Object.keys(territory).filter(k => territory[k] === myGang && cellDist(k) < 1200);
+      if (mine.length){
+        const [a,b] = mine[Math.floor(Math.random()*mine.length)].split("_").map(Number);
+        spots.push({at:{lat:(a+0.5)*CELL, lng:(b+0.5)*CELL}, say:"walking the block"});
+      }
+      if (!spots.length) return null;
+      const s2 = spots[Math.floor(Math.random()*spots.length)];
+      return {kind:"hang", at:s2.at, say:s2.say, stash:s2.stash};
+    }
+    case "cruise":
+      return {kind:"cruise", at:offsetPoint(playerPos.lat, playerPos.lng, 300 + Math.random()*400, Math.random()*Math.PI*2), say:"cruising"};
+  }
+  return null;
+}
+function aiPickTask(){
+  for (let i = 0; i < 15; i++){
+    const t = aiTaskFor(AI_LIST[Math.floor(Math.random() * AI_LIST.length)]);
+    if (t) return t;
+  }
+  return aiTaskFor("cruise");
+}
+function aiRunTask(){
+  const t = aiTask;
+  aiSay(t.say);
+  const findNpc = () => npcs.find(n => n.uid === t.uid);
+  const findBiz = () => bizzes.find(b => b.uid === t.uid);
+  switch (t.kind){
+    case "giver": {
+      if (!offeredMission()){ aiTask = null; return; }
+      if (haversine(playerPos, t.at) <= 50){ startMission(offeredMission()); aiTask = null; }
+      else aiMoveToward(t.at);
+      return;
+    }
+    case "guns": {
+      if (haversine(playerPos, t.at) > 55){ aiMoveToward(t.at); return; }
+      if (!inv.m500 && money > weaponById("m500").price + 300){
+        money -= weaponById("m500").price; inv.m500 = (inv.m500||0)+1;
+      } else if (!inv.g19 && money > weaponById("g19").price + 200){
+        money -= weaponById("g19").price; inv.g19 = (inv.g19||0)+1;
+      }
+      const g = aiBestGun();
+      if (g){
+        const a = ammoType(weaponById(g).cal);
+        while ((ammo[a.id]||0) < 40 && money > a.price + 150){
+          money -= a.price; ammo[a.id] = (ammo[a.id]||0) + a.box;
+        }
+        if (equipped !== g){ equipped = g; store.setItem("sc_equipped", g); }
+      }
+      saveMoney(); renderMoney(true); saveInv(); saveAmmo(); renderInvBtn(); refreshGunstore();
+      toast("Restocked — receipts unnecessary.");
+      aiTask = null;
+      return;
+    }
+    case "bizCollect": {
+      const b = findBiz();
+      if (!b || !b.path){ aiTask = null; return; }
+      if (haversine(playerPos, b) > BIZ_RANGE - 3){ aiMoveToward(b); return; }
+      const pay = Math.round(b.stock * 0.7);
+      b.stock = 0; saveBiz();
+      money += pay; saveMoney(); renderMoney(true); showGain(pay); addXp(Math.round(pay/2));
+      toast("Stock sold — quick and quiet.");
+      aiTask = null;
+      return;
+    }
+    case "bizSetup": {
+      const b = findBiz();
+      if (!b || b.path){ aiTask = null; return; }
+      if (haversine(playerPos, b) > BIZ_RANGE - 3){ aiMoveToward(b); return; }
+      const P = [...BIZ_PATHS].reverse().find(p => money > p.setup + 800) || BIZ_PATHS[0];
+      if (money >= P.setup){
+        money -= P.setup; saveMoney(); renderMoney(true);
+        b.path = P.id; b.invested += P.setup; saveBiz();
+        b.marker.setIcon(bizIcon(true, P.icon));
+        toast(`Opened a ${P.name}.`);
+      }
+      aiTask = null;
+      return;
+    }
+    case "bizBuy": {
+      if (!bizSale || money < bizSale.price){ aiTask = null; return; }
+      if (haversine(playerPos, bizSale) > BIZ_RANGE - 3){ aiMoveToward(bizSale); return; }
+      money -= bizSale.price; saveMoney(); renderMoney(true);
+      map.removeLayer(bizSale.marker);
+      const b = {uid:bizSeq++, lat:bizSale.lat, lng:bizSale.lng, path:null,
+        stock:0, upgE:false, upgS:false, invested:bizSale.price};
+      bizSale = null;
+      bizzes.push(b); saveBiz(); drawBiz(b);
+      toast("Bought the building. Empire grows.");
+      aiTask = null;
+      return;
+    }
+    case "buyDrugs": {
+      const n = findNpc();
+      if (!n){ aiTask = null; return; }
+      if (haversine(playerPos, n) > NPC_TRADE_RANGE - 3){ aiMoveToward(n); return; }
+      const budget = money * 0.4;
+      let spent = 0;
+      for (const it of n.stock){
+        const price = Math.round(drugById(it.id).base*it.mult/5)*5;
+        while (it.qty > 0 && spent + price <= budget){
+          it.qty--; spent += price;
+          onDrugs[it.id] = (onDrugs[it.id]||0) + 1;
+        }
+      }
+      if (spent > 0){
+        money -= spent; saveMoney(); renderMoney(true); saveDrugs();
+        toast("Bought product — now to flip it.");
+      }
+      aiTask = null;
+      return;
+    }
+    case "sellDrugs": {
+      const n = findNpc();
+      if (!n){ aiTask = null; return; }
+      if (haversine(playerPos, n) > NPC_TRADE_RANGE - 3){ aiMoveToward(n); return; }
+      for (const wt of n.wants){
+        const have = onDrugs[wt.id] || 0;
+        if (!have) continue;
+        const per = Math.round(drugById(wt.id).base*wt.mult/5)*5;
+        onDrugs[wt.id] = 0;
+        money += per * have; showGain(per * have); addXp(per * have);
+      }
+      saveMoney(); renderMoney(true); saveDrugs();
+      if (Math.random() < 0.15 * snitchFactor()) applyHeat(1, "Someone saw the deal go down…");
+      else toast("Moved the product.");
+      aiTask = null;
+      return;
+    }
+    case "house": {
+      buySafehouseHere();
+      aiTask = null;
+      return;
+    }
+    case "job": {
+      const stillThere = nearestJob && haversine(nearestJob, t.at) < 30;
+      if (!stillThere){ aiTask = null; return; }
+      if (haversine(playerPos, t.at) <= CFG.collectRadius){
+        const c = $("collect");
+        if (!c.disabled) c.click();
+        if (typeof channel !== "undefined" && channel) aiTask = null; // channel holds us; done deciding
+        return;
+      }
+      aiMoveToward(t.at);
+      return;
+    }
+    case "turf": {
+      if (territoryAt(t.at) === myGang){ aiTask = null; return; } // won (or flipped)
+      if (haversine(playerPos, t.at) > 20) aiMoveToward(t.at);
+      // then stand and let the capture system + drawn iron do the work
+      return;
+    }
+    case "cruise": {
+      if (haversine(playerPos, t.at) < 12){ aiTask = null; return; }
+      aiMoveToward(t.at);
+      return;
+    }
+    case "deliver": {
+      if (!cargo || cargo.kind !== "package"){ aiTask = null; return; } // dropped off (arrival auto-pays)
+      aiMoveToward(cargo.dest);
+      return;
+    }
+    case "paintCar": {
+      if (!cargo || cargo.kind !== "car" || cargo.sprayed){ aiTask = null; return; }
+      const p = places.paynspray;
+      if (haversine(playerPos, p) > 55){ aiMoveToward(p); return; }
+      if (money >= 150){
+        money -= 150; saveMoney(); renderMoney(true);
+        cargo.value = Math.round(cargo.value * 1.35);
+        cargo.sprayed = true;
+        saveCargo(); renderCargo();
+        toast(`Fresh coat — the ${cargo.model} is worth ${fmtMoney(cargo.value)} now.`);
+      }
+      aiTask = null;
+      return;
+    }
+    case "garageCar": {
+      if (!cargo || cargo.kind !== "car"){ aiTask = null; return; } // stored (arrival auto-garages)
+      aiMoveToward(t.at);
+      return;
+    }
+    case "recruit": {
+      const n = findNpc();
+      if (!n || n.follow || followerCount() >= 3){ aiTask = null; return; }
+      if (haversine(playerPos, n) > 12){ aiMoveToward(n); return; }
+      toggleFollow(n);
+      aiTask = null;
+      return;
+    }
+    case "rob": {
+      const n = findNpc();
+      if (!n || n.robbed){ aiTask = null; return; }
+      if (haversine(playerPos, n) > NPC_ROB_RANGE - 3){ aiMoveToward(n, NPC_ROB_RANGE - 3); return; }
+      const take = Math.round((20 + Math.random()*100) * payMult());
+      money += take; saveMoney(); renderMoney(true); showGain(take);
+      addXp(take);
+      n.robbed = true;
+      n.wp = null;
+      if (territoryAt(playerPos) !== null && Math.random() < 0.6)
+        toast(`They handed over ${fmtMoney(take)} — this block doesn't talk.`);
+      else applyHeat(Math.random() < 0.5 ? 1 : 2, "Street robbery called in!");
+      aiTask = null;
+      return;
+    }
+    case "shopTrip": {
+      const s2 = shops[0];
+      if (!s2){ aiTask = null; return; }
+      if (haversine(playerPos, s2) > 55){ aiMoveToward(s2); return; }
+      // buy the cheapest thing it can afford (weapon or a box), or just look around
+      let bought = false;
+      for (const it of s2.stock){
+        const w = weaponById(it.id);
+        const price = Math.round(w.price * it.mult / 10) * 10;
+        if (it.qty > 0 && !inv[w.id] && money > price + 300){
+          money -= price; it.qty--;
+          inv[w.id] = (inv[w.id]||0) + 1;
+          saveMoney(); renderMoney(true); saveInv(); renderInvBtn();
+          toast(`Picked up a ${w.name} off the street dealer.`);
+          bought = true;
+          break;
+        }
+      }
+      if (!bought){
+        const a = AMMO_TYPES[Math.floor(Math.random()*AMMO_TYPES.length)];
+        const price = Math.round(a.price * (s2.ammoMult || 1) / 5) * 5;
+        if (money > price + 200){
+          money -= price; ammo[a.id] = (ammo[a.id]||0) + a.box;
+          saveMoney(); renderMoney(true); saveAmmo(); renderInvBtn();
+          toast(`Grabbed a box of ${a.name.toLowerCase()}.`);
+        } else toast("Window shopping. Prices are a crime too.");
+      }
+      aiTask = null;
+      return;
+    }
+    case "deal": {
+      if (!t.until) t.until = gt() + t.dur;
+      if (gt() >= t.until){ aiTask = null; toast("Shift's over. Count it later."); return; }
+      aiSay("dealing — " + Math.ceil((t.until - gt())/1000) + "s left on the shift");
+      const carrying = DRUGS.some(d => (onDrugs[d.id]||0) > 0);
+      const byr = npcs.find(n => n.kind === "buyer");
+      const dlr = npcs.find(n => n.kind === "dealer");
+      if (carrying && byr){
+        if (haversine(playerPos, byr) > NPC_TRADE_RANGE - 3){ aiMoveToward(byr, NPC_TRADE_RANGE - 3); return; }
+        for (const wt of byr.wants){
+          const have = onDrugs[wt.id] || 0;
+          if (!have) continue;
+          const per = Math.round(drugById(wt.id).base*wt.mult/5)*5;
+          onDrugs[wt.id] = 0;
+          money += per * have; showGain(per * have); addXp(per * have);
+        }
+        saveMoney(); renderMoney(true); saveDrugs();
+        if (Math.random() < 0.15 * snitchFactor()) applyHeat(1, "Someone saw the deal go down…");
+      } else if (!carrying && dlr && money > 300){
+        if (haversine(playerPos, dlr) > NPC_TRADE_RANGE - 3){ aiMoveToward(dlr, NPC_TRADE_RANGE - 3); return; }
+        const budget = money * 0.35;
+        let spent = 0;
+        for (const it of dlr.stock){
+          const price = Math.round(drugById(it.id).base*it.mult/5)*5;
+          while (it.qty > 0 && spent + price <= budget){
+            it.qty--; spent += price;
+            onDrugs[it.id] = (onDrugs[it.id]||0) + 1;
+          }
+        }
+        if (spent > 0){ money -= spent; saveMoney(); renderMoney(true); saveDrugs(); }
+      } else {
+        // work the block until a counterparty shows
+        if (!t.roam || haversine(playerPos, t.roam) < 10)
+          t.roam = offsetPoint(playerPos.lat, playerPos.lng, 120 + Math.random()*150, Math.random()*Math.PI*2);
+        aiMoveToward(t.roam);
+      }
+      return;
+    }
+    case "bizCheck": {
+      const b = findBiz();
+      if (!b || !b.path){ aiTask = null; return; }
+      if (haversine(playerPos, b) > BIZ_RANGE - 3){ aiMoveToward(b); return; }
+      if (b.stock >= 25){
+        const pay = Math.round(b.stock * 0.7);
+        b.stock = 0; saveBiz();
+        money += pay; saveMoney(); renderMoney(true); showGain(pay); addXp(Math.round(pay/2));
+        toast("Collected from the business.");
+      } else toast("Business is ticking along. Nothing to collect yet.");
+      aiTask = null;
+      return;
+    }
+    case "hang": {
+      if (haversine(playerPos, t.at) > 12){ aiMoveToward(t.at); return; }
+      if (!t.until){
+        t.until = gt() + (12 + Math.random()*25) * 1000;
+        if (t.stash && DRUGS.some(d => (onDrugs[d.id]||0) > 0)){
+          for (const d of DRUGS){
+            if (onDrugs[d.id] > 0){ stash[d.id] = (stash[d.id]||0) + onDrugs[d.id]; onDrugs[d.id] = 0; }
+          }
+          saveDrugs(); saveStash();
+          toast("Product stashed at the crib.");
+        }
+      }
+      if (gt() >= t.until) aiTask = null;
+      return;
+    }
+  }
+}
+
 // ---------- startup ----------
-let startedOnce = false;
+let startedOnce = false, startedOnce2 = false;
 function start(useGps){
   devMode = !useGps;
   started = true;
@@ -3936,6 +4579,13 @@ function start(useGps){
   $("err").style.display = "none";
   $("devbadge").style.display = devMode ? "block" : "none";
   $("speeds").style.display = devMode ? "flex" : "none";
+  if (devMode && !startedOnce2){
+    startedOnce2 = true;
+    rndSpeed = true;
+    const rb = document.getElementById("rndSpd");
+    if (rb){ document.querySelectorAll(".spd").forEach(x=>x.classList.remove("on")); rb.classList.add("on"); }
+    rollRndSpeed();
+  }
   $("dpad").classList.toggle("show", devMode);
   if (!startedOnce){
     startedOnce = true;
@@ -3995,6 +4645,12 @@ function renderMenu(){
   }
 }
 renderMenu();
+if (AUTO_SESSION){
+  $("copySaveBtn").style.display = "none";
+  $("loadSaveBtn").style.display = "none";
+  $("autoHome").textContent = "⏏ EXIT AUTO MODE — BACK TO YOUR SAVE";
+  $("startGps").textContent = introNeeded() ? "START THE SHOW" : "RESUME THE SHOW";
+}
 
 $("safetyOk").addEventListener("click", () => {
   $("safety").style.display = "none";
@@ -4004,7 +4660,7 @@ $("safetyOk").addEventListener("click", () => {
 const SAVE_TAG = "STREETS1.";
 function exportSave(){
   const d = {};
-  for (const k of store.allKeys()) if (k.startsWith("sc_")) d[k] = store.getItem(k);
+  for (const k of store.allKeys()) if (k.startsWith("sc_") && !k.startsWith("auto_")) d[k] = store.getItem(k);
   const json = JSON.stringify({v:1, d});
   return SAVE_TAG + btoa(unescape(encodeURIComponent(json)));
 }
@@ -4059,6 +4715,11 @@ $("ioGo").addEventListener("click", () => {
 });
 
 $("startGps").addEventListener("click", () => {
+  if (AUTO_SESSION){
+    if (introNeeded()) beginIntro(false); // you name it, gang it, tap the story
+    else start(false);
+    return;
+  }
   if (introNeeded()) beginIntro(true);
   else start(true);
 });
@@ -4095,8 +4756,8 @@ $("resetBtn").addEventListener("click", () => {
   }
   clearTimeout(resetTimer);
   store.allKeys()
-    .filter(k => k.startsWith("sc_"))
-    .forEach(k => store.removeItem(k));
+    .filter(k => k.startsWith(SAVE_NS + "sc_"))
+    .forEach(k => { try{ window.localStorage.removeItem(k); }catch(e){} });
   location.reload();
 });
 
