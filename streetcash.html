@@ -2754,12 +2754,16 @@ setInterval(() => {
     // pick target: you if seen; otherwise RESPOND TO THE SCENE first, then sweep
     let target;
     if (seen){
-      target = playerPos;
       c.responded = false; // fresh sighting — next search starts from the scene again
+      // no live tracking: fix on where the runner WAS, drive there, then re-fix
+      if (!c.fix || haversine(c, c.fix) < 15)
+        c.fix = {lat: playerPos.lat, lng: playerPos.lng};
+      target = c.fix;
     } else if (!c.responded){
       target = lkp; // first move: get to where it happened
       if (haversine(c, lkp) < 35) c.responded = true;
     } else {
+      c.fix = null; // lost the trail — next sighting takes a fresh fix
       if (!c.wp || haversine(c, c.wp) < 15){
         const r = Math.sqrt(Math.random()) * searchRadius();
         c.wp = roadSpot(lkp, r * 0.6, Math.max(r, 60));
@@ -4279,11 +4283,11 @@ let aiFlee = null;
 function aiFleeHeat(){
   const from = lkp || playerPos;
   aiSay("shaking the heat (" + stars + "★)");
-  // commit to an escape point for a while — re-aiming every tick causes ping-pong
-  if (!aiFlee || gt() > aiFlee.until || haversine(playerPos, aiFlee.at) < 60){
-    aiFlee = {at: offsetPoint(playerPos.lat, playerPos.lng, 600,
-      bearingBetween(from, playerPos) + (Math.random() - 0.5) * 0.4),
-      until: gt() + 8000};
+  aiTask = null; // whatever you were doing is over
+  // ONE escape point, driven all the way — pick the next only on arrival
+  if (!aiFlee || haversine(playerPos, aiFlee.at) < 40){
+    aiFlee = {at: roadSpot(offsetPoint(playerPos.lat, playerPos.lng, 700,
+      bearingBetween(from, playerPos) + (Math.random() - 0.5) * 0.5), 0, 220)};
   }
   aiMoveToward(aiFlee.at, 6);
 }
@@ -4326,6 +4330,9 @@ setInterval(() => {
     return;
   }
 
+  // WANTED and not on a mission: drop whatever you're doing and RUN.
+  // (fleeing moves you out of the job radius, which cancels the channel itself)
+  if (stars > 0 && !curStep()){ aiFleeHeat(); return; }
   // mid-heist wiring or job channel: hold still
   if (missionBoost){ aiSay("hotwiring…"); return; }
   if (typeof channel !== "undefined" && channel){ aiSay("working the job…"); return; }
@@ -4346,7 +4353,8 @@ setInterval(() => {
   const trouble = cops.length > 0
     || npcs.some(n => (n.kind === "gang" && n.aggro && n.gang !== myGang)
       || (n.kind === "target" && n.aggro && !n.van && haversine(n, playerPos) < 80));
-  aiSetDrawn(trouble || stars > 0);
+  // wanted? holster and RUN — shooting back is how chases become funerals
+  aiSetDrawn(stars > 0 ? false : trouble);
 
   // free-roam firefight: CLOSE THE DISTANCE — no more statue routine
   const sNow = curStep();
@@ -4400,8 +4408,6 @@ setInterval(() => {
     return; // cine/pay/give resolve themselves
   }
 
-  // no mission: shake heat, then live off the list
-  if (stars > 0){ aiFleeHeat(); return; }
   aiFlee = null; // clean again — next flee picks fresh
   if (!aiTask) aiTask = aiPickTask();
   if (aiTask) aiRunTask();
