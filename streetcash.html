@@ -2474,7 +2474,18 @@ $("logBtn").addEventListener("click", () => {
 });
 $("logClose").addEventListener("click", () => $("logPanel").style.display = "none");
 
+let lastNoCallToast = 0;
 function applyHeat(starsGained, msg){
+  // gang blocks don't call the police — ANY gang's blocks. Crimes inside the
+  // colors stay inside the colors. (Cops already chasing you still radio in.)
+  const tg = playerPos ? territoryAt(playerPos) : null;
+  if (stars === 0 && tg !== null && tg !== undefined){
+    if (gt() - lastNoCallToast > 6000){
+      lastNoCallToast = gt();
+      toast(`Nobody on ${GANGS[tg].name} turf dials 911. The set handles its own.`);
+    }
+    return;
+  }
   stars = Math.min(CFG.maxStars, stars + starsGained);
   // committing a crime gives your position away
   seen = true; lkp = {lat:playerPos.lat, lng:playerPos.lng};
@@ -3074,6 +3085,13 @@ function placementTap(latlng){
     toast("Off the grid — pick a spot near a road.");
     return;
   }
+  if (placing && placing.enemyTurf){
+    const tg = territoryAt(latlng);
+    if (tg === null || tg === myGang){
+      toast("Her block has to sit inside ANOTHER gang's colors — that's the point.");
+      return;
+    }
+  }
   if (!placing || !playerPos) return;
   const d = haversine(playerPos, latlng);
   if (d < placing.minDist){
@@ -3556,9 +3574,9 @@ const MISSIONS = {
     giver:{letter:"S", at:"contact", after:"m3", who:"Sal"},
     steps:[
     {type:"cine", pages:m4open},
-    {type:"place", key:"carmen", label:"Carmen's Apartment", icon:"🚪", minDist:300,
-      banner:"tap the map: where's Carmen's building?",
-      warn:"You're choosing where Carmen lives. PERMANENT — and Sal says her block belongs to a rival set, so think about what you're walking into."},
+    {type:"place", key:"carmen", label:"Carmen's Apartment", icon:"🚪", minDist:300, enemyTurf:true,
+      banner:"tap the map: Carmen's building — MUST be on rival turf",
+      warn:"You're choosing where Carmen lives. PERMANENT — and her block MUST sit inside another gang's territory. That's the whole problem with this pickup. In and out before they care, and nobody has to bleed."},
     {type:"goto", at:"carmen", banner:"pick up Carmen — quick and quiet",
       toast:'Sal: "In and out, driver. That block has eyes."'},
     {type:"cine", pages:m4pick},
@@ -3729,6 +3747,7 @@ function runStep(){
     if (s.key && places[s.key]){ advance(); return; }
     placeStoryLocation(s.key || null, s.label, s.minDist, s.warn,
       () => { if (s.toast) toast(s.toast); advance(); }, s.icon, s.slot);
+    if (placing) placing.enemyTurf = !!s.enemyTurf;
   } else if (s.type === "goto" || s.type === "kill" || s.type === "boost" || s.type === "hunt" || s.type === "ram"){
     const loc = resolveLoc(s.at || "t");
     if (loc) drawMissionRing(loc);
@@ -4043,11 +4062,33 @@ async function ensureRoads(){
     const j = await r.json();
     buildRoadGraph(j);
     roadBox = b;
+    resnapWorld(); // anything that spawned before the map arrived gets pulled onto a street
     toast(`📡 Streets mapped — ${roadG.ids.length} road points loaded.`);
   } catch(e){
     roadRetryAt = gt() + 90000; // offline or rate-limited: beeline life for 90s, retry
   }
   roadBusy = false;
+}
+// spawns that landed before roads loaded (or in old saves) can sit on water.
+// once the streets arrive, everything gets dragged to the nearest one.
+function resnapWorld(){
+  if (!roadG) return;
+  let moved = 0;
+  const fix = (o) => {
+    if (nearRoad(o, 60)) return;
+    const p = roadSpot(o, 0, 250);
+    o.lat = p.lat; o.lng = p.lng;
+    if (o.marker) o.marker.setLatLng([p.lat, p.lng]);
+    if (o.circle) o.circle.setLatLng([p.lat, p.lng]);
+    moved++;
+  };
+  for (const s of shops) fix(s);
+  if (typeof bizSale !== "undefined" && bizSale) fix(bizSale);
+  for (const b of bizzes) fix(b);
+  for (const j2 of jobs) fix(j2);
+  for (const n of npcs) if (n.kind !== "target" && !n.follow) fix(n);
+  for (const c of cops) fix(c);
+  if (moved) saveWorld();
 }
 function buildRoadGraph(j){
   roadSideCache = new Map();
@@ -4217,6 +4258,7 @@ function npcRoadStep(n, dest, dtSec){
       onRoad = true;
     }
   }
+  if (!roadG) onRoad = true; // no map data: benefit of the doubt
   const spd = onRoad ? n.spdRoad : Math.min(n.spdOff, n.spdRoad);
   const step = Math.min(spd * dtSec, haversine(n, wp));
   const p = offsetPoint(n.lat, n.lng, step, bearingBetween(n, wp));
@@ -4275,6 +4317,7 @@ function aiMoveToward(dest, stopAt){
       onRoad = true; // curbside finish — the ONLY drive-up case
     }
   }
+  if (!roadG) onRoad = true; // no map data: benefit of the doubt
   const spd = onRoad ? aiPace.road : Math.min(aiPace.off, aiPace.road);
   const step = Math.min(spd * 0.4, haversine(playerPos, wp));
   setPlayerPos(offsetPoint(playerPos.lat, playerPos.lng, step, bearingBetween(playerPos, wp)));
@@ -4322,9 +4365,21 @@ setInterval(() => {
   // placement: pick a sane spot and lock it
   if (placing){
     if (!placing.pend){
-      const dist = placing.minDist + 120 + Math.random() * 300;
       aiSay("picking a spot: " + placing.label);
-      placementTap(roadSpot(playerPos, placing.minDist + 120, placing.minDist + 420));
+      if (placing.enemyTurf){
+        // hunt for a rival-colored block far enough out
+        const cells = Object.keys(territory).filter(k =>
+          territory[k] !== null && territory[k] !== myGang);
+        const fits = cells.filter(k => cellDist(k) >= placing.minDist && cellDist(k) < placing.minDist + 2500);
+        const pick = (fits.length ? fits : cells)[Math.floor(Math.random() * Math.max(1, (fits.length ? fits : cells).length))];
+        if (pick){
+          const [a, b] = pick.split("_").map(Number);
+          placementTap(roadSpot({lat:(a+0.5)*CELL, lng:(b+0.5)*CELL}, 0, 60));
+        }
+        // no rival turf on the map yet: wait — ambient growth will paint some
+      } else {
+        placementTap(roadSpot(playerPos, placing.minDist + 120, placing.minDist + 420));
+      }
       aiWait = 3; // a beat, so you can see the pin
     } else placementConfirm();
     return;
@@ -4745,9 +4800,11 @@ function aiRunTask(){
         }
         if (spent > 0){ money -= spent; saveMoney(); renderMoney(true); saveDrugs(); }
       } else {
-        // work the block until a counterparty shows
-        if (!t.roam || haversine(playerPos, t.roam) < 10)
-          t.roam = roadSpot(playerPos, 120, 270);
+        // nobody around to trade with: march ONE direction until the streets
+        // provide — fresh blocks mean fresh spawns
+        if (t.dir === undefined) t.dir = Math.random() * Math.PI * 2;
+        if (!t.roam || haversine(playerPos, t.roam) < 12)
+          t.roam = roadSpot(offsetPoint(playerPos.lat, playerPos.lng, 450, t.dir), 0, 150);
         aiMoveToward(t.roam);
       }
       return;
@@ -4790,9 +4847,9 @@ function start(useGps){
   started = true;
   $("splash").style.display = "none";
   $("err").style.display = "none";
-  $("devbadge").style.display = devMode ? "block" : "none";
-  $("speeds").style.display = devMode ? "flex" : "none";
-  $("dpad").classList.toggle("show", devMode);
+  $("devbadge").style.display = (devMode && !AUTO_SESSION) ? "block" : "none";
+  $("speeds").style.display = (devMode && !AUTO_SESSION) ? "flex" : "none";
+  $("dpad").classList.toggle("show", devMode && !AUTO_SESSION);
   if (!startedOnce){
     startedOnce = true;
     $("shBtn").addEventListener("click", buySafehouseHere);
