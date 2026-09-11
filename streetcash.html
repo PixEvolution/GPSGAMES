@@ -1859,10 +1859,17 @@ setInterval(() => {
         continue;
       }
     }
-    // everyone else wanders — by road like citizens
+    // citizens with errands: pick a spot, travel there, POST UP for
+    // 1–1000s, repeat. Dealers and buyers become findable — you meet
+    // them where they're posted instead of chasing them down the street.
+    if (!n.robbed && n.hangUntil && gt() < n.hangUntil) continue; // posted up
     if (!n.wp || haversine(n, n.wp) < 8){
-      const range = n.robbed ? 600 : 60 + Math.random()*140;
-      n.wp = offsetPoint(n.lat, n.lng, range, Math.random()*Math.PI*2);
+      if (n.wp && !n.robbed){
+        n.wp = null;
+        n.hangUntil = gt() + (1 + Math.random() * 999) * 1000;
+        continue;
+      }
+      n.wp = n.robbed ? roadSpot(n, 400, 700) : roadSpot(n, 100, 550);
     }
     npcRoadStep(n, n.wp, 0.4);
   }
