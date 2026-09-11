@@ -880,6 +880,7 @@ function createJob(lat, lng, typeIdx, payout, cooldownUntil){
 
 function spawnOneJob(center){
   const p = roadSpot(center, CFG.minDist, CFG.maxDist);
+  const dist = haversine(center, p);
   const typeIdx = Math.floor(Math.random()*JOB_TYPES.length);
   const type = JOB_TYPES[typeIdx];
   const payout = type.kind === "cash" ? Math.round(CFG.payoutMin + dist*CFG.payoutPerMeter) : 0;
@@ -4390,8 +4391,7 @@ const AI_LIST = [
   "deliverCargo",   // finish what's in the trunk
   "paintCar",
   "garageCar",
-  "visitPlace",     // story spots, the crib, the block
-  "cruise",
+  "stashRun",       // run pocket product to the crib safe
 ];
 function aiTaskFor(id){
   switch (id){
@@ -4451,21 +4451,11 @@ function aiTaskFor(id){
       const home = houses.reduce((a,b)=>haversine(playerPos,a)<haversine(playerPos,b)?a:b);
       return garage.length < totalCapacity() ? {kind:"garageCar", at:home, say:"bringing the car home"} : null;
     }
-    case "visitPlace": {
-      const spots = [];
-      for (const k of Object.keys(places)) spots.push({at:places[k], say:"swinging by " + (places[k].label || "an old haunt")});
-      for (const h of houses) spots.push({at:h, say:"posting up at the crib", stash:true});
-      const mine = Object.keys(territory).filter(k => territory[k] === myGang && cellDist(k) < 1200);
-      if (mine.length){
-        const [a,b] = mine[Math.floor(Math.random()*mine.length)].split("_").map(Number);
-        spots.push({at:{lat:(a+0.5)*CELL, lng:(b+0.5)*CELL}, say:"walking the block"});
-      }
-      if (!spots.length) return null;
-      const s2 = spots[Math.floor(Math.random()*spots.length)];
-      return {kind:"hang", at:s2.at, say:s2.say, stash:s2.stash};
+    case "stashRun": {
+      if (!houses.length || !DRUGS.some(d => (onDrugs[d.id]||0) > 0)) return null;
+      const h = houses.reduce((a,b) => haversine(playerPos,a) < haversine(playerPos,b) ? a : b);
+      return {kind:"hang", at:h, say:"running product to the stash", stash:true};
     }
-    case "cruise":
-      return {kind:"cruise", at:roadSpot(playerPos, 300, 700), say:"cruising"};
   }
   return null;
 }
@@ -4474,7 +4464,8 @@ function aiPickTask(){
     const t = aiTaskFor(AI_LIST[Math.floor(Math.random() * AI_LIST.length)]);
     if (t) return t;
   }
-  return aiTaskFor("cruise");
+  // nothing else feasible: dealing is always work
+  return aiTaskFor("dealDrugs");
 }
 function aiRunTask(){
   const t = aiTask;
@@ -4604,11 +4595,6 @@ function aiRunTask(){
       if (territoryAt(t.at) === myGang){ aiTask = null; return; } // won (or flipped)
       if (haversine(playerPos, t.at) > 20) aiMoveToward(t.at);
       // then stand and let the capture system + drawn iron do the work
-      return;
-    }
-    case "cruise": {
-      if (haversine(playerPos, t.at) < 12){ aiTask = null; return; }
-      aiMoveToward(t.at);
       return;
     }
     case "deliver": {
