@@ -1821,18 +1821,36 @@ setInterval(() => {
         toast(`${GANGS[n.gang].name} don't want you here.`);
       }
     }
-    // enemy gang member on your case: fight with whatever he's carrying
+    // enemy gang member on your case: fight with whatever he's carrying —
+    // and your soldiers are targets too. War cuts both ways.
     if (n.kind === "gang" && myGang !== null && n.gang !== myGang && n.aggro){
       const d = haversine(n, playerPos);
       const offTurf = territoryAt(playerPos) !== n.gang;
       if (!drawn && (d > 250 || (offTurf && d > 120))){ n.aggro = false; continue; }
+      // nearest mark wins: you, or whichever of your soldiers is closer
+      let mark = playerPos, ally = null, md = d;
+      for (const a of npcs){
+        if (a.kind !== "gang" || a.gang !== myGang) continue;
+        const da = haversine(n, a);
+        if (da < md){ md = da; mark = a; ally = a; }
+      }
       const gc = gangCombat(n);
-      if (d <= gc.range){
-        lastAttacker = GANGS[n.gang].name;
-        lastAttackerAt = gt();
-        damage(gc.dps * 0.4);
-      } else {
-        npcRoadStep(n, playerPos, 0.4);
+      if (md <= gc.range){
+        if (ally){
+          ally.hp -= gc.dps * 0.4;
+          if (ally.hp <= 0){
+            const wasFollower = ally.follow;
+            removeNpc(ally);
+            toast(wasFollower ? "One of YOUR crew went down!"
+              : `A ${GANGS[myGang].name} soldier got dropped.`);
+          }
+        } else {
+          lastAttacker = GANGS[n.gang].name;
+          lastAttackerAt = gt();
+          damage(gc.dps * 0.4);
+        }
+      } else if (md < 300){
+        npcRoadStep(n, {lat:mark.lat, lng:mark.lng}, 0.4);
       }
       continue;
     }
