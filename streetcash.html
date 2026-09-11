@@ -4152,6 +4152,24 @@ function roadSpot(center, minR, maxR){
   return offsetPoint(center.lat, center.lng,
     minR + Math.random() * (maxR - minR), Math.random() * Math.PI * 2);
 }
+// when a route (re)computes mid-chase, skip straight to the nearest point
+// along it — otherwise every recompute yanks the runner backward (the ping-pong bug)
+function routeAnchor(self, pts){
+  let bi = 0, bd = Infinity;
+  for (let i = 0; i < pts.length; i++){
+    const d = haversine(self, pts[i]);
+    if (d < bd){ bd = d; bi = i; }
+  }
+  // never target a waypoint that sits BEHIND us along the route's direction
+  while (bi < pts.length - 1){
+    const a = pts[bi], b = pts[bi + 1];
+    const v1x = (a.lng - self.lng) * Math.cos(self.lat * Math.PI/180), v1y = a.lat - self.lat;
+    const v2x = (b.lng - a.lng) * Math.cos(a.lat * Math.PI/180),      v2y = b.lat - a.lat;
+    if (v1x * v2x + v1y * v2y > 0 && haversine(self, a) >= 12) break; // ahead and worth driving to
+    bi++;
+  }
+  return bi;
+}
 function rollNpcPace(n){
   n.spdRoad = (1 + Math.random() * 99) * 0.447;
   n.spdOff  = (1 + Math.random() * 9) * 0.447;
@@ -4165,8 +4183,10 @@ function npcRoadStep(n, dest, dtSec){
   let wp = dest, onRoad = false, routeDone = false, noRoute = false;
   if (roadG && d > 60){
     const key = Math.round(dest.lat * 1e4) + "," + Math.round(dest.lng * 1e4);
-    if (!n.route || n.route.key !== key)
-      n.route = {key, pts: roadRoute(n, dest), i: 0};
+    if (!n.route || n.route.key !== key){
+      const pts = roadRoute(n, dest);
+      n.route = {key, pts, i: pts ? routeAnchor(n, pts) : 0};
+    }
     if (n.route.pts){
       while (n.route.i < n.route.pts.length
         && haversine(n, n.route.pts[n.route.i]) < 12) n.route.i++;
@@ -4220,8 +4240,10 @@ function aiMoveToward(dest, stopAt){
   let wp = dest, onRoad = false, routeDone = false, noRoute = false;
   if (roadG && d > 60){
     const key = Math.round(dest.lat * 1e4) + "," + Math.round(dest.lng * 1e4);
-    if (!aiRoute || aiRoute.key !== key)
-      aiRoute = {key, pts: roadRoute(playerPos, dest), i: 0};
+    if (!aiRoute || aiRoute.key !== key){
+      const pts = roadRoute(playerPos, dest);
+      aiRoute = {key, pts, i: pts ? routeAnchor(playerPos, pts) : 0};
+    }
     if (aiRoute.pts){
       while (aiRoute.i < aiRoute.pts.length
         && haversine(playerPos, aiRoute.pts[aiRoute.i]) < 12) aiRoute.i++;
@@ -4246,13 +4268,17 @@ function aiMoveToward(dest, stopAt){
   const step = Math.min(spd * 0.4, haversine(playerPos, wp));
   setPlayerPos(offsetPoint(playerPos.lat, playerPos.lng, step, bearingBetween(playerPos, wp)));
 }
+let aiFlee = null;
 function aiFleeHeat(){
   const from = lkp || playerPos;
   aiSay("shaking the heat (" + stars + "★)");
-  // flee ALONG ROADS when possible — that's where the speed is
-  const away = offsetPoint(playerPos.lat, playerPos.lng, 500,
-    bearingBetween(from, playerPos) + (Math.random() - 0.5) * 0.4);
-  aiMoveToward(away, 6);
+  // commit to an escape point for a while — re-aiming every tick causes ping-pong
+  if (!aiFlee || gt() > aiFlee.until || haversine(playerPos, aiFlee.at) < 60){
+    aiFlee = {at: offsetPoint(playerPos.lat, playerPos.lng, 600,
+      bearingBetween(from, playerPos) + (Math.random() - 0.5) * 0.4),
+      until: gt() + 8000};
+  }
+  aiMoveToward(aiFlee.at, 6);
 }
 
 // ===== the full life: shops, product, property =====
@@ -4369,6 +4395,7 @@ setInterval(() => {
 
   // no mission: shake heat, then live off the list
   if (stars > 0){ aiFleeHeat(); return; }
+  aiFlee = null; // clean again — next flee picks fresh
   if (!aiTask) aiTask = aiPickTask();
   if (aiTask) aiRunTask();
 }, 400);
