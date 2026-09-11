@@ -1383,6 +1383,8 @@ function rollGangWeapon(alwaysArmed){
 
 // how they fight with what they've got: guns engage at range, hands don't
 function gangCombat(n){
+  if ((n.kind === "gang" || (n.kind === "target" && !n.van))
+    && (!n.wepAt || gt() >= n.wepAt)) rollNpcWeapon(n);
   const w = n.wep ? weaponById(n.wep) : null;
   const melee = !w || w.type === "melee";
   return {
@@ -1837,10 +1839,7 @@ setInterval(() => {
         lastAttacker = GANGS[n.gang].name;
         damage(gc.dps * 0.4);
       } else {
-        const step = Math.min(1.7 * 0.4, d);
-        const p = offsetPoint(n.lat, n.lng, step, bearingBetween(n, playerPos));
-        n.lat = p.lat; n.lng = p.lng;
-        n.marker.setLatLng([n.lat, n.lng]);
+        npcRoadStep(n, playerPos, 0.4);
       }
       continue;
     }
@@ -1856,10 +1855,7 @@ setInterval(() => {
           if (tgt.hp <= 0){ removeNpc(tgt); toast("Your crew dropped one."); }
           else tgt.marker.setIcon(npcIcon(tgt));
         } else {
-          const step = Math.min(1.6 * 0.4, d);
-          const p = offsetPoint(n.lat, n.lng, step, bearingBetween(n, tgt));
-          n.lat = p.lat; n.lng = p.lng;
-          n.marker.setLatLng([n.lat, n.lng]);
+          npcRoadStep(n, {lat:tgt.lat, lng:tgt.lng}, 0.4);
         }
         continue;
       }
@@ -1867,24 +1863,18 @@ setInterval(() => {
       if (n.follow){
         const d = haversine(n, playerPos);
         if (d > 12){
-          const step = Math.min(2.6 * 0.4, d - 8);
-          const p = offsetPoint(n.lat, n.lng, step, bearingBetween(n, playerPos));
-          n.lat = p.lat; n.lng = p.lng;
-          n.marker.setLatLng([n.lat, n.lng]);
+          const slot = offsetPoint(playerPos.lat, playerPos.lng, 8, bearingBetween(playerPos, n));
+          npcRoadStep(n, slot, 0.4);
         }
         continue;
       }
     }
-    // everyone else wanders
+    // everyone else wanders — by road like citizens
     if (!n.wp || haversine(n, n.wp) < 8){
       const range = n.robbed ? 600 : 60 + Math.random()*140;
       n.wp = offsetPoint(n.lat, n.lng, range, Math.random()*Math.PI*2);
     }
-    const spd = n.robbed ? 3.2 : n.speed;
-    const step = Math.min(spd * 0.4, haversine(n, n.wp));
-    const p = offsetPoint(n.lat, n.lng, step, bearingBetween(n, n.wp));
-    n.lat = p.lat; n.lng = p.lng;
-    n.marker.setLatLng([n.lat, n.lng]);
+    npcRoadStep(n, n.wp, 0.4);
   }
 }, 400);
 
@@ -2783,10 +2773,15 @@ setInterval(() => {
 
     const dt = haversine(c, target);
     if (dt < 2) continue;
-    const step = Math.min(u.spd(stars) * HEAT_TICK/1000, dt);
-    const p = offsetPoint(c.lat, c.lng, step, bearingBetween(c, target));
-    c.lat = p.lat; c.lng = p.lng;
-    c.marker.setLatLng([c.lat, c.lng]);
+    if (c.kind === "heli"){
+      const step = Math.min(u.spd(stars) * HEAT_TICK/1000, dt);
+      const p = offsetPoint(c.lat, c.lng, step, bearingBetween(c, target));
+      c.lat = p.lat; c.lng = p.lng;
+      c.marker.setLatLng([c.lat, c.lng]);
+    } else {
+      // ground units drive the streets at whatever they rolled — pray for a slow one
+      npcRoadStep(c, target, HEAT_TICK/1000);
+    }
   }
 }, HEAT_TICK);
 
@@ -4046,22 +4041,170 @@ $("autoHome").addEventListener("click", () => {
   location.reload();
 });
 
+// ---------- ROADS: real OSM street routing (shared graph — cops can use it later) ----------
+let roadG = null, roadBox = null, roadBusy = false, roadRetryAt = 0;
+function roadsCover(p){
+  if (!roadBox) return false;
+  const m = 0.004; // ~400m inner margin — refetch before walking off the edge
+  return p.lat > roadBox.s + m && p.lat < roadBox.n - m
+      && p.lng > roadBox.w + m && p.lng < roadBox.e - m;
+}
+async function ensureRoads(){
+  if (!playerPos || roadBusy || roadsCover(playerPos) || gt() < roadRetryAt) return;
+  roadBusy = true;
+  const b = {s:playerPos.lat - 0.02, n:playerPos.lat + 0.02,
+             w:playerPos.lng - 0.028, e:playerPos.lng + 0.028}; // ~4.4km box
+  try {
+    const q = `[out:json][timeout:15];way[highway][highway!~"^(motorway|motorway_link)$"](${b.s},${b.w},${b.n},${b.e});out geom;`;
+    const r = await fetch("https://overpass-api.de/api/interpreter",
+      {method:"POST", body:"data=" + encodeURIComponent(q)});
+    const j = await r.json();
+    buildRoadGraph(j);
+    roadBox = b;
+    toast(`📡 Streets mapped — ${roadG.ids.length} road points loaded.`);
+  } catch(e){
+    roadRetryAt = gt() + 90000; // offline or rate-limited: beeline life for 90s, retry
+  }
+  roadBusy = false;
+}
+function buildRoadGraph(j){
+  const nodes = new Map(), adj = new Map();
+  for (const el of (j.elements || [])){
+    if (el.type !== "way" || !el.geometry) continue;
+    let prevId = null, prev = null;
+    el.geometry.forEach((g, i) => {
+      // weld intersections: shared OSM node ids when present, else exact-coordinate match
+      const id = (el.nodes && el.nodes[i] !== undefined) ? el.nodes[i]
+        : g.lat.toFixed(6) + "," + g.lon.toFixed(6);
+      if (!nodes.has(id)){ nodes.set(id, {lat:g.lat, lng:g.lon}); adj.set(id, []); }
+      if (prevId !== null && prevId !== id){
+        const d = haversine(prev, {lat:g.lat, lng:g.lon});
+        adj.get(prevId).push({id, d});
+        adj.get(id).push({id:prevId, d});
+      }
+      prevId = id; prev = {lat:g.lat, lng:g.lon};
+    });
+  }
+  roadG = {nodes, adj, ids:[...nodes.keys()]};
+}
+function nearestRoadNode(p, maxD){
+  if (!roadG) return null;
+  let best = null, bd = maxD || 130;
+  for (const id of roadG.ids){
+    const n = roadG.nodes.get(id);
+    if (Math.abs(n.lat - p.lat) * 111320 > bd) continue;
+    const d = haversine(p, n);
+    if (d < bd){ bd = d; best = id; }
+  }
+  return best;
+}
+function roadRoute(from, to){
+  if (!roadG) return null;
+  const a = nearestRoadNode(from), z = nearestRoadNode(to);
+  if (!a || !z || a === z) return null;
+  const zP = roadG.nodes.get(z);
+  const h = id => haversine(roadG.nodes.get(id), zP);
+  const open = new Map([[a, 0]]), came = new Map(), g = new Map([[a, 0]]), f = new Map([[a, h(a)]]);
+  let guard = 0;
+  while (open.size && guard++ < 25000){
+    let cur = null, cf = Infinity;
+    for (const [id] of open){ const v = f.get(id) ?? Infinity; if (v < cf){ cf = v; cur = id; } }
+    if (cur === z) break;
+    open.delete(cur);
+    for (const e of roadG.adj.get(cur) || []){
+      const ng = g.get(cur) + e.d;
+      if (ng < (g.get(e.id) ?? Infinity)){
+        came.set(e.id, cur); g.set(e.id, ng); f.set(e.id, ng + h(e.id)); open.set(e.id, ng);
+      }
+    }
+  }
+  if (!came.has(z)) return null;
+  const pts = [];
+  let c = z;
+  while (c !== undefined && c !== a){ const n = roadG.nodes.get(c); pts.push({lat:n.lat, lng:n.lng}); c = came.get(c); }
+  const n0 = roadG.nodes.get(a);
+  pts.push({lat:n0.lat, lng:n0.lng});
+  pts.reverse();
+  return pts;
+}
+
+// ---------- SHARED NPC FRAMEWORK (ports to WARFRONT) ----------
+// Movement: roads first because roads are fastest — 1–100 mph on them,
+// 1–10 mph anywhere else. Every AI rolls its own pace on its own clock.
+function rollNpcPace(n){
+  n.spdRoad = (1 + Math.random() * 99) * 0.447;
+  n.spdOff  = (1 + Math.random() * 9) * 0.447;
+  n.paceAt  = gt() + (1 + Math.random() * 99) * 1000;
+}
+function npcRoadStep(n, dest, dtSec){
+  ensureRoads();
+  if (!n.paceAt || gt() >= n.paceAt) rollNpcPace(n);
+  const d = haversine(n, dest);
+  if (d < 2) return;
+  let wp = dest, onRoad = false;
+  if (roadG && d > 90){
+    const key = Math.round(dest.lat * 1e4) + "," + Math.round(dest.lng * 1e4);
+    if (!n.route || n.route.key !== key)
+      n.route = {key, pts: roadRoute(n, dest), i: 0};
+    if (n.route.pts){
+      while (n.route.i < n.route.pts.length
+        && haversine(n, n.route.pts[n.route.i]) < 12) n.route.i++;
+      if (n.route.i < n.route.pts.length){ wp = n.route.pts[n.route.i]; onRoad = true; }
+    }
+  }
+  const spd = onRoad ? n.spdRoad : Math.min(n.spdOff, n.spdRoad);
+  const step = Math.min(spd * dtSec, haversine(n, wp));
+  const p = offsetPoint(n.lat, n.lng, step, bearingBetween(n, wp));
+  n.lat = p.lat; n.lng = p.lng;
+  n.marker.setLatLng([n.lat, n.lng]);
+}
+// Weapons: everyone but cops carries what the PLAYER owns — random pick incl.
+// fists, rerolled every 1–100s. The streets level up with you.
+function playerWeaponPool(){
+  const pool = Object.keys(inv).filter(id => inv[id] > 0);
+  pool.push(null); // fists forever on the menu
+  return pool;
+}
+function rollNpcWeapon(n){
+  const pool = playerWeaponPool();
+  n.wep = pool[Math.floor(Math.random() * pool.length)];
+  n.wepAt = gt() + (1 + Math.random() * 99) * 1000;
+}
+
 // your WALK/RUN/BIKE/CAR presets are the AI's gas pedal
 const aiStep = () => devSpeed * 0.4;
+let aiRoute = null;
+let aiPace = {road: 20, off: 3, at: 0};
 function aiMoveToward(dest, stopAt){
   const d = haversine(playerPos, dest);
-  if (d < (stopAt || 8)){ aiDest = null; return; }
-  const jitter = (Math.random() - 0.5) * 0.35;
-  const p = offsetPoint(playerPos.lat, playerPos.lng,
-    Math.min(aiStep(), d), bearingBetween(playerPos, dest) + jitter);
-  setPlayerPos(p);
+  if (d < (stopAt || 8)){ aiDest = null; aiRoute = null; return; }
+  ensureRoads();
+  if (gt() >= aiPace.at)
+    aiPace = {road:(1 + Math.random()*99)*0.447, off:(1 + Math.random()*9)*0.447,
+      at: gt() + (1 + Math.random()*99)*1000};
+  let wp = dest, onRoad = false;
+  if (roadG && d > 90){
+    const key = Math.round(dest.lat * 1e4) + "," + Math.round(dest.lng * 1e4);
+    if (!aiRoute || aiRoute.key !== key)
+      aiRoute = {key, pts: roadRoute(playerPos, dest), i: 0};
+    if (aiRoute.pts){
+      while (aiRoute.i < aiRoute.pts.length
+        && haversine(playerPos, aiRoute.pts[aiRoute.i]) < 12) aiRoute.i++;
+      if (aiRoute.i < aiRoute.pts.length){ wp = aiRoute.pts[aiRoute.i]; onRoad = true; }
+    }
+  }
+  // RND mode: streets are fast (1–100), grass is slow (1–10). Presets override both.
+  const spd = rndSpeed ? (onRoad ? aiPace.road : Math.min(aiPace.off, aiPace.road)) : devSpeed;
+  const step = Math.min(spd * 0.4, haversine(playerPos, wp));
+  setPlayerPos(offsetPoint(playerPos.lat, playerPos.lng, step, bearingBetween(playerPos, wp)));
 }
 function aiFleeHeat(){
   const from = lkp || playerPos;
-  const p = offsetPoint(playerPos.lat, playerPos.lng, aiStep(),
-    bearingBetween(from, playerPos) + (Math.random() - 0.5) * 0.4);
   aiSay("shaking the heat (" + stars + "★)");
-  setPlayerPos(p);
+  // flee ALONG ROADS when possible — that's where the speed is
+  const away = offsetPoint(playerPos.lat, playerPos.lng, 500,
+    bearingBetween(from, playerPos) + (Math.random() - 0.5) * 0.4);
+  aiMoveToward(away, 6);
 }
 
 // ===== the full life: shops, product, property =====
@@ -4212,15 +4355,12 @@ function aiTaskFor(id){
     }
     case "miniJob":
       return nearestJob ? {kind:"job", at:{lat:nearestJob.lat, lng:nearestJob.lng}, say:"heading to a job"} : null;
-    case "dealDrugs": {
-      const around = npcs.some(n => n.kind === "dealer" || n.kind === "buyer");
-      if (!around && !DRUGS.some(d => (onDrugs[d.id]||0) > 0)) return null;
+    case "dealDrugs": // hunting counterparties IS dealing — always a valid shift
       return {kind:"deal", dur:(1 + Math.random()*999)*1000, say:"starting a dealing shift"};
-    }
     case "buyWeapon": {
       if (places.gunstore && GUNSTORE_STOCK.some(id2 => !inv[id2] && money > weaponById(id2).price + 300))
         return {kind:"guns", at:places.gunstore, say:"buying iron"};
-      if (shops[0] && money > 600) return {kind:"shopTrip", at:shops[0], say:"visiting the street dealer"};
+      if (shops[0]) return {kind:"shopTrip", at:shops[0], say:"visiting the street dealer"};
       return null;
     }
     case "buyAmmo":
