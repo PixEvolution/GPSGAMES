@@ -4665,6 +4665,7 @@ const AI_LIST = [
   "deliverCargo",   // finish what's in the trunk
   "paintCar",
   "garageCar",
+  "sellCars",       // fence the cooled cars sitting in the garage
   "stashRun",       // run pocket product to the crib safe
 ];
 function aiTaskFor(id){
@@ -4724,6 +4725,11 @@ function aiTaskFor(id){
       if (!cargo || cargo.kind !== "car" || !houses.length) return null;
       const home = houses.reduce((a,b)=>haversine(playerPos,a)<haversine(playerPos,b)?a:b);
       return garage.length < totalCapacity() ? {kind:"garageCar", at:home, say:"bringing the car home"} : null;
+    }
+    case "sellCars": {
+      if (!houses.length || !garage.some(c => gt() >= c.readyAt)) return null;
+      const h = houses.reduce((a,b)=>haversine(playerPos,a)<haversine(playerPos,b)?a:b);
+      return {kind:"sellCars", at:h, say:"fencing the cooled cars"};
     }
     case "stashRun": {
       if (!houses.length || !DRUGS.some(d => (onDrugs[d.id]||0) > 0)) return null;
@@ -4893,6 +4899,13 @@ function aiRunTask(){
     case "garageCar": {
       if (!cargo || cargo.kind !== "car"){ aiTask = null; return; } // stored (arrival auto-garages)
       aiMoveToward(t.at);
+      return;
+    }
+    case "sellCars": {
+      if (!garage.some(c => gt() >= c.readyAt)){ aiTask = null; return; }
+      if (haversine(playerPos, t.at) > 40){ aiMoveToward(t.at); return; }
+      sellCooled();
+      aiTask = null;
       return;
     }
     case "recruit": {
