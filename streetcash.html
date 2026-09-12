@@ -1857,19 +1857,31 @@ setInterval(() => {
       }
       continue;
     }
-    // your soldier backs you up against anyone aggroed
+    // your soldier backs you up against anyone aggroed — gangs AND the law
     if (n.kind === "gang" && myGang !== null && n.gang === myGang){
+      const reach = n.follow ? 160 : 80;
       const tgt = npcs.find(e => e.kind === "gang" && e.gang !== myGang && e.aggro
-        && haversine(n, e) < (n.follow ? 160 : 80));
-      if (tgt){
-        const d = haversine(n, tgt);
+        && haversine(n, e) < reach);
+      const copT = (!tgt && stars > 0)
+        ? cops.filter(c2 => c2.kind !== "heli" && haversine(n, c2) < reach)
+            .sort((a2,b2) => haversine(n,a2) - haversine(n,b2))[0]
+        : null;
+      if (tgt || copT){
+        const foe = tgt || copT;
+        const d = haversine(n, foe);
         const gc = gangCombat(n);
         if (d <= gc.range){
-          tgt.hp -= gc.dps * 0.4;
-          if (tgt.hp <= 0){ removeNpc(tgt); toast("Your crew dropped one."); }
-          else tgt.marker.setIcon(npcIcon(tgt));
+          if (tgt){
+            tgt.hp -= gc.dps * 0.4;
+            if (tgt.hp <= 0){ removeNpc(tgt); toast("Your crew dropped one."); }
+            else tgt.marker.setIcon(npcIcon(tgt));
+          } else {
+            copT.hp -= gc.dps * 0.4;
+            if (copT.hp <= 0) killUnit(copT);
+            else copT.marker.setIcon(unitIcon(copT.kind, copT.hp / UNIT_DEFS[copT.kind].hp));
+          }
         } else {
-          npcRoadStep(n, {lat:tgt.lat, lng:tgt.lng}, 0.4);
+          npcRoadStep(n, {lat:foe.lat, lng:foe.lng}, 0.4);
         }
         continue;
       }
@@ -2835,10 +2847,27 @@ setInterval(() => {
       // arrest is physical — and only sticks if you're not resisting
       if (d <= CFG.copCatchRadius && !drawn){ lastAttacker = null; busted(); return; } // an arrest is an ARREST
       // force matching: they answer what you brought
-      if (violence >= 2 && u.dps && d <= u.fire){
-        lastAttacker = null;
-        damage(u.dps * HEAT_TICK/1000);
-        if (gt() < bustedUntil) return; // dropped by gunfire
+      if (violence >= 2 && u.dps){
+        // fire on the CLOSEST combatant — you or one of your soldiers
+        let mark = null, mDist = d <= u.fire ? d : Infinity, markAlly = null;
+        if (mDist < Infinity) mark = playerPos;
+        for (const a2 of npcs){
+          if (a2.kind !== "gang" || a2.gang !== myGang) continue;
+          const da = haversine(c, a2);
+          if (da <= u.fire && da < mDist){ mDist = da; mark = a2; markAlly = a2; }
+        }
+        if (markAlly){
+          markAlly.hp -= u.dps * HEAT_TICK/1000;
+          if (markAlly.hp <= 0){
+            const wasF = markAlly.follow;
+            removeNpc(markAlly);
+            toast(wasF ? "The law dropped one of YOUR crew!" : `The law dropped a ${GANGS[myGang].name} soldier.`);
+          }
+        } else if (mark){
+          lastAttacker = null;
+          damage(u.dps * HEAT_TICK/1000);
+          if (gt() < bustedUntil) return; // dropped by gunfire
+        }
       } else if (violence >= 1 && drawn && u.meleeDps && d <= CFG.copMeleeRange){
         damage(u.meleeDps * HEAT_TICK/1000);
         if (gt() < bustedUntil) return; // beaten down and cuffed
@@ -4964,10 +4993,11 @@ function aiRunTask(){
     case "deal": {
       if (!t.until){
         t.until = gt() + t.dur;
-        // starting a shift: any product sitting in the stash? Pick it up first.
+        // starting a REAL shift (2+ min): any product in the stash? Pick it up.
+        // Short shifts leave the safe alone — no stash-in, stash-out ping-pong.
         const stashed = DRUGS.some(d => (stash[d.id]||0) > 0);
         const pocket = DRUGS.some(d => (onDrugs[d.id]||0) > 0);
-        if (stashed && !pocket && houses.length)
+        if (t.dur >= 120000 && stashed && !pocket && houses.length)
           t.pick = houses.reduce((a,b)=>haversine(playerPos,a)<haversine(playerPos,b)?a:b);
       }
       if (t.pick){
@@ -4982,8 +5012,8 @@ function aiRunTask(){
         return;
       }
       if (gt() >= t.until){
-        // shift's over: whatever's unsold goes to the safe, straight away
-        if (DRUGS.some(d => (onDrugs[d.id]||0) > 0) && houses.length){
+        // a real shift's leftovers go to the safe; short shifts just clock out
+        if (t.dur >= 120000 && DRUGS.some(d => (onDrugs[d.id]||0) > 0) && houses.length){
           const h = houses.reduce((a,b)=>haversine(playerPos,a)<haversine(playerPos,b)?a:b);
           aiTask = {kind:"hang", at:h, say:"running the leftovers to the stash", stash:true};
         } else {
