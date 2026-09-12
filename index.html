@@ -447,7 +447,8 @@ const CFG = {
   auto: { threat:60, holsterAt:80, fleeHpFrac:0.5, fleeDist:120,
           baseMs:1.3,            // floor: walker chase 1.2 m/s + the 0.1 edge — fleeing can work
           mph:0.44704,           // each level past 1 adds up to (L-1) mph on top of the floor
-          weaponRollMaxS:100, respawnMs:3000, stashAt:0.75 },
+          weaponRollMaxS:100, respawnMs:3000,
+          levelsPerExtraItem:4 },   // 1 item/trip at LV1-4, 2 at LV5-8, 3 at LV9-12…
   devSpeeds: [1.5, 4, 8, 20],
   defaultPos: [44.7631, -85.6206],
   autosaveMs: 3000,
@@ -602,7 +603,7 @@ const compass=b=>COMPASS[Math.round(b/45)%8];
 function baseRadius(){ return CFG.base.radii[(S.base&&S.base.expand)||0]; }
 function invWeight(){ let w=0; for(const [id,n] of Object.entries(S.inv)) if(ITEMS[id]) w+=ITEMS[id].wt*n; return w; }
 function weightCap(){ return CFG.weight.base+(S.level-1)*CFG.weight.perLevel; }
-function canCarry(add){ return invWeight()+add<=weightCap()+1e-9; }
+function canCarry(add){ if(AUTO_SLOT) return true; return invWeight()+add<=weightCap()+1e-9; } // idle sim ignores weight — for the fun of it
 function lootWt(item){ return ITEMS[item].wt*(ITEMS[item].grant||1); }
 function durLeft(id){ return (S.dur&&S.dur[id]!=null)?S.dur[id]:ITEMS[id].melee.dur; }
 
@@ -929,6 +930,8 @@ function die(reason){
   $("death").style.display="flex";
 }
 $("btnRespawn").addEventListener("click",()=>{
+  if(autoRunning && !AUTO.wantResp) return; // spectators wait; the AI gets itself up
+  AUTO.wantResp=false;
   dead=false;
   S.hp=S.maxHp; S.hunger=CFG.respawn.hunger; S.thirst=CFG.respawn.thirst;
   graceUntil=gt()+CFG.grace;
@@ -951,7 +954,8 @@ function refreshHud(){
   setBar("thBar",S.thirst,100,"WATER");
   const wcur=invWeight(), wcap=weightCap();
   $("lvlLine").innerHTML="LV "+S.level+" · "+S.xp+"/"+(S.level*CFG.xpPerLevel)+" XP · "+
-    '<span style="color:'+(wcur>wcap?"var(--red)":"#93b078")+'">⚖️'+wcur.toFixed(1)+"/"+Math.round(wcap)+"</span>";
+    (AUTO_SLOT?'<span style="color:#93b078">⚖️∞</span>'
+              :('<span style="color:'+(wcur>wcap?"var(--red)":"#93b078")+'">⚖️'+wcur.toFixed(1)+"/"+Math.round(wcap)+"</span>"));
   const chasing=zombies.filter(z=>z.state==="chase").length;
   const friends=npcs.filter(n=>n.kind==="friend"&&n.befriended).length;
   $("chip").innerHTML="DAY <b>"+dayCount()+"</b> · "+(devMode?"DEV":(gpsAcc!=null?("GPS ±"+Math.round(gpsAcc)+"m"):"GPS…"))+
@@ -998,6 +1002,7 @@ window.addEventListener("pagehide",()=>{ if(started) save(); });
 window.addEventListener("beforeunload",()=>{ if(started) save(); });
 
 $("actbtn").addEventListener("click",()=>{
+  if(autoRunning){ toast("🤖 The AI decides when to scavenge"); return; }
   if(dead) return;
   if(channel){ cancelChannel("Scavenge cancelled"); refreshAction(); return; }
   if(drop && haversine(playerPos,drop)<=CFG.collectRadius){
@@ -1122,6 +1127,7 @@ function openBase(){
 let baseArm=0;
 $("btnBase").addEventListener("click",()=>{
   if(!playerPos||dead) return;
+  if(autoRunning && !S.base){ toast("🤖 The AI picks its own home"); return; }
   if(!S.base){
     if(gt()-baseArm<4000){ setBaseHere(); baseArm=0; }
     else { baseArm=gt(); toast("Tap 🏕️ again to set your base HERE"); }
@@ -1132,6 +1138,11 @@ $("btnBase").addEventListener("click",()=>{
 
 document.addEventListener("click",e=>{
   const c=e.target.closest("[data-close]"); if(c){ $(c.dataset.close).style.display="none"; return; }
+  const tb0=e.target.closest("[data-tab]");
+  if(autoRunning && !tb0){
+    const blocked=e.target.closest("[data-use],[data-buy],[data-stash],[data-take],[data-stashall],[data-craft],[data-build],[data-wall],[data-repairwall],[data-expand],[data-harvest]");
+    if(blocked){ toast("🤖 Look, don't touch — every move is the AI's call"); return; }
+  }
   const u=e.target.closest("[data-use]"); if(u){ useItem(u.dataset.use); return; }
   const tb=e.target.closest("[data-tab]");
   if(tb){
@@ -1242,7 +1253,10 @@ function addZombie(kind,lat,lng,hp,state,lastSense,noiseTgt){ // builder
            hp:(hp==null?t.hp:hp), maxHp:t.hp, state:state||"wander",
            wp:null, lastSense:lastSense||0, noiseTgt:noiseTgt||null, lastScream:0};
   z.marker=L.marker([z.lat,z.lng],{icon:makeZombIcon(z)}).addTo(map);
-  z.marker.on("click",()=>{ manualTarget=z; toast("Target locked 🧟 · "+Math.round(haversine(playerPos,z))+"m"); });
+  z.marker.on("click",()=>{
+    if(autoRunning){ toast("🧟 "+z.kind+" · "+Math.round(haversine(playerPos,z))+"m"); return; }
+    manualTarget=z; toast("Target locked 🧟 · "+Math.round(haversine(playerPos,z))+"m");
+  });
   zombies.push(z);
   return z;
 }
@@ -1452,6 +1466,11 @@ function addNpc(kind,lat,lng,hp,opts){ // builder
   n.marker=L.marker([lat,lng],{icon:makeNpcIcon(n)}).addTo(map);
   n.marker.on("click",()=>{
     const d=haversine(playerPos,n);
+    if(autoRunning){
+      if(n.kind==="merchant" && d<=CFG.collectRadius){ renderTrade(); $("trade").style.display="flex"; return; } // browse the shop, buys are blocked
+      toast((n.kind==="hostile"?"✖ hostile ("+npcWeaponStats(n).name+")":n.kind==="merchant"?"🛒 trader":"🧑 survivor")+" · "+Math.round(d)+"m — 🤖 AI's call");
+      return;
+    }
     if(n.kind==="hostile"){ manualTarget=n; toast("Target locked ✖ hostile ("+npcWeaponStats(n).name+") · "+Math.round(d)+"m"); return; }
     if(n.kind==="merchant"){
       if(d<=CFG.collectRadius){ renderTrade(); $("trade").style.display="flex"; }
@@ -1641,8 +1660,9 @@ function cycleWeapon(){
   toast("Weapon: "+w.name+(w.ammo?(" · "+(S.inv[w.ammo]||0)+" rounds"):(w.type==="melee"&&w.id!=="fists"?(" · "+durLeft(w.id)+" uses left"):"")));
   save(); updateCombatBtns();
 }
-$("wpnbtn").addEventListener("click",cycleWeapon);
+$("wpnbtn").addEventListener("click",()=>{ if(autoRunning){ toast("🤖 The AI handles its own weapon"); return; } cycleWeapon(); });
 $("drawbtn").addEventListener("click",()=>{
+  if(autoRunning){ toast("🤖 The AI handles its own weapon"); return; }
   drawn=!drawn; updateCombatBtns();
   if(drawn) toast("Weapon out: "+currentWeapon().name);
 });
@@ -1789,44 +1809,38 @@ function autoThreat(){
   for(const n of npcs){ if(n.kind==="hostile"&&n.state==="chase"){ const d=haversine(playerPos,n); if(d<bd){bd=d;best=n;} } }
   return best;
 }
-function autoSpend(){ // "if it can spend, it will"
-  let guard=0, did=true;
-  while(did && guard++<25){
-    did=false;
-    if(!S.base.workbench && canAfford(CFG.base.workbenchCost)){
-      consume(CFG.base.workbenchCost); S.base.workbench=true; grantXp(15); toast("🤖 built the workbench"); did=true; continue; }
-    if(!S.base.garden && canAfford(CFG.base.gardenCost)){
-      consume(CFG.base.gardenCost); S.base.garden=true; S.base.gardenLast=gt(); grantXp(15); toast("🤖 planted a garden"); did=true; continue; }
-    const maxHp=S.base.walls*CFG.base.wallHpPerLevel;
-    if(S.base.walls>0 && S.base.wallHp<maxHp && have("barricade")>0){
-      consume({barricade:1}); S.base.wallHp=Math.min(maxHp,S.base.wallHp+CFG.base.wallHpPerLevel);
-      toast("🤖 repaired the walls"); did=true; continue; }
-    if(S.base.walls<CFG.base.maxWalls && have("barricade")>0){
-      consume({barricade:1}); S.base.walls++;
-      S.base.wallHp=Math.min(S.base.walls*CFG.base.wallHpPerLevel, S.base.wallHp+CFG.base.wallHpPerLevel);
-      grantXp(10); toast("🤖 raised the walls to "+S.base.walls); did=true; continue; }
-    const exp=S.base.expand||0;
-    if(exp<CFG.base.radii.length-1 && canAfford(CFG.base.expandCosts[exp])){
-      consume(CFG.base.expandCosts[exp]); S.base.expand=exp+1; drawBase(); grantXp(20);
-      toast("🤖 expanded the perimeter to "+baseRadius()+"m"); did=true; continue; }
-    const pend=gardenPending();
-    if(pend>0){ S.inv.produce=(S.inv.produce||0)+pend; S.base.gardenLast=gt(); toast("🤖 harvested 🥕 ×"+pend); did=true; continue; }
-    for(const [rid,r] of Object.entries(RECIPES)){
-      if(r.bench&&!S.base.workbench) continue;
-      if(canAfford(r.cost)){
-        consume(r.cost);
-        for(const [id,n] of Object.entries(r.out)) S.inv[id]=(S.inv[id]||0)+n;
-        grantXp(8); toast("🤖 crafted "+r.name); did=true; break;
-      }
-    }
+function autoSpendOne(){ // nothing -> leave; one option -> do it; several -> pick ONE at random
+  const acts=[];
+  if(!S.base.workbench && canAfford(CFG.base.workbenchCost))
+    acts.push(["built the workbench",()=>{ consume(CFG.base.workbenchCost); S.base.workbench=true; grantXp(15); }]);
+  if(!S.base.garden && canAfford(CFG.base.gardenCost))
+    acts.push(["planted a garden",()=>{ consume(CFG.base.gardenCost); S.base.garden=true; S.base.gardenLast=gt(); grantXp(15); }]);
+  const maxHp=S.base.walls*CFG.base.wallHpPerLevel;
+  if(S.base.walls>0 && S.base.wallHp<maxHp && have("barricade")>0)
+    acts.push(["repaired the walls",()=>{ consume({barricade:1}); S.base.wallHp=Math.min(maxHp,S.base.wallHp+CFG.base.wallHpPerLevel); }]);
+  if(S.base.walls<CFG.base.maxWalls && have("barricade")>0)
+    acts.push(["raised the walls to "+(S.base.walls+1),()=>{ consume({barricade:1}); S.base.walls++;
+      S.base.wallHp=Math.min(S.base.walls*CFG.base.wallHpPerLevel,S.base.wallHp+CFG.base.wallHpPerLevel); grantXp(10); }]);
+  const exp=S.base.expand||0;
+  if(exp<CFG.base.radii.length-1 && canAfford(CFG.base.expandCosts[exp]))
+    acts.push(["expanded the perimeter",()=>{ consume(CFG.base.expandCosts[exp]); S.base.expand=exp+1; drawBase(); grantXp(20); }]);
+  const pend=gardenPending();
+  if(pend>0) acts.push(["harvested 🥕 ×"+pend,()=>{ S.inv.produce=(S.inv.produce||0)+pend; S.base.gardenLast=gt(); }]);
+  for(const [rid,r] of Object.entries(RECIPES)){
+    if(r.bench&&!S.base.workbench) continue;
+    if(canAfford(r.cost)) acts.push(["crafted "+r.name,()=>{ consume(r.cost);
+      for(const [id,n] of Object.entries(r.out)) S.inv[id]=(S.inv[id]||0)+n; grantXp(8); }]);
+  }
+  if(acts.length){
+    const a=acts[Math.floor(Math.random()*acts.length)];
+    a[1](); toast("🤖 "+a[0]);
   }
   save();
 }
-function autoStash(){ // keep it light enough to keep looting
-  if(invWeight()<=weightCap()*CFG.auto.stashAt) return;
+function autoStash(){ // bank mats in the chest so death can't take them (ammo stays on the body)
   const w=currentWeapon(); let moved=0;
   for(const id of Object.keys(S.inv)){
-    if(!ITEMS[id]||!ITEMS[id].mat||id===w.ammo) continue;
+    if(!ITEMS[id]||!ITEMS[id].mat||ITEMS[id].grant||id===w.ammo) continue;
     moved+=S.inv[id]; S.chest[id]=(S.chest[id]||0)+S.inv[id]; delete S.inv[id];
   }
   if(moved) toast("🤖 stashed "+moved+" materials");
@@ -1846,7 +1860,7 @@ setInterval(()=>{
 setInterval(()=>{
   if(paused()||!autoRunning||!playerPos) return;
   if(dead){ // it even respawns itself
-    if(!AUTO.respT) AUTO.respT=setTimeout(()=>{ AUTO.respT=null; if(dead) $("btnRespawn").click(); },CFG.auto.respawnMs);
+    if(!AUTO.respT) AUTO.respT=setTimeout(()=>{ AUTO.respT=null; if(dead){ AUTO.wantResp=true; $("btnRespawn").click(); } },CFG.auto.respawnMs);
     return;
   }
   const now=gt();
@@ -1899,11 +1913,11 @@ setInterval(()=>{
   }
   // task machine: scavenge LV items -> return -> spend -> repeat
   if(AUTO.task==="return"){
-    if(atBase()){ autoSpend(); autoStash(); AUTO.task="idle"; AUTO.wp=null; }
+    if(atBase()){ autoSpendOne(); autoStash(); AUTO.task="idle"; AUTO.wp=null; }
     else AUTO.wp={lat:S.base.lat,lng:S.base.lng};
     return;
   }
-  if(AUTO.task!=="scavenge"){ AUTO.task="scavenge"; AUTO.quota=Math.max(1,S.level); AUTO.collected=0; }
+  if(AUTO.task!=="scavenge"){ AUTO.task="scavenge"; AUTO.quota=1+Math.floor((S.level-1)/CFG.auto.levelsPerExtraItem); AUTO.collected=0; }
   if(AUTO.collected>=AUTO.quota){ AUTO.task="return"; return; }
   let tgt=null,bd=1e12;
   for(const p of lootPoints){
