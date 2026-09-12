@@ -716,6 +716,9 @@ const nearAnyHouse = r => !!playerPos && houses.some(h => haversine(playerPos, h
 const saveMoney  = () => store.setItem("sc_money", money);
 const saveGarage = () => store.setItem("sc_garage", JSON.stringify(garage));
 const saveCargo  = () => store.setItem("sc_cargo", JSON.stringify(cargo));
+let delivN = parseInt(store.getItem("sc_delivN") || "0", 10); // completed courier runs
+let pkgStash = jparse("sc_pkg", null); // a package resting in the safe
+const savePkg = () => store.setItem("sc_pkg", JSON.stringify(pkgStash));
 
 // ---------- level & health ----------
 let level  = Number(store.getItem("sc_level")  || 1);
@@ -1974,6 +1977,22 @@ document.addEventListener("click", e => {
     if (Math.random() < 0.15 * snitchFactor()) applyHeat(1, "Someone saw the deal go down…");
     else toast(`Moved ${have} for ${fmtMoney(total)}.`);
   }
+  if (t.id === "pkgStashBtn" && cargo && cargo.kind === "package" && !cargo.biz){
+    pkgStash = {n: cargo.n, payout: cargo.payout, dest: cargo.dest};
+    removeDestMarker();
+    cargo = null; saveCargo(); savePkg(); renderCargo();
+    refreshHousePopups();
+    toast("Package in the safe — cops can't take what they can't find.");
+    return;
+  }
+  if (t.id === "pkgTakeBtn" && pkgStash && !cargo){
+    cargo = {kind:"package", n: pkgStash.n, payout: pkgStash.payout, dest: pkgStash.dest};
+    pkgStash = null; savePkg(); saveCargo();
+    addDestMarker(); renderCargo();
+    refreshHousePopups();
+    toast(`Run #${cargo.n} back in hand — ${fmtMoney(cargo.payout)} waiting at the drop.`);
+    return;
+  }
   if (t.id === "stashAllBtn" || t.id === "takeAllBtn"){
     if (!playerPos || (!nearAnyHouse(CFG.safeRadius) && !nearAnyBiz(BIZ_RANGE))) return;
     const [from, to] = t.id === "stashAllBtn" ? [onDrugs, stash] : [stash, onDrugs];
@@ -2057,7 +2076,12 @@ function garageHtml(){
   return `<b>Safehouse garage</b> <span style="font-size:11px;color:#7a877a">${capLine}</span><br>${carRows}${sellBtn}
     <hr style="border-color:#232b23;margin:8px 0"><b>Stash</b><br>${stashRows}<br>
     <button id="stashAllBtn" ${canStash?"":"disabled"} style="${btnCss(canStash)}">STASH ALL</button>
-    <button id="takeAllBtn" ${canTake?"":"disabled"} style="${btnCss(canTake)}">TAKE ALL</button>`;
+    <button id="takeAllBtn" ${canTake?"":"disabled"} style="${btnCss(canTake)}">TAKE ALL</button>
+    ${cargo && cargo.kind === "package" && !cargo.biz
+      ? `<br><button id="pkgStashBtn" style="${btnCss(true)}">🔒 STASH PACKAGE</button>`
+      : pkgStash
+      ? `<br><button id="pkgTakeBtn" style="${btnCss(!cargo)}" ${cargo?"disabled":""}>📦 TAKE PACKAGE (${fmtMoney(pkgStash.payout)})</button>`
+      : ""}`;
 }
 
 document.addEventListener("click", e => {
@@ -2104,10 +2128,29 @@ function storeCar(){
   toast("Car stashed — let the heat die before you sell.");
 }
 
+async function snapFarDest(){
+  if (!cargo || cargo.kind !== "package" || cargo.biz) return;
+  const c = cargo.dest;
+  try {
+    const q = `[out:json][timeout:10];way[highway](around:1800,${c.lat},${c.lng});out geom 1;`;
+    const r = await fetch(OVERPASS[opIdx], {method:"POST", body:"data=" + encodeURIComponent(q)});
+    const j = await r.json();
+    const w = (j.elements || []).find(e2 => e2.geometry && e2.geometry.length);
+    if (w && cargo && cargo.kind === "package" && !cargo.biz){
+      const g = w.geometry[Math.floor(w.geometry.length / 2)];
+      cargo.dest = {lat: g.lat, lng: g.lon};
+      cargo.payout = Math.round((60 + haversine(playerPos, cargo.dest) * 0.35) * payMult());
+      saveCargo();
+      removeDestMarker(); addDestMarker(); renderCargo();
+    }
+  } catch(e){} // raw pin stands — roads load around you as you approach anyway
+}
+
 function deliverPackage(){
   money += cargo.payout; saveMoney(); renderMoney(true); showGain(cargo.payout);
   addXp(cargo.payout);
   const wasBiz = cargo.biz;
+  if (!wasBiz){ delivN++; store.setItem("sc_delivN", String(delivN)); } // the ladder climbs
   removeDestMarker();
   cargo = null; saveCargo(); renderCargo();
   toast(wasBiz ? "Product moved — that's how the business eats." : "Package delivered, no questions asked.");
@@ -2366,13 +2409,20 @@ setInterval(() => {
       saveCargo(); renderCargo();
       toast(`${c.name} boosted — get it home!`);
     } else {
-      const dp = roadSpot(playerPos, CFG.packDestMin, CFG.packDestMax);
+      // courier ladder: run #n reaches 0.1n to 1n miles out. Run 1: down the
+      // street. Run 100: 10–100 MILES. Pay rides the odometer.
+      const nth = delivN + 1;
+      const minM = 160.9 * nth, maxM = 1609.3 * nth;
+      let dp = offsetPoint(playerPos.lat, playerPos.lng,
+        minM + Math.random() * (maxM - minM), Math.random() * Math.PI * 2);
+      if (haversine(playerPos, dp) < 2600) dp = roadSpot(dp, 0, 180); // local: snap now
       const d = haversine(playerPos, dp);
-      cargo = {kind:"package", payout: Math.round((40 + d*CFG.packPayoutPerMeter) * payMult()),
+      cargo = {kind:"package", n: nth, payout: Math.round((60 + d*0.35) * payMult()),
                dest:{lat:dp.lat, lng:dp.lng}};
       addDestMarker();
       saveCargo(); renderCargo();
-      toast(`Drop-off marked — ${fmtMoney(cargo.payout)} on delivery.`);
+      if (d >= 2600) snapFarDest(); // far country: pull that area's roads, snap the pin
+      toast(`Run #${nth}: ${(d/1609.3).toFixed(1)} miles out — ${fmtMoney(cargo.payout)} on delivery.`);
     }
     j.cooldownUntil = gt() + CFG.cooldownMs;
     setTimeout(update, CFG.cooldownMs + 500);
@@ -4213,23 +4263,58 @@ function nearestRoadNode(p, maxD){
   }
   return best;
 }
+// routing is the most expensive thing in the game — budgeted per tick so a
+// town full of AIs can never peg the phone and freeze the world
+let routeBucket = -1, routeSpent = 0;
 function roadRoute(from, to){
   if (!roadG) return null;
+  const bucket = Math.floor(gt() / 400);
+  if (bucket !== routeBucket){ routeBucket = bucket; routeSpent = 0; }
+  if (routeSpent >= 3) return undefined; // busy — caller keeps its old route, retries next tick
+  routeSpent++;
   const a = nearestRoadNode(from), z = nearestRoadNode(to);
   if (!a || !z || a === z) return null;
   const zP = roadG.nodes.get(z);
   const h = id => haversine(roadG.nodes.get(id), zP);
-  const open = new Map([[a, 0]]), came = new Map(), g = new Map([[a, 0]]), f = new Map([[a, h(a)]]);
-  let guard = 0;
-  while (open.size && guard++ < 25000){
-    let cur = null, cf = Infinity;
-    for (const [id] of open){ const v = f.get(id) ?? Infinity; if (v < cf){ cf = v; cur = id; } }
+  const g = new Map([[a, 0]]), came = new Map(), done = new Set();
+  const heap = [[h(a), a]];
+  const hpush = it => {
+    heap.push(it);
+    let i = heap.length - 1;
+    while (i > 0){
+      const p = (i - 1) >> 1;
+      if (heap[p][0] <= heap[i][0]) break;
+      const t = heap[p]; heap[p] = heap[i]; heap[i] = t; i = p;
+    }
+  };
+  const hpop = () => {
+    const top = heap[0], last = heap.pop();
+    if (heap.length){
+      heap[0] = last;
+      let i = 0;
+      for (;;){
+        const l = 2*i + 1, r = l + 1;
+        let s = i;
+        if (l < heap.length && heap[l][0] < heap[s][0]) s = l;
+        if (r < heap.length && heap[r][0] < heap[s][0]) s = r;
+        if (s === i) break;
+        const t = heap[s]; heap[s] = heap[i]; heap[i] = t; i = s;
+      }
+    }
+    return top;
+  };
+  let pops = 0;
+  while (heap.length && pops++ < 6000){
+    const cur = hpop()[1];
     if (cur === z) break;
-    open.delete(cur);
+    if (done.has(cur)) continue;
+    done.add(cur);
     for (const e of roadG.adj.get(cur) || []){
+      if (done.has(e.id)) continue;
       const ng = g.get(cur) + e.d;
       if (ng < (g.get(e.id) ?? Infinity)){
-        came.set(e.id, cur); g.set(e.id, ng); f.set(e.id, ng + h(e.id)); open.set(e.id, ng);
+        came.set(e.id, cur); g.set(e.id, ng);
+        hpush([ng + h(e.id), e.id]);
       }
     }
   }
@@ -4303,9 +4388,12 @@ function npcRoadStep(n, dest, dtSec){
   let wp = dest, onRoad = false, routeDone = false, noRoute = false;
   if (roadG && d > 60){
     const key = Math.round(dest.lat * 1e4) + "," + Math.round(dest.lng * 1e4);
-    if (!n.route || n.route.key !== key){
+    if ((!n.route || n.route.key !== key) && (!n.route || gt() >= (n.routeCd || 0))){
       const pts = roadRoute(n, dest);
-      n.route = {key, pts, i: pts ? routeAnchor(n, pts) : 0};
+      if (pts !== undefined){ // undefined = routing lane busy; keep the old route a beat
+        n.route = {key, pts, i: pts ? routeAnchor(n, pts) : 0};
+        n.routeCd = gt() + 2500;
+      }
     }
     if (n.route.pts){
       while (n.route.i < n.route.pts.length
@@ -4347,7 +4435,7 @@ function rollNpcWeapon(n){
 }
 
 // your WALK/RUN/BIKE/CAR presets are the AI's gas pedal
-let aiRoute = null;
+let aiRoute = null, aiRouteCd = 0;
 let aiPace = {road: 20, off: 3, at: 0};
 function rollAiPace(){
   aiPace = {road:(1 + Math.random()*99)*0.447, off:(1 + Math.random()*9)*0.447,
@@ -4361,9 +4449,12 @@ function aiMoveToward(dest, stopAt){
   let wp = dest, onRoad = false, routeDone = false, noRoute = false;
   if (roadG && d > 60){
     const key = Math.round(dest.lat * 1e4) + "," + Math.round(dest.lng * 1e4);
-    if (!aiRoute || aiRoute.key !== key){
+    if ((!aiRoute || aiRoute.key !== key) && (!aiRoute || gt() >= aiRouteCd)){
       const pts = roadRoute(playerPos, dest);
-      aiRoute = {key, pts, i: pts ? routeAnchor(playerPos, pts) : 0};
+      if (pts !== undefined){
+        aiRoute = {key, pts, i: pts ? routeAnchor(playerPos, pts) : 0};
+        aiRouteCd = gt() + 2500;
+      }
     }
     if (aiRoute.pts){
       while (aiRoute.i < aiRoute.pts.length
@@ -4537,6 +4628,9 @@ setInterval(() => {
   }
 
   aiFlee = null; // clean again — next flee picks fresh
+  // carrying a package? deliver it NOW — simple, like the man said
+  if ((!aiTask || aiTask.kind !== "deliver") && cargo && cargo.kind === "package" && cargo.dest)
+    aiTask = {kind:"deliver", at: cargo.dest, say: "running delivery #" + (cargo.n || "")};
   if (!aiTask) aiTask = aiPickTask();
   if (aiTask) aiRunTask();
 
