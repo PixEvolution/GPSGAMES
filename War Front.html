@@ -309,6 +309,7 @@
 
 <div id="gpsChip" class="hud">GPS —</div>
 <div id="freeOpsBadge" style="position:fixed; z-index:12; top:calc(84px + env(safe-area-inset-top)); left:8px; display:none; background:#3a2410; border:1px solid #b8863a; color:#f0cc84; border-radius:6px; padding:5px 9px; font-size:10px; font-weight:800; letter-spacing:0.08em;">⚠ FREE OPS — DEV GODMODE ON</div>
+<div id="autoBadge" style="position:fixed; z-index:12; top:calc(112px + env(safe-area-inset-top)); left:8px; display:none; background:#14262c; border:1px solid #5a8a9a; color:#a8d8e8; border-radius:6px; padding:5px 9px; font-size:10px; font-weight:800; letter-spacing:0.08em;">⏵ AUTO COMMAND</div>
 <div id="waveChip" class="hud"></div>
 
 <div id="camCol" class="hud">
@@ -362,6 +363,7 @@
 <div id="cornerCol" class="hud">
   <div id="sysMenu" style="display:none; flex-direction:column; gap:6px; margin-bottom:6px;">
     <button id="devBtn" class="btn">DEV</button>
+    <button id="autoBtn" class="btn">AUTO: OFF</button>
     <button id="copySaveBtn" class="btn">📋 COPY SAVE</button>
     <button id="loadSaveBtn" class="btn">📥 LOAD SAVE</button>
     <button id="resetBtn" class="btn danger">RESET</button>
@@ -520,6 +522,13 @@
    ===================================================================== */
 
 /* ============ CFG ============ */
+/* SCALE DOCTRINE: nothing in this file assumes a neighborhood. All distances
+   are real meters on a real globe (haversine), all pacing lives in these
+   tables, and the wave/bomb tables extend past their last row by design (the
+   highest row <= level applies — add lvl 15, 20, 50 rows and the war keeps
+   growing). The long game: enemy OUTPOSTS and captured towns (post-v1) turn
+   single-front defense into multi-front campaigns; nothing here caps a save
+   from eventually fighting at city, state, or planet scale. */
 const CFG = {
   saveVersion: 10,
   devCode: "1944",
@@ -856,6 +865,10 @@ const S = (() => {
 })();
 
 /* ============ GAME CLOCK ============ */
+/* SAVE SLOTS: the real war lives in wf_*; AUTO COMMAND runs a completely
+   separate war in wf_auto_* — an idle demo can never touch your save. */
+let saveSlot = "wf_";
+const K = { world: () => saveSlot + "world", gt: () => saveSlot + "gt", v: () => saveSlot + "v" };
 let gameTime = parseInt(S.get("wf_gt") || "0", 10) || 0;
 let started = false;
 const gt = () => gameTime;
@@ -868,21 +881,21 @@ setInterval(() => {
 
 /* ============ persistence ============ */
 function migrateSave() {
-  const v = parseInt(S.get("wf_v") || "0", 10) || 0;
+  const v = parseInt(S.get(K.v()) || "0", 10) || 0;
   if (v === 0) { /* fresh install */ }
   /* v4 -> v5: world.player / world.war / world.enemies are defaulted in
      restoreWorld — no storage rewrite needed. */
-  S.set("wf_v", String(CFG.saveVersion));
+  S.set(K.v(), String(CFG.saveVersion));
 }
 function saveWorld() {
   if (!world) return;
   world.camMode = camMode;
-  S.set("wf_gt", String(gameTime));
-  S.set("wf_world", JSON.stringify(world));
+  S.set(K.gt(), String(gameTime));
+  S.set(K.world(), JSON.stringify(world));
 }
 function loadWorld() {
   try {
-    const raw = S.get("wf_world");
+    const raw = S.get(K.world());
     return raw ? JSON.parse(raw) : null;
   } catch (e) { return null; }
 }
@@ -1343,6 +1356,7 @@ function spawnWave(comp, isScouts) {
     world.war.waveActive = true;
     world.war.waveNum = (world.war.waveNum || 0) + 1;
     const tier = intelTier();
+    if (tier >= 2) world.war.lastSeenBearing = bearing;
     if (tier >= 3)      { sfx("horn"); toast("FIELD INTEL — a " + world.enemyName + " convoy has departed: " + compDesc(comp) + ", approaching from the " + compass(bearing) + ". You have time — use it.", true); }
     else if (tier >= 2) { sfx("horn"); toast("RADAR CONTACT — a " + world.enemyName + " convoy is on the move, bearing " + compass(bearing) + ". Composition unknown.", true); }
     // no intel: silence — you find out when they get close (or you spot them)
@@ -1412,8 +1426,9 @@ setInterval(() => {
         const near = world.enemies.find(e => !e.scout && haversine({ lat: e.lat, lng: e.lng }, { lat: cc0.lat, lng: cc0.lng }) < 900);
         if (near) {
           war.spotted = true;
+          war.lastSeenBearing = bearingBetween({ lat: cc0.lat, lng: cc0.lng }, { lat: near.lat, lng: near.lng });
           sfx("horn");
-          toast(world.enemyName + " forces spotted approaching from the " + compass(bearingBetween({ lat: cc0.lat, lng: cc0.lng }, { lat: near.lat, lng: near.lng })) + "!", true);
+          toast(world.enemyName + " forces spotted approaching from the " + compass(war.lastSeenBearing) + "!", true);
         }
       }
     }
@@ -1900,6 +1915,14 @@ function spawnCache() {
 
 /* ============ restoreWorld ============ */
 function restoreWorld(saved) {
+  // callers may hand us a raw save; alias the entity arrays into snapshot form
+  if (!saved._bSnapshot) {
+    saved._bSnapshot = saved.buildings || [];
+    saved._uSnapshot = saved.units || [];
+    saved._eSnapshot = saved.enemies || [];
+    saved._sSnapshot = saved.scorch || [];
+    saved._cSnapshot = saved.caches || [];
+  }
   world = saved;
   world.nextId = saved.nextId || 50;
   world.xp = saved.xp || 0;
@@ -1909,6 +1932,7 @@ function restoreWorld(saved) {
   world.log = saved.log || [];
   world.msgTier = saved.msgTier || 1;
   world.tut = (saved.tut === undefined) ? -1 : saved.tut;
+  world.auto = !!saved.auto;
   world.buildings = [];
   world.units = [];
   world.enemies = [];
@@ -2176,6 +2200,7 @@ $("placeConfirm").addEventListener("click", () => {
         war: null,
         msgTier: 1,
         tut: tutEnabled ? 0 : -1,
+        auto: false,
         camMode: camMode,
       };
       initWar();
@@ -3187,6 +3212,52 @@ setInterval(() => {
 }, CFG.progressMs);
 
 /* ============ COMBAT + UNIT + ENEMY AI — one combined pass ============ */
+/* navStep: movement with terrain awareness.
+   mode "hard" (vehicles): unrepaired scorched ground is IMPASSABLE — the unit
+   steers around the crater field via tangent detours. Blast a road, and the
+   convoys must find another way.
+   mode "soft" (infantry/feet): crossable, but at half speed — rough ground.
+   mode undefined: plain movement (player, projectiles). */
+function navStep(u, target, dtMs, speedMps, mode) {
+  if (!mode || !world || !world.scorch.length) return stepToward(u, target, dtMs, speedMps);
+  const here = { lat: u.lat, lng: u.lng };
+  if (mode === "soft") {
+    const rough = world.scorch.some(sc => haversine(here, { lat: sc.lat, lng: sc.lng }) <= sc.r);
+    return stepToward(u, target, dtMs, speedMps * (rough ? 0.5 : 1));
+  }
+  // hard: find the nearest crater intersecting our path within lookahead
+  const pad = 10, look = Math.min(haversine(here, target), 220);
+  const brgD = bearingBetween(here, target);
+  let blk = null;
+  world.scorch.forEach(sc => {
+    const c = { lat: sc.lat, lng: sc.lng }, r = sc.r + pad;
+    const dC = haversine(here, c);
+    if (dC > look + r) return;
+    const dAng = ((bearingBetween(here, c) - brgD + 540) % 360) - 180;
+    const along = dC * Math.cos(dAng * Math.PI / 180);
+    if (along < -r || along > look + r) return;
+    if (Math.abs(dC * Math.sin(dAng * Math.PI / 180)) > r) return;
+    if (!blk || dC < blk.dC) blk = { c, r, dC };
+  });
+  if (!blk) return stepToward(u, target, dtMs, speedMps);
+  const step = speedMps * dtMs / 1000;
+  if (blk.dC <= blk.r) {           // spawned/pushed inside: back straight out
+    const out = offsetPoint(u.lat, u.lng, step, bearingBetween(blk.c, here));
+    u.lat = out.lat; u.lng = out.lng;
+    return false;
+  }
+  // steer to the tangent on whichever side is closer to the destination bearing
+  const skirt = Math.asin(Math.min(1, blk.r / blk.dC)) * 180 / Math.PI + 14;
+  const brgC = bearingBetween(here, blk.c);
+  const side = (((brgD - brgC + 540) % 360) - 180) >= 0 ? 1 : -1;
+  const np = offsetPoint(u.lat, u.lng, step, (brgC + side * skirt + 360) % 360);
+  u.lat = np.lat; u.lng = np.lng;
+  return false;
+}
+function uStep(u, target, dtMs, speedMps) {
+  const m = CFG.units[u.kind];
+  return navStep(u, target, dtMs, speedMps, m && m.vehicle ? "hard" : "soft");
+}
 function stepToward(u, target, dtMs, speedMps) {
   const here = { lat: u.lat, lng: u.lng };
   const dist = haversine(here, target);
@@ -3298,7 +3369,7 @@ setInterval(() => {
     switch (u.state) {
       case "MOVE": {
         if (!u.target) { u.state = meta.combat ? "GUARD" : "IDLE"; break; }
-        if (stepToward(u, u.target, dt, unitSpeed(u))) {
+        if (uStep(u, u.target, dt, unitSpeed(u))) {
           u.post = { lat: u.lat, lng: u.lng };
           u.target = null;
           u.state = meta.combat ? "GUARD" : "IDLE";
@@ -3311,8 +3382,8 @@ setInterval(() => {
         if (u.errand.type === "order") {
           // field orders chase the units themselves — deliver on approach
           if (haversine({ lat: u.lat, lng: u.lng }, dest) <= 25) { executeErrand(entry); break; }
-          stepToward(u, dest, dt, unitSpeed(u));
-        } else if (stepToward(u, dest, dt, unitSpeed(u))) executeErrand(entry);
+          uStep(u, dest, dt, unitSpeed(u));
+        } else if (uStep(u, dest, dt, unitSpeed(u))) executeErrand(entry);
         break;
       }
       case "FETCH": {  // sent to retrieve a supply cache
@@ -3331,7 +3402,7 @@ setInterval(() => {
           pickupCache(ce, u);
           u.cacheId = null; u.state = "RETURN"; u.target = null;
         } else {
-          stepToward(u, cp, dt, unitSpeed(u));
+          uStep(u, cp, dt, unitSpeed(u));
         }
         break;
       }
@@ -3353,7 +3424,7 @@ setInterval(() => {
           }
         }
         if (haversine({ lat: u.lat, lng: u.lng }, tp) > CFG.escortFollowDist) {
-          stepToward(u, offsetPoint(tp.lat, tp.lng, CFG.escortFollowDist * 0.7, rand(0, 360)), dt, meta.speed);
+          uStep(u, offsetPoint(tp.lat, tp.lng, CFG.escortFollowDist * 0.7, rand(0, 360)), dt, meta.speed);
         }
         break;
       }
@@ -3370,7 +3441,7 @@ setInterval(() => {
           }
         }
         if (u.target) {
-          if (stepToward(u, u.target, dt, meta.speed * CFG.wanderSpeedMult)) u.target = null;
+          if (uStep(u, u.target, dt, meta.speed * CFG.wanderSpeedMult)) u.target = null;
         } else if (Math.random() < CFG.wanderChance) {
           u.target = scatter(u.post, CFG.guardLeash * 0.8);
         }
@@ -3381,7 +3452,7 @@ setInterval(() => {
         if (!te) { u.enemyId = null; u.state = "GUARD"; u.post = { lat: u.lat, lng: u.lng }; break; }
         const dist = haversine({ lat: u.lat, lng: u.lng }, { lat: te.data.lat, lng: te.data.lng });
         if (dist > meta.range) {
-          stepToward(u, { lat: te.data.lat, lng: te.data.lng }, dt, meta.speed);
+          uStep(u, { lat: te.data.lat, lng: te.data.lng }, dt, meta.speed);
         } else if (now >= entry.nextShotGt) {
           entry.nextShotGt = now + meta.rofMs;
           fireAtEnemy(entry, meta, te);
@@ -3390,7 +3461,7 @@ setInterval(() => {
       }
       case "FLEE": {
         if (!u.target) { u.state = CFG.units[u.kind].combat ? "GUARD" : "IDLE"; u.post = { lat: u.lat, lng: u.lng }; break; }
-        if (stepToward(u, u.target, dt, unitSpeed(u) * 1.15)) {
+        if (uStep(u, u.target, dt, unitSpeed(u) * 1.15)) {
           u.target = null;
           if (!CFG.units[u.kind].combat) {
             const still = nearestEnemyTo({ lat: u.lat, lng: u.lng }, CFG.builderSafeDist);
@@ -3419,7 +3490,7 @@ setInterval(() => {
           entry.marker.remove();     // hidden while aboard
           refreshUnitMarker(hv);
         } else {
-          stepToward(u, hvPos, dt, meta.speed);
+          uStep(u, hvPos, dt, meta.speed);
         }
         break;
       }
@@ -3432,7 +3503,7 @@ setInterval(() => {
       case "TOFETCH": { // supply truck en route to a cache
         const c = live.caches.find(x => x.data.id === u.cacheId);
         if (!c) { u.cacheId = null; u.state = "RETURN"; u.target = { lat: u.post.lat, lng: u.post.lng }; break; }
-        if (stepToward(u, { lat: c.data.lat, lng: c.data.lng }, dt, meta.speed)) {
+        if (uStep(u, { lat: c.data.lat, lng: c.data.lng }, dt, meta.speed)) {
           pickupCache(c, u);
           u.cacheId = null;
           u.state = "RETURN";
@@ -3454,12 +3525,12 @@ setInterval(() => {
           if (!bank) { u.state = meta.combat ? "GUARD" : "IDLE"; u.post = { lat: u.lat, lng: u.lng }; break; }
           const bp = { lat: bank.lat, lng: bank.lng };
           if (haversine({ lat: u.lat, lng: u.lng }, bp) <= bldFoot(bank) + 6) bankCarry(entry);
-          else stepToward(u, bp, dt, unitSpeed(u));
+          else uStep(u, bp, dt, unitSpeed(u));
           break;
         }
         if (u.kind === "struck") {
           if (!u.target) u.target = { lat: u.post.lat, lng: u.post.lng };
-          if (stepToward(u, u.target, dt, meta.speed)) { u.target = null; u.state = "IDLE"; }
+          if (uStep(u, u.target, dt, meta.speed)) { u.target = null; u.state = "IDLE"; }
         } else {
           u.state = meta.combat ? "GUARD" : "IDLE";
           u.post = { lat: u.lat, lng: u.lng };
@@ -3486,7 +3557,7 @@ setInterval(() => {
           if (bestC) { u.cacheId = bestC.data.id; u.state = "TOFETCH"; break; }
         }
         if (u.target) {
-          if (stepToward(u, u.target, dt, meta.speed * CFG.wanderSpeedMult)) u.target = null;
+          if (uStep(u, u.target, dt, meta.speed * CFG.wanderSpeedMult)) u.target = null;
         } else if (Math.random() < CFG.wanderChance) {
           u.target = scatter(u.post, CFG.guardLeash * 0.6);
         }
@@ -3496,7 +3567,7 @@ setInterval(() => {
         const info = taskLookup(u.task);
         if (!info || !info.needs) { u.task = null; u.target = null; u.state = "IDLE"; break; }
         if (!u.target) u.target = { lat: info.lat, lng: info.lng };
-        if (stepToward(u, u.target, dt, meta.speed)) {
+        if (uStep(u, u.target, dt, meta.speed)) {
           u.target = null;
           u.state = "WORK";
         }
@@ -3532,7 +3603,7 @@ setInterval(() => {
         else { damageBuilding(tgt.t.entry, meta.dmgBld, from); if (!started) return; }
       }
     } else {
-      stepToward(d, tgt.t.pos, dt, meta.speed);
+      navStep(d, tgt.t.pos, dt, meta.speed, meta.vehicle ? "hard" : "soft");
     }
     entry.marker.setLatLng([d.lat, d.lng]);
    } catch(e) { logErr("enemy AI", e); }
@@ -3889,6 +3960,230 @@ $("tutSkip").addEventListener("click", () => {
   $("tutCard").style.display = "none";
   toast("Field manual closed. It stays off for this war.");
   saveWorld();
+});
+
+/* =====================================================================
+   AUTO COMMAND — an AI commander that plays through the SAME systems the
+   player uses: presence gates, runners, cash, caps, everything. Weighted
+   random doctrine, so no two runs play alike. Demo / idle / soak-tester.
+   ===================================================================== */
+function countB(kind) { return world.buildings.filter(b => b.kind === kind && !b.rubble).length; }
+function countU(kind) { return world.units.filter(u => u.kind === kind).length; }
+function bldEntryOf(kind) { return live.buildings.find(e => e.data.kind === kind && !e.data.rubble && e.data.progress >= 1); }
+function autoPlace(kind) {
+  const ccE = live.buildings.find(e => e.data.kind === "cc");
+  if (!ccE) return false;
+  const cc = ccE.data, R = ccBuildRadius(cc);
+  for (let i = 0; i < 8; i++) {
+    const pos = offsetPoint(cc.lat, cc.lng, rand(45, R - 25), rand(0, 360));
+    const res = checkPlacement(kind, pos);
+    if (!res.ok) continue;
+    const meta = CFG.buildings[kind];
+    if (res.viaMessenger) {
+      const m = nearestIdleMessenger(pos);
+      if (!m) return false;
+      world.cash -= meta.cost;
+      refreshHud();
+      sendErrand(m, { type: "place", kind, lat: pos.lat, lng: pos.lng, paid: meta.cost });
+    } else {
+      world.cash -= meta.cost;
+      live.buildings.push(buildBuilding({
+        id: newId("b"), kind, tier: 1, lat: pos.lat, lng: pos.lng,
+        hp: meta.hp, maxHp: meta.hp, progress: 0,
+      }));
+      refreshHud(); saveWorld();
+      toast("AUTO: founding a " + meta.name + ".");
+    }
+    return true;
+  }
+  return false;
+}
+function autoTryTrain(bldKind, unitKind) {
+  const e = bldEntryOf(bldKind);
+  if (!e) return false;
+  if ((e.data.queue || []).length >= 2) return false;
+  const before = world.cash;
+  queueTrain(e, unitKind);
+  return world.cash < before;   // paid = accepted (direct or by runner)
+}
+function autoDecide() {
+  const cc = bldEntryOf("cc");
+  if (!cc) return;
+  const lvl = world.level, cash = world.cash;
+  const acts = [];
+
+  // --- bootstrap: hands and voices first ---
+  if (builderCount() < 2 && cash >= CFG.units.builder.cost) acts.push(["bldr", 10, () => {
+    if (!autoTryTrain("cc", "builder") && builderCount() === 0 && countU("messenger") === 0) {
+      // dead-cold bootstrap: the post's survivors act on standing orders
+      if (world.cash >= CFG.units.builder.cost && cc.data.queue.length < CFG.queueCap) {
+        world.cash -= CFG.units.builder.cost;
+        cc.data.queue.push({ kind: "builder", remainMs: CFG.units.builder.trainMin * 60000 });
+      }
+    }
+  }]);
+  if (!hasRadar() && countU("messenger") < 2 && cash >= CFG.units.messenger.cost) acts.push(["msgr", 9, () => autoTryTrain("cc", "messenger")]);
+
+  // --- economy & tech, with random appetite ---
+  if (countB("depot") < 1 + Math.floor(lvl / 3) && cash >= CFG.buildings.depot.cost) acts.push(["depot", 8, () => autoPlace("depot")]);
+  if (countB("barracks") < 1 && cash >= CFG.buildings.barracks.cost) acts.push(["brk", 8, () => autoPlace("barracks")]);
+  if (countB("watchtower") < Math.min(4, 1 + Math.floor(lvl / 3)) && cash >= CFG.buildings.watchtower.cost) acts.push(["twr", 6, () => autoPlace("watchtower")]);
+  if (countB("warfactory") < 1 && lvl >= 2 && cash >= CFG.buildings.warfactory.cost + 200) acts.push(["wf", 5, () => autoPlace("warfactory")]);
+  if (countB("radar") < 1 && bldEntryOf("warfactory") && cash >= CFG.buildings.radar.cost + 150) acts.push(["radar", 7, () => autoPlace("radar")]);
+  if (countB("repairyard") < 1 && lvl >= 3 && cash >= CFG.buildings.repairyard.cost + 300 && Math.random() < 0.5) acts.push(["ry", 3, () => autoPlace("repairyard")]);
+
+  // --- force generation ---
+  const rifles = countU("rifleman");
+  if (rifles < Math.min(2 + lvl, 10) && cash >= CFG.units.rifleman.cost) acts.push(["rifle", 7, () => autoTryTrain("barracks", "rifleman")]);
+  if (lvl >= 4 && countU("rocket") < Math.floor(rifles / 3) && cash >= CFG.units.rocket.cost) acts.push(["rkt", 5, () => autoTryTrain("barracks", "rocket")]);
+  if (bldEntryOf("warfactory") && cash > 1400 && countU("humvee") < 2 && Math.random() < 0.4) acts.push(["hv", 3, () => autoTryTrain("warfactory", "humvee")]);
+  if (bldEntryOf("warfactory") && cash > 2200 && countU("tank") < 2 && Math.random() < 0.3) acts.push(["tank", 3, () => autoTryTrain("warfactory", "tank")]);
+  if (countB("depot") >= 2 && countU("struck") < 1 && cash >= CFG.units.struck.cost + 200 && Math.random() < 0.5) acts.push(["trk", 2, () => autoTryTrain("warfactory", "struck")]);
+  if (cc.data.tier >= 3 && !hasGeneral() && cash >= CFG.units.general.cost + 300) acts.push(["gen", 4, () => autoTryTrain("cc", "general")]);
+
+  // --- upgrades ---
+  const nt = CFG.buildings.cc.tiers && CFG.buildings.cc.tiers[cc.data.tier + 1];
+  if (nt && cash > nt.cost * 1.6 && Math.random() < 0.35) acts.push(["ccup", 4, () => startUpgrade(cc)]);
+  const mt = CFG.msgTiers[(world.msgTier || 1) + 1];
+  if (mt && cash > mt.cost * 2 && Math.random() < 0.25) acts.push(["msgup", 2, () => {
+    if (canTrainAt(cc.data)) { world.cash -= mt.cost; applyMsgUpgrade(); refreshHud(); saveWorld(); }
+    else { const m = nearestIdleMessenger({ lat: cc.data.lat, lng: cc.data.lng }); if (m) { world.cash -= mt.cost; refreshHud(); sendErrand(m, { type: "msgup", bldId: cc.data.id, paid: mt.cost, toTier: (world.msgTier || 1) + 1 }); } }
+  }]);
+  live.buildings.forEach(e => {
+    const d = e.data, m = CFG.buildings[d.kind];
+    if (m.tiers && m.tiers[d.tier + 1] && d.kind === "watchtower" && d.progress >= 1 && !d.rubble && !d.upgrading &&
+        cash > m.tiers[d.tier + 1].cost * 1.8 && Math.random() < 0.2) acts.push(["twrup", 2, () => startUpgrade(e)]);
+  });
+
+  // --- keep the base standing ---
+  live.buildings.forEach(e => {
+    const d = e.data, m = CFG.buildings[d.kind];
+    if (!d.rubble && d.progress >= 1 && !d.upgrading && !d.repairing && d.hp < d.maxHp * 0.8) {
+      const rCost = Math.max(10, Math.ceil((1 - d.hp / d.maxHp) * (m.cost || 500) * CFG.repairCostFactor));
+      if (cash >= rCost && Math.random() < 0.7) acts.push(["fix", 6, () => {
+        world.cash -= rCost; d.repairing = true; refreshHud(); saveWorld();
+      }]);
+    }
+    if (d.rubble && !d.clearing && d.kind !== "cc") {
+      const clr = Math.ceil((m.cost || 500) * CFG.rubbleClearCostPct);
+      if (cash >= clr && Math.random() < 0.4) acts.push(["clr", 3, () => {
+        world.cash -= clr; d.clearing = true; d.progress = 0; refreshBldMarker(e); refreshHud(); saveWorld();
+      }]);
+    }
+  });
+  // roads matter now: repair scorch near the base so vehicles can move
+  live.scorch.forEach(e => {
+    const sc = e.data;
+    if (sc.repairing) return;
+    const nearBase = haversine({ lat: sc.lat, lng: sc.lng }, { lat: cc.data.lat, lng: cc.data.lng }) < 350;
+    const cost = scorchRepairCost(sc);
+    if (nearBase && cash >= cost + 200 && Math.random() < 0.4) acts.push(["land", 3, () => {
+      world.cash -= cost; sc.repairing = true; sc.progress = 0; refreshHud(); saveWorld();
+    }]);
+  });
+
+  // --- fight the war ---
+  const threat = world.enemies.length ? live.enemies[0] : null;
+  if (threat && (world.war.spotted || intelTier() >= 2 || haversine({ lat: threat.data.lat, lng: threat.data.lng }, { lat: cc.data.lat, lng: cc.data.lng }) < 1500)) {
+    acts.push(["fight", 9, () => {
+      let best = null, bd = 1e9;
+      live.enemies.forEach(en => { const d0 = haversine({ lat: en.data.lat, lng: en.data.lng }, { lat: cc.data.lat, lng: cc.data.lng }); if (d0 < bd) { bd = d0; best = en; } });
+      if (best) orderAttack(live.units.filter(e2 => CFG.units[e2.data.kind].combat && CFG.units[e2.data.kind].dmg && e2.data.state !== "MOUNTED" && !onSupplyRun(e2.data)), best);
+    }]);
+  } else if (Math.random() < 0.25) {
+    // posture: keep the line toward the last-known threat (or rotate at random)
+    acts.push(["posture", 2, () => {
+      const b0 = (world.war.lastSeenBearing !== undefined) ? world.war.lastSeenBearing : rand(0, 360);
+      const p = offsetPoint(cc.data.lat, cc.data.lng, rand(90, 200), b0 + rand(-35, 35));
+      orderMove(live.units.filter(e2 => CFG.units[e2.data.kind].combat && e2.data.state !== "MOUNTED" && !onSupplyRun(e2.data)), { lat: p.lat, lng: p.lng });
+    }]);
+  }
+  // caches: send someone
+  if (world.caches.length && Math.random() < 0.5) {
+    acts.push(["cache", 4, () => {
+      const cE = live.caches[0];
+      const idle = live.units.filter(e2 => !onSupplyRun(e2.data) && e2.data.state !== "MOUNTED" &&
+        (e2.data.state === "GUARD" || e2.data.state === "IDLE") && e2.data.kind !== "messenger");
+      if (!cE || !idle.length) return;
+      idle.sort((x, y) => haversine({ lat: x.data.lat, lng: x.data.lng }, { lat: cE.data.lat, lng: cE.data.lng }) - haversine({ lat: y.data.lat, lng: y.data.lng }, { lat: cE.data.lat, lng: cE.data.lng }));
+      const pick = [idle[0]];
+      const { ok, outE } = commandable(pick);
+      ok.forEach(e2 => { const u = e2.data; u.state = "FETCH"; u.cacheId = cE.data.id; u.target = null; u.task = null; u.enemyId = null; u.escortId = null; });
+      routeOrderByRunner(outE, { kind: "FETCH", cacheId: cE.data.id });
+      saveWorld();
+    }]);
+  }
+
+  if (!acts.length) return;
+  // weighted random pick — the source of run-to-run variety
+  const total = acts.reduce((a, x) => a + x[1], 0);
+  let roll = Math.random() * total;
+  for (const [, w, fn] of acts) { roll -= w; if (roll <= 0) { try { fn(); } catch (e) { logErr("auto", e); } break; } }
+}
+/* full teardown of the live Leaflet state so another save can load in-place */
+function teardownLive() {
+  cancelPlacement();
+  clearSelection();
+  live.units.forEach(e => { try { e.marker && e.marker.remove(); e.pendingMarker && e.pendingMarker.remove(); } catch (x) {} });
+  live.buildings.forEach(e => { try { e.marker && e.marker.remove(); e.footCircle && e.footCircle.remove(); e.radiusCircle && e.radiusCircle.remove(); } catch (x) {} });
+  live.enemies.forEach(e => { try { e.marker && e.marker.remove(); } catch (x) {} });
+  live.scorch.forEach(e => { try { e.circle && e.circle.remove(); } catch (x) {} });
+  live.caches.forEach(e => { try { e.marker && e.marker.remove(); e.ring && e.ring.remove(); } catch (x) {} });
+  pendingCircles.forEach(c => { try { c.remove(); } catch (x) {} });
+  pendingCircles.length = 0;
+  live.units.length = 0; live.buildings.length = 0; live.enemies.length = 0;
+  live.scorch.length = 0; live.caches.length = 0;
+}
+function switchSlot(newSlot) {
+  saveWorld();                                  // bank the world we're leaving
+  saveSlot = newSlot;
+  teardownLive();
+  gameTime = parseInt(S.get(K.gt()) || "0", 10) || 0;
+  const saved = loadWorld();
+  if (!saved) return false;
+  migrateSave();
+  restoreWorld(saved);
+  lastEconGt = gt(); lastConGt = gt(); lastAiGt = gt();
+  nextAutoGt = 0;
+  refreshHud(); refreshSquadChips(); refreshWeaponBtn();
+  const cc = world.buildings.find(b => b.kind === "cc");
+  if (cc && map) map.panTo([cc.lat, cc.lng]);
+  saveWorld();
+  return true;
+}
+function enterAutoSave() {
+  saveWorld();
+  // seed the auto slot from the current war the first time
+  if (!S.get("wf_auto_world")) {
+    S.set("wf_auto_world", S.get("wf_world"));
+    S.set("wf_auto_gt", S.get("wf_gt") || "0");
+    S.set("wf_auto_v", S.get("wf_v") || String(CFG.saveVersion));
+  }
+  if (!switchSlot("wf_auto_")) { saveSlot = "wf_"; toast("Couldn't open the AUTO save.", true); return; }
+  world.auto = true;
+  world.tut = -1;
+  saveWorld();
+  $("autoBtn").textContent = "AUTO: ON";
+  toast("AUTO SAVE loaded — a separate war. The AI commands here; your real save is untouched.", false);
+}
+function exitAutoSave() {
+  if (!switchSlot("wf_")) { toast("Couldn't reload your war.", true); return; }
+  $("autoBtn").textContent = "AUTO: OFF";
+  toast("Back to YOUR war, Commander. The AUTO war keeps its own save for next time.", false);
+}
+let nextAutoGt = 0;
+setInterval(() => {
+  if (paused()) return;
+  if (!world || !world.auto) { $("autoBadge").style.display = "none"; return; }
+  $("autoBadge").style.display = "block";
+  if (gt() < nextAutoGt) return;
+  nextAutoGt = gt() + rand(8000, 16000);
+  try { autoDecide(); } catch (e) { logErr("auto", e); }
+}, 1000);
+$("autoBtn").addEventListener("click", () => {
+  if (!started || !world) { toast("Start a war first — AUTO runs its own separate save, seeded from yours.", true); return; }
+  if (saveSlot === "wf_") enterAutoSave();
+  else exitAutoSave();
 });
 
 /* ============ safety briefing (every launch) ============ */
