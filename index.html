@@ -619,6 +619,8 @@ let channel=null, dead=false;
 let drop=null;
 let drawn=false, manualTarget=null, lastSwing=0, lastDryToast=0, lastHurtSfx=0;
 const $=id=>document.getElementById(id);
+function setHtml(el,v){ if(el.__h!==v){ el.__h=v; el.innerHTML=v; } }  // identical rewrites repaint text every tick — skip them
+function setTxt(el,v){ if(el.__t!==v){ el.__t=v; el.textContent=v; } }
 
 /* ---------------- toast + sfx ---------------- */
 const msgLog=(function(){ // jparse-style: corrupted dz_log must not crash boot
@@ -949,31 +951,31 @@ $("btnRespawn").addEventListener("click",()=>{
 function dayCount(){ return Math.floor((Date.now()-(S.start||Date.now()))/86400000)+1; }
 function setBar(id,val,max,label){
   const b=$(id); b.querySelector("i").style.transform="scaleX("+Math.max(0,val/max)+")";
-  b.querySelector("span").textContent=label+" "+Math.ceil(val);
+  setTxt(b.querySelector("span"), label+" "+Math.ceil(val));
 }
 function refreshHud(){
   setBar("hpBar",S.hp,S.maxHp,"HP");
   setBar("huBar",S.hunger,100,"FOOD");
   setBar("thBar",S.thirst,100,"WATER");
   const wcur=invWeight(), wcap=weightCap();
-  $("lvlLine").innerHTML="LV "+S.level+" · "+S.xp+"/"+(S.level*CFG.xpPerLevel)+" XP · "+
+  setHtml($("lvlLine"), "LV "+S.level+" · "+S.xp+"/"+(S.level*CFG.xpPerLevel)+" XP · "+
     (AUTO_SLOT?'<span style="color:#93b078">⚖️∞</span>'
-              :('<span style="color:'+(wcur>wcap?"var(--red)":"#93b078")+'">⚖️'+wcur.toFixed(1)+"/"+Math.round(wcap)+"</span>"));
+              :('<span style="color:'+(wcur>wcap?"var(--red)":"#93b078")+'">⚖️'+wcur.toFixed(1)+"/"+Math.round(wcap)+"</span>")));
   const chasing=zombies.filter(z=>z.state==="chase").length;
   const friends=npcs.filter(n=>n.kind==="friend"&&n.befriended).length;
-  $("chip").innerHTML="DAY <b>"+dayCount()+"</b> · "+(devMode?"DEV":(gpsAcc!=null?("GPS ±"+Math.round(gpsAcc)+"m"):"GPS…"))+
+  setHtml($("chip"), "DAY <b>"+dayCount()+"</b> · "+(devMode?"DEV":(gpsAcc!=null?("GPS ±"+Math.round(gpsAcc)+"m"):"GPS…"))+
     (isNight()?" · 🌙":"")+
     (gt()<graceUntil?" · <b>GRACE</b>":"")+
     (chasing?' · <b style="color:var(--red)">🧟'+chasing+"</b>":"")+
-    (friends?" · 👥"+friends:"")+(autoRunning?" · <b>🤖</b>":"");
+    (friends?" · 👥"+friends:"")+(autoRunning?" · <b>🤖</b>":""));
   document.body.classList.toggle("night",isNight());
   if(baseCircle&&S.base){
     const mx=S.base.walls*CFG.base.wallHpPerLevel;
     const f=mx?S.base.wallHp/mx:1;
     const col=(S.base.walls>0&&S.base.wallHp<=0)?"#e04a3a":(f>.6?"#8fd94a":(f>.25?"#e0b34a":"#e04a3a"));
-    baseCircle.setStyle({color:col, fillColor:col});
+    if(baseCircle.__col!==col){ baseCircle.__col=col; baseCircle.setStyle({color:col, fillColor:col}); }
   }
-  $("btnMute").textContent=S.mute?"🔇":"🔊";
+  setTxt($("btnMute"), S.mute?"🔇":"🔊");
   updateCombatBtns();
 }
 function refreshAction(){
@@ -981,18 +983,18 @@ function refreshAction(){
   const btn=$("actbtn"), lbl=btn.querySelector(".lbl");
   if(channel) return;
   if(drop && haversine(playerPos,drop)<=CFG.collectRadius){
-    $("nearline").innerHTML="📦 SUPPLY DROP — right here";
-    lbl.textContent="OPEN SUPPLY DROP"; btn.disabled=false; return;
+    setHtml($("nearline"),"📦 SUPPLY DROP — right here");
+    setTxt(lbl,"OPEN SUPPLY DROP"); btn.disabled=false; return;
   }
   const n=nearestLoot();
-  if(!n){ $("nearline").textContent="no loot nearby — keep moving"; lbl.textContent="EXPLORE"; btn.disabled=true; return; }
+  if(!n){ setHtml($("nearline"),"no loot nearby — keep moving"); setTxt(lbl,"EXPLORE"); btn.disabled=true; return; }
   const d=ITEMS[n.p.item];
-  $("nearline").innerHTML="nearest: "+d.icon+" "+d.name+" · "+Math.round(n.d)+"m";
+  setHtml($("nearline"), "nearest: "+d.icon+" "+d.name+" · "+Math.round(n.d)+"m");
   if(n.d<=CFG.collectRadius){
-    if(!canCarry(lootWt(n.p.item))){ lbl.textContent="TOO HEAVY — STASH FIRST"; btn.disabled=true; }
-    else { lbl.textContent="SCAVENGE"; btn.disabled=false; }
+    if(!canCarry(lootWt(n.p.item))){ setTxt(lbl,"TOO HEAVY — STASH FIRST"); btn.disabled=true; }
+    else { setTxt(lbl,"SCAVENGE"); btn.disabled=false; }
   }
-  else { lbl.textContent="GET CLOSER"; btn.disabled=true; }
+  else { setTxt(lbl,"GET CLOSER"); btn.disabled=true; }
 }
 setInterval(()=>{ if(!paused()&&playerPos&&!dead){ refreshHud(); refreshAction(); } },500);
 setInterval(()=>{ if(started) save(); }, CFG.autosaveMs);
@@ -1249,6 +1251,13 @@ function makeZombIcon(z){
   return L.divIcon({className:"", html, iconSize:[sz,sz], iconAnchor:[sz/2,sz/2]});
 }
 function refreshZombIcon(z){ z.marker.setIcon(makeZombIcon(z)); }
+function updateHpBar(marker,frac){ // true = bar updated in place, no DOM rebuild
+  if(!marker||!marker.getElement) return false;
+  const el=marker.getElement(); if(!el) return false;
+  const bar=el.querySelector(".zhp"); if(!bar||!bar.firstChild) return false;
+  bar.firstChild.style.width=Math.max(0,Math.min(100,frac*100))+"%";
+  return true;
+}
 function addZombie(kind,lat,lng,hp,state,lastSense,noiseTgt){ // builder
   kind=ZTYPES[kind]?kind:"walker";
   const t=ZTYPES[kind];
@@ -1513,7 +1522,7 @@ function npcDie(n){ // killed by zombies
 function damageNpc(n,dmg){
   n.hp-=dmg;
   if(n.hp<=0){ dmgNum([n.lat,n.lng],"☠"); npcDie(n); }
-  else refreshNpcIcon(n);
+  else if(!updateHpBar(n.marker,n.hp/n.maxHp)) refreshNpcIcon(n);
 }
 function spawnSurvivorGroup(){ // random spawner
   const good=Math.random()<CFG.npc.goodChance;
@@ -1567,7 +1576,7 @@ function npcAttack(n,st){ // everyone can fight zombies at close range
   tgt.hp-=st.dmg; dmgNum([tgt.lat,tgt.lng],"-"+st.dmg);
   alertZombie(tgt,{n});                              // the zombie turns on its attacker
   if(tgt.hp<=0){ dmgNum([tgt.lat,tgt.lng],"☠"); removeZombie(tgt); maintainZombies(); }
-  else refreshZombIcon(tgt);
+  else if(!updateHpBar(tgt.marker,tgt.hp/tgt.maxHp)) refreshZombIcon(tgt);
   return true;
 }
 /* NPC AI — 400ms */
@@ -1651,9 +1660,9 @@ function currentWeapon(){
 }
 function updateCombatBtns(){
   const w=currentWeapon();
-  $("wpnbtn").innerHTML=w.icon+(w.ammo?'<b class="ammoct">'+(S.inv[w.ammo]||0)+'</b>':(w.type==="melee"&&w.id!=="fists"?'<b class="ammoct">'+durLeft(w.id)+'</b>':""));
+  setHtml($("wpnbtn"), w.icon+(w.ammo?'<b class="ammoct">'+(S.inv[w.ammo]||0)+'</b>':(w.type==="melee"&&w.id!=="fists"?'<b class="ammoct">'+durLeft(w.id)+'</b>':"")));
   $("drawbtn").classList.toggle("on",drawn);
-  $("drawbtn").innerHTML=drawn?(w.icon+"<br>HOLSTER"):"✊<br>DRAW";
+  setHtml($("drawbtn"), drawn?(w.icon+"<br>HOLSTER"):"✊<br>DRAW");
 }
 function cycleWeapon(){
   const owned=["fists",...WEAPON_IDS.filter(id=>S.inv[id]>0)];
@@ -1729,7 +1738,7 @@ setInterval(()=>{ // attack scheduler 100ms
       maintainZombies();
     }
     save();
-  } else (tgt.isNpc?refreshNpcIcon:refreshZombIcon)(tgt);
+  } else if(!updateHpBar(tgt.marker,tgt.hp/tgt.maxHp)) (tgt.isNpc?refreshNpcIcon:refreshZombIcon)(tgt);
 },100);
 
 /* ---------------- dev mode movement ---------------- */

@@ -4022,6 +4022,7 @@ function rollNpcWeapon(n){
 // your WALK/RUN/BIKE/CAR presets are the AI's gas pedal
 
 let aiTask = null;
+let aiLastDlr = 0, aiLastByr = 0; // fresh-faces rule for dealing
 // THE LIST: every objective a player has. Roll it. If the roll isn't
 // doable right now (broke, doesn't exist yet), roll again. That's the whole brain.
 const AI_LIST = [
@@ -4376,10 +4377,11 @@ function aiRunTask(){
       aiSay("dealing — " + Math.ceil((t.until - gt())/1000) + "s left on the shift");
       const carrying = DRUGS.some(d => (onDrugs[d.id]||0) > 0);
       // a buyer only counts if he WANTS something we're actually holding
-      const byr = npcs.find(n => n.kind === "buyer"
+      // fresh faces only — never the same buyer or dealer twice in a row
+      const byr = npcs.find(n => n.kind === "buyer" && n.uid !== aiLastByr
         && n.wants && n.wants.some(w => (onDrugs[w.id]||0) > 0)
         && (!dOrigin || haversine(dOrigin, n) >= 500)); // no flipping next to the source
-      const dlr = npcs.find(n => n.kind === "dealer"
+      const dlr = npcs.find(n => n.kind === "dealer" && n.uid !== aiLastDlr
         && n.stock && n.stock.some(it => it.qty > 0
           && Math.round(drugById(it.id).base*it.mult/5)*5 <= money * 0.6));
       if (carrying && byr){
@@ -4392,6 +4394,7 @@ function aiRunTask(){
           sold += sellPrice(wt, byr) * have;
         }
         if (sold > 0){
+          aiLastByr = byr.uid; // this customer's done for a while
           money += sold; showGain(sold); addXp(sold);
           saveMoney(); renderMoney(true); saveDrugs();
           // one witness roll PER SALE — not per tick
@@ -4412,6 +4415,7 @@ function aiRunTask(){
           }
         }
         if (spent > 0){
+          aiLastDlr = dlr.uid; // next re-up comes from somebody new
           money -= spent; saveMoney(); renderMoney(true); saveDrugs();
           dOrigin = {lat:dlr.lat, lng:dlr.lng}; saveOrigin(); // the haul starts here
         }
