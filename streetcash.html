@@ -1390,9 +1390,9 @@ function gangCombat(n){
   };
 }
 
-function strikeNpc(n){
+function strikeNpc(n, manual = true){
   if (n.van){
-    rangeToast("Rounds spark off the armor — RAM it with weight, don't shoot it.");
+    if (manual) rangeToast("Rounds spark off the armor — RAM it with weight, don't shoot it.");
     return;
   }
   const w = currentWeapon();
@@ -1400,7 +1400,7 @@ function strikeNpc(n){
   if (now < nextShotAt || !playerPos) return;
   const d = haversine(playerPos, n);
   if (d > w.range){
-    rangeToast(`Out of reach - ${Math.round(d)}m. ${w.name} works inside ${w.range}m.`);
+    if (manual) rangeToast(`Out of reach - ${Math.round(d)}m. ${w.name} works inside ${w.range}m.`);
     return;
   }
   if (!spendRound(w)) return;
@@ -2699,7 +2699,7 @@ let drawn = false;
 let nextShotAt = 0;
 let lastRangeToast = 0;
 function rangeToast(msg){
-  if (gt() - lastRangeToast < 4000) return;
+  if (gt() - lastRangeToast < 15000) return; // once is plenty
   lastRangeToast = gt();
   toast(msg);
 }
@@ -2768,7 +2768,7 @@ setInterval(() => {
   }
   if (!best) return;
   if (UNIT_DEFS[best.kind]) attack(best);
-  else strikeNpc(best);
+  else strikeNpc(best, false); // auto-fire misses in SILENCE
 }, 150);
 
 function killUnit(unit){
@@ -4247,8 +4247,14 @@ function aiRunTask(){
     }
     case "turf": {
       if (territoryAt(t.at) === myGang){ aiTask = null; return; } // won (or flipped)
-      if (haversine(playerPos, t.at) > 20) aiMoveToward(t.at);
-      // then stand and let the capture system + drawn iron do the work
+      const ckT = cellKey(t.at.lat, t.at.lng);
+      if (cellKey(playerPos.lat, playerPos.lng) !== ckT){
+        aiMoveToward(t.at); // not on the block yet: travel normally
+      } else if (haversine(playerPos, t.at) > 18){
+        // on the block: settle toward center in clamped hops — never cross out
+        const p2 = offsetPoint(playerPos.lat, playerPos.lng, 6, bearingBetween(playerPos, t.at));
+        if (cellKey(p2.lat, p2.lng) === ckT) setPlayerPos(p2);
+      }
       return;
     }
     case "deliver": {

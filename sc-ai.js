@@ -230,10 +230,24 @@ setInterval(() => {
       const d = haversine(playerPos, n);
       if (d < hd && d < 120){ hd = d; h = n; } // fights are local, not manhunts
     }
-    // taking a block? DO NOT get baited off it — defenders come to you
-    if (h && aiTask && aiTask.kind === "turf"
-      && cellKey(h.lat, h.lng) !== cellKey(aiTask.at.lat, aiTask.at.lng)){
-      h = null;
+    // taking a block? combat is LEASHED to the cell: off-block hostiles are
+    // bait, and even chasing an on-block defender can never carry you over
+    if (h && aiTask && aiTask.kind === "turf"){
+      const ckT = cellKey(aiTask.at.lat, aiTask.at.lng);
+      if (cellKey(h.lat, h.lng) !== ckT){ h = null; }
+      else {
+        const reach = Math.max(2, currentWeapon().range * 0.7);
+        if (hd > reach){
+          const p2 = offsetPoint(playerPos.lat, playerPos.lng,
+            Math.min(6, hd - reach), bearingBetween(playerPos, h));
+          if (cellKey(p2.lat, p2.lng) === ckT){
+            aiSay("closing on the fight");
+            setPlayerPos(p2); // inch up — never off the block
+          }
+          // clamped at the line: hold, he's coming to you anyway
+        }
+        return; // in (or waiting on) range — the trigger works
+      }
     }
     if (h && hd > Math.max(2, currentWeapon().range * 0.7)){
       aiSay("closing on the fight");
