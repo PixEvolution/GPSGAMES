@@ -25,6 +25,17 @@
   button{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;
     touch-action:manipulation}
   .leaflet-tile{transition:none !important}
+  #originOv{position:absolute;inset:0;z-index:2050;display:none;pointer-events:none}
+  #originOv .obar{position:absolute;left:0;right:0;pointer-events:auto;
+    background:rgba(10,10,14,.92);padding:12px 14px;text-align:center}
+  #originOv .otop{top:0;border-bottom:1px solid #333}
+  #originOv .otop b{display:block;font-size:18px;letter-spacing:1px}
+  #originOv .otop span{color:var(--muted);font-size:12px}
+  #originOv .obot{bottom:0;border-top:1px solid #333;display:flex;gap:10px;justify-content:center}
+  #originOv .obot button{flex:1;max-width:220px;padding:14px;font-size:16px;font-weight:800;
+    border-radius:12px;border:1px solid #444;background:#1c1c24;color:var(--fg)}
+  #originOv .obot button:disabled{opacity:.4}
+  #originOv .obot #originGo:not(:disabled){background:#173a1f;border-color:#2f7d3f}
   #map{position:absolute;inset:0;background:var(--bg)}
   .leaflet-container{background:var(--bg)}
   .leaflet-tile-pane{
@@ -455,6 +466,16 @@
   <button id="logClose">CLOSE</button>
 </div>
 
+<div id="originOv">
+  <div class="obar otop">
+    <b>🌍 PICK THE STARTING SPOT</b>
+    <span>Tap anywhere on Earth — this is home for this whole save.</span>
+  </div>
+  <div class="obar obot">
+    <button id="originRnd">🎲 RANDOM</button>
+    <button id="originGo" disabled>✔ START HERE</button>
+  </div>
+</div>
 <div id="safety">
   <div class="card">
     <h2>⚠️ REAL WORLD RULES</h2>
@@ -2214,9 +2235,14 @@ document.addEventListener("click", e => {
 });
 
 // ---------- game loop ----------
+let lastPosSave = 0;
 function setPlayerPos(pos, keepView){
   const first = !playerPos;
   playerPos = pos;
+  if (AUTO_SESSION && started && gt() - lastPosSave > 3000){
+    lastPosSave = gt();
+    store.setItem("sc_pos", JSON.stringify({lat:pos.lat, lng:pos.lng}));
+  }
   playerMarker.setLatLng([pos.lat, pos.lng]);
   if (first){
     map.setView([pos.lat, pos.lng], 16);
@@ -3657,6 +3683,38 @@ function beginIntro(useGps){
   $("nameOv").style.display = "flex";
   $("nameIn").focus();
 }
+// ---- auto-mode world picker: one origin per save, anywhere on Earth ----
+let originPick = null, originMk = null;
+function placeOrigin(p, fly){
+  originPick = p;
+  if (!originMk) originMk = L.marker([p.lat, p.lng],
+    {icon: L.divIcon({className:"", html:"📍", iconSize:[30,30], iconAnchor:[15,28]})}).addTo(map);
+  else originMk.setLatLng([p.lat, p.lng]);
+  if (fly) map.setView([p.lat, p.lng], 5);
+  $("originGo").disabled = false;
+}
+function onOriginTap(e){ placeOrigin({lat:e.latlng.lat, lng:e.latlng.lng}, false); }
+function pickOrigin(done){
+  if (!AUTO_SESSION || jparse("sc_origin", null)){ done(); return; }
+  if (!map) initMap({lat:20, lng:0});
+  map.setView([20, 0], 2);
+  window.originPicking = true;
+  $("originOv").style.display = "block";
+  map.on("click", onOriginTap);
+  $("originRnd").onclick = () => {
+    placeOrigin({lat: -60 + Math.random()*132, lng: -180 + Math.random()*360}, true);
+  };
+  $("originGo").onclick = () => {
+    if (!originPick) return;
+    store.setItem("sc_origin", JSON.stringify(originPick));
+    map.off("click", onOriginTap);
+    if (originMk){ map.removeLayer(originMk); originMk = null; }
+    $("originOv").style.display = "none";
+    window.originPicking = false;
+    map.setView([originPick.lat, originPick.lng], 16);
+    done();
+  };
+}
 $("nameGo").addEventListener("click", () => {
   const v = $("nameIn").value.trim();
   if (!v){ $("nameIn").placeholder = "everyone's got a name"; return; }
@@ -3664,11 +3722,13 @@ $("nameGo").addEventListener("click", () => {
   store.setItem("sc_name", pname);
   $("nameOv").style.display = "none";
   showGangPicker(() => {
+    pickOrigin(() => {
     playRedline(() => {
       cinePlay(ch1().concat(ch2()), () => {
         start(pendingGps);
         startMission("m1");
       });
+    });
     });
   });
 });
@@ -4484,8 +4544,11 @@ function start(useGps){
   }
 
   if (devMode){
-    if (!map) initMap({lat:44.76, lng:-85.62});
-    if (!playerPos) setPlayerPos({lat:44.76, lng:-85.62});
+    const home = AUTO_SESSION
+      ? (jparse("sc_pos", null) || jparse("sc_origin", null) || {lat:44.76, lng:-85.62})
+      : {lat:44.76, lng:-85.62};
+    if (!map) initMap(home);
+    if (!playerPos) setPlayerPos(home);
     $("status").textContent = "dev mode";
     return;
   }

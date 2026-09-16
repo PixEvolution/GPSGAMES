@@ -28,6 +28,7 @@
 // You keep: cutscene taps, speed presets, log, freecam, the exit badge, and menus.
 let lastSpectToast = 0;
 function spectAllowed(t){
+  if (window.originPicking) return true; // world picker: the human drives
   return t.closest && (
        t.closest("#cine") || t.closest("#speeds") || t.closest("#logPanel")
     || t.closest("#splash") || t.closest("#nameOv") || t.closest("#gangPanel")
