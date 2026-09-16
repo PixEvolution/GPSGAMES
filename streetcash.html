@@ -3947,7 +3947,7 @@ function roadRoute(from, to){
   if (bucket !== routeBucket){ routeBucket = bucket; routeSpent = 0; }
   if (routeSpent >= 3) return undefined; // busy — caller keeps its old route, retries next tick
   routeSpent++;
-  const a = nearestRoadNode(from), z = nearestRoadNode(to);
+  const a = nearestRoadNode(from), z = nearestRoadNode(to, 1e9);
   if (!a || !z || a === z) return null;
   const zP = roadG.nodes.get(z);
   const h = id => haversine(roadG.nodes.get(id), zP);
@@ -4070,20 +4070,21 @@ function npcRoadStep(n, dest, dtSec){
         n.routeCd = gt() + 2500;
       }
     }
-    if (n.route.pts){
+    if (n.route && n.route.pts){
       while (n.route.i < n.route.pts.length
         && haversine(n, n.route.pts[n.route.i]) < 12) n.route.i++;
       if (n.route.i < n.route.pts.length){ wp = n.route.pts[n.route.i]; onRoad = true; }
       else routeDone = true;
-    } else noRoute = true;
+    } else if (n.route) noRoute = true;
+    // n.route === null: routing lane busy — keep walking toward dest this tick
   }
   if (!onRoad){
     if (noRoute){
       const nid = nearestRoadNode(n, 700);
       if (nid){
         const rn = roadG.nodes.get(nid);
-        if (haversine(n, rn) < 15) n.route = null;
-        else wp = rn;
+        if (haversine(n, rn) >= 40) wp = rn;
+        // else: already on/near pavement that can't help — walk straight for dest
       }
     } else if ((routeDone || d <= 60) && destOnRoad(dest)){
       onRoad = true;

@@ -106,21 +106,24 @@ function aiMoveToward(dest, stopAt){
         aiRouteCd = gt() + 2500;
       }
     }
-    if (aiRoute.pts){
+    if (aiRoute && aiRoute.pts){
       while (aiRoute.i < aiRoute.pts.length
         && haversine(playerPos, aiRoute.pts[aiRoute.i]) < 12) aiRoute.i++;
       if (aiRoute.i < aiRoute.pts.length){ wp = aiRoute.pts[aiRoute.i]; onRoad = true; }
       else routeDone = true;
-    } else noRoute = true;
+    } else if (aiRoute) noRoute = true;
+    // aiRoute === null: routing lane busy this tick — walk toward dest meanwhile
   }
   if (!onRoad){
     if (noRoute){
-      // stranded off the network: trudge to the nearest pavement FIRST, then route
+      // no road path exists: get to pavement if it's near AND not where we already
+      // stand (another component may route from there); otherwise WALK IT — off-road
+      // pace covers any ground on Earth. Nobody is ever stuck.
       const nid = nearestRoadNode(playerPos, 700);
       if (nid){
         const rn = roadG.nodes.get(nid);
-        if (haversine(playerPos, rn) < 15) aiRoute = null; // reached it — reroute
-        else wp = rn;
+        if (haversine(playerPos, rn) >= 40) wp = rn;
+        // else: already on/near pavement that can't help — walk straight for dest
       }
     } else if ((routeDone || d <= 60) && destOnRoad(dest)){
       onRoad = true; // curbside finish — the ONLY drive-up case

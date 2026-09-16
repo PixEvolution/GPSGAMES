@@ -25,6 +25,19 @@ button{
 #tint{position:fixed; inset:0; z-index:2; pointer-events:none;
   background:radial-gradient(ellipse at 50% 45%, rgba(50,90,30,.05) 0%, rgba(4,8,3,.42) 100%);}
 
+/* ---- auto-mode world origin picker ---- */
+#originpick{position:fixed; inset:0; z-index:90; display:none; pointer-events:none;}
+#originpick .optop{position:absolute; top:calc(env(safe-area-inset-top,0px) + 10px); left:50%;
+  transform:translateX(-50%); pointer-events:auto; background:var(--panel); border:1px solid var(--line);
+  border-radius:12px; padding:10px 16px; text-align:center; width:min(340px,90vw);}
+#originpick .optop b{color:var(--grn); letter-spacing:1px;}
+#originpick .optop div{font-size:12px; color:#a8c48c; margin-top:3px; line-height:1.4;}
+#originpick .opbot{position:absolute; bottom:calc(env(safe-area-inset-bottom,0px) + 14px); left:50%;
+  transform:translateX(-50%); pointer-events:auto; display:flex; gap:10px; width:min(340px,90vw);}
+#originpick .opbot button{flex:1; padding:14px 0; font-size:15px; letter-spacing:2px; border-radius:10px;
+  background:#101708; color:var(--grn); border:1px solid var(--line);}
+#originpick .opbot button:disabled{opacity:.4;}
+
 /* ---- safety briefing (every launch) ---- */
 #safety{position:fixed; inset:0; z-index:200; background:rgba(4,6,3,.97);
   display:flex; flex-direction:column; align-items:center; justify-content:center; padding:26px;}
@@ -129,7 +142,7 @@ button{
 #chip b{color:var(--grn);}
 
 /* left feature buttons */
-#featcol{left:8px; top:38%; display:flex; flex-direction:column; gap:10px; pointer-events:auto;}
+#featcol{left:8px; top:26%; display:flex; flex-direction:column; gap:10px; pointer-events:auto;}
 .featbtn{width:46px; height:46px; border-radius:12px; background:var(--panel);
   border:1px solid var(--line); font-size:21px; color:var(--txt);}
 .featbtn:active{background:#1b2a0e;}
@@ -227,6 +240,10 @@ button{
 .aihl{background:rgba(224,179,74,.14); border-radius:8px; animation:pulse 1s infinite;}
 body.night #tint{background:radial-gradient(ellipse at 50% 45%, rgba(40,10,10,.18) 0%, rgba(2,3,2,.72) 100%);}
 body.night .leaflet-tile-pane{filter:invert(1) hue-rotate(120deg) brightness(.42) contrast(1.25) saturate(.28) sepia(.2);}
+/* satellite imagery must NEVER go through the invert filter (photo negative) */
+body.satmode .leaflet-tile-pane{filter:none;}
+body.satmode.night .leaflet-tile-pane{filter:brightness(.55) saturate(.75);}
+.leaflet-tile{transition:none !important;} /* kills the per-pan fade pulse */
 #drawbtn{position:fixed; right:12px; bottom:calc(env(safe-area-inset-bottom,0px) + 12px); z-index:21;
   width:64px; height:64px; border-radius:50%; background:var(--panel); border:2px solid var(--line);
   color:var(--grn); font-size:11px; letter-spacing:1px; line-height:1.25; display:none;}
@@ -259,6 +276,11 @@ body.night .leaflet-tile-pane{filter:invert(1) hue-rotate(120deg) brightness(.42
 <div id="map"></div>
 <div id="tint"></div>
 <div id="hitflash"></div>
+<div id="originpick">
+  <div class="optop"><b>CHOOSE THE SIM'S WORLD</b>
+    <div>Tap anywhere on Earth — or roll the dice. Once picked, it's home forever.</div></div>
+  <div class="opbot"><button id="opRandom">🎲 RANDOM</button><button id="opStart" disabled>✔ START HERE</button></div>
+</div>
 
 <div id="safety">
   <div class="box">
@@ -333,6 +355,9 @@ body.night .leaflet-tile-pane{filter:invert(1) hue-rotate(120deg) brightness(.42
   <button class="featbtn" id="btnInv">🎒</button>
   <button class="featbtn" id="btnBase">🏕️</button>
   <button class="featbtn" id="btnMute">🔊</button>
+  <button class="featbtn" id="btnSat">🛰️</button>
+  <button class="featbtn" id="btnZin">➕</button>
+  <button class="featbtn" id="btnZout">➖</button>
 </div>
 
 <div class="hud" id="actionwrap">
@@ -517,7 +542,7 @@ const K_STATE=SLOT+"state", K_GT=SLOT+"gt", K_WORLD=SLOT+"world", K_V=SLOT+"v";
 const SAVE_VERSION=3;
 function freshState(){
   return { hp:100, maxHp:100, hunger:100, thirst:100, xp:0, level:1,
-           inv:{}, chest:{}, dur:{}, weapon:"fists", base:null, mute:false,
+           inv:{}, chest:{}, dur:{}, weapon:"fists", base:null, origin:null, mute:false,
            pos:null, start:Date.now(), lastSeen:Date.now(),
            deaths:0, scavenged:0, kills:0 };
 }
@@ -612,6 +637,8 @@ function durLeft(id){ return (S.dur&&S.dur[id]!=null)?S.dur[id]:ITEMS[id].melee.
 
 /* ---------------- globals ---------------- */
 let map=null, playerMarker=null, playerPos=null, devMode=false, gpsAcc=null;
+let roadTiles=null, satTiles=null;
+let satOn=(function(){ try{ return localStorage.getItem("meta_sat")==="1"; }catch(e){ return false; } })();
 let baseMarker=null, baseCircle=null;
 let lootPoints=[]; let lootSeq=1;
 let zombies=[]; let zombSeq=1; let graceUntil=0;
@@ -682,9 +709,15 @@ function isNight(){ const h=new Date().getHours(); return h>=CFG.night.start||h<
 
 /* ---------------- map + player + base ---------------- */
 function makeMap(center){
-  map=L.map("map",{zoomControl:false,attributionControl:true}).setView(center,17);
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-    {maxZoom:19, attribution:"© OpenStreetMap"}).addTo(map);
+  map=L.map("map",{zoomControl:false,attributionControl:true,
+    fadeAnimation:false,markerZoomAnimation:false}).setView(center,17);
+  roadTiles=L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+    {maxZoom:19, attribution:"© OpenStreetMap"});
+  satTiles=L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    {maxZoom:19, attribution:"Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics"});
+  (satOn?satTiles:roadTiles).addTo(map);
+  document.body.classList.toggle("satmode",satOn);
+  setTxt($("btnSat"), satOn?"🗺️":"🛰️");
   map.on("popupopen",e=>{ // iOS webview fix: close button is <a href="#close">
     const c=e.popup.getElement().querySelector(".leaflet-popup-close-button");
     if(c) c.removeAttribute("href");
@@ -1041,6 +1074,17 @@ function renderInv(){
   }).join("");
 }
 $("btnInv").addEventListener("click",()=>{ renderInv(); $("inv").style.display="flex"; });
+$("btnSat").addEventListener("click",()=>{
+  if(!map) return;
+  satOn=!satOn;
+  try{ localStorage.setItem("meta_sat",satOn?"1":"0"); }catch(e){}
+  map.removeLayer(satOn?roadTiles:satTiles);
+  (satOn?satTiles:roadTiles).addTo(map);
+  document.body.classList.toggle("satmode",satOn);
+  setTxt($("btnSat"), satOn?"🗺️":"🛰️");
+});
+$("btnZin").addEventListener("click",()=>{ if(map) map.zoomIn(1); });
+$("btnZout").addEventListener("click",()=>{ if(map) map.zoomOut(1); });
 $("btnMute").addEventListener("click",()=>{ S.mute=!S.mute; save(); refreshHud(); });
 
 /* ---------------- base overlay: chest / craft / upgrades ---------------- */
@@ -1808,12 +1852,49 @@ if(window.visualViewport) window.visualViewport.addEventListener("resize",onView
 let autoRunning=false;
 const AUTO={ wp:null, task:"idle", quota:0, collected:0, pending:null, camp:null,
              speed:1.3, nextSpeedRoll:0, nextWeaponRoll:0, respT:null };
+let opPick=null, opMarker=null;
+function opSet(p){
+  opPick={lat:p.lat,lng:p.lng};
+  if(!opMarker){
+    opMarker=L.marker([p.lat,p.lng],{icon:L.divIcon({className:"",
+      html:'<div class="mk player" style="width:30px;height:30px">📍</div>',
+      iconSize:[30,30],iconAnchor:[15,15]})}).addTo(map);
+  } else opMarker.setLatLng([p.lat,p.lng]);
+  $("opStart").disabled=false;
+}
+function opClick(e){ opSet(e.latlng); }
+function pickOrigin(done){
+  // once per save, sim saves only; a save that has lived (S.pos) or chosen (S.origin) never sees it
+  if(!AUTO_SLOT || S.origin || S.pos){ done(); return; }
+  if(!map) makeMap([20,0]);
+  map.setView([20,0],2);
+  $("start").style.display="none";
+  $("originpick").style.display="block";
+  map.on("click",opClick);
+  $("opRandom").onclick=()=>{
+    const p={lat:-60+Math.random()*132, lng:-180+Math.random()*360}; // true random — oceans are re-roll fodder
+    opSet(p); map.setView([p.lat,p.lng],5);
+  };
+  $("opStart").onclick=()=>{
+    if(!opPick) return;
+    S.origin={lat:opPick.lat,lng:opPick.lng};
+    try{ localStorage.setItem(K_STATE, JSON.stringify(S)); }catch(e){}
+    map.off("click",opClick);
+    if(opMarker){ map.removeLayer(opMarker); opMarker=null; }
+    $("originpick").style.display="none";
+    map.setView([S.origin.lat,S.origin.lng],17);
+    done();
+  };
+}
 function startAutoSim(){
-  devMode=false; autoRunning=true;
-  const p=S.pos||CFG.defaultPos;
-  initWorld(p[0],p[1]);
-  $("btnExit").style.display="block";
-  toast("🤖 AUTO SIM running — it lives, it loots, it dies on its own");
+  devMode=false;
+  pickOrigin(()=>{
+    autoRunning=true;
+    const home=S.pos || (S.origin?[S.origin.lat,S.origin.lng]:CFG.defaultPos); // reloads resume where the AI was, never snap to origin
+    initWorld(home[0],home[1]);
+    $("btnExit").style.display="block";
+    toast("🤖 AUTO SIM running — it lives, it loots, it dies on its own");
+  });
 }
 function autoThreat(){
   let best=null,bd=CFG.auto.threat;
@@ -2010,7 +2091,7 @@ function restoreWorld(){ // rebuild every saved entity via the builders
 }
 function initWorld(lat,lng){
   applyOfflineDecay();
-  makeMap([lat,lng]);
+  if(!map) makeMap([lat,lng]); else map.setView([lat,lng],17);
   playerPos={lat,lng};
   playerMarker.setLatLng(playerPos);
   restoreWorld();     // world intact if you reopened where you left it

@@ -21,6 +21,8 @@
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
   #map { position:fixed; inset:0; z-index:1; background:#181c12; }
   .leaflet-tile-pane { filter: saturate(0.30) brightness(0.72) sepia(0.40) hue-rotate(48deg) contrast(1.06); }
+  body.sat .leaflet-tile-pane { filter: none; }   /* the war-tint would turn satellite into a photo negative */
+  .leaflet-tile { transition: none !important; }  /* tile fade pulses during follow-cam panning */
   #vignette {
     position:fixed; inset:0; z-index:2; pointer-events:none;
     background: radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(6,8,4,0.55) 100%);
@@ -317,6 +319,9 @@
   <button id="jumpHq" class="btn jump">HQ</button>
   <button id="sfxBtn" class="btn">SFX</button>
   <button id="logBtn" class="btn">LOG</button>
+  <button id="satBtn" class="btn">🛰️</button>
+  <button id="zoomInBtn" class="btn">➕</button>
+  <button id="zoomOutBtn" class="btn">➖</button>
 </div>
 
 <div id="tutCard" style="position:fixed; z-index:30; left:8px; top:calc(52px + env(safe-area-inset-top)); width:calc(100vw - 132px); max-width:330px; display:none; background:rgba(20,26,10,0.95); border:1px solid #6b7a48; border-left:4px solid #b8c880; border-radius:8px; padding:9px 10px; font-size:12px; line-height:1.4; color:#dbe4c6;">
@@ -335,6 +340,17 @@
       <button id="ioGo" class="btn primary" style="flex:1;">LOAD IT</button>
       <button id="ioCancel" class="btn" style="flex:1;">CANCEL</button>
     </div>
+  </div>
+</div>
+
+<div id="originPick" style="position:fixed; z-index:55; inset:0; display:none; pointer-events:none;">
+  <div style="pointer-events:auto; position:absolute; top:calc(10px + env(safe-area-inset-top)); left:50%; transform:translateX(-50%); width:94vw; max-width:440px; background:rgba(14,18,8,0.96); border:1px solid #55613a; border-radius:10px; padding:10px 12px; font-size:12px; color:#dbe4c6; text-align:center;">
+    <b>CHOOSE THE AUTO WAR'S THEATER</b><br>Tap anywhere on Earth — the AI's war will be fought there. Once per save.
+  </div>
+  <div style="pointer-events:auto; position:absolute; bottom:calc(20px + env(safe-area-inset-bottom)); left:50%; transform:translateX(-50%); display:flex; gap:8px;">
+    <button id="originRandom" class="btn">🎲 RANDOM</button>
+    <button id="originGo" class="btn primary" disabled>✔ START HERE</button>
+    <button id="originCancel" class="btn">✕</button>
   </div>
 </div>
 
@@ -961,18 +977,28 @@ function yardBoost(lat, lng) {
 }
 
 /* ============ map init ============ */
+let roadTiles = null, satTiles = null, satOn = false;
 function initMap(center) {
   map = L.map("map", {
     zoomControl: false,
     attributionControl: true,
     minZoom: CFG.zoomMin,
     maxZoom: CFG.zoomMax,
+    fadeAnimation: false,
+    markerZoomAnimation: false,
   }).setView([center.lat, center.lng], CFG.zoomStart);
 
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  roadTiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: CFG.zoomMax,
     attribution: '&copy; OpenStreetMap contributors',
-  }).addTo(map);
+  });
+  satTiles = L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    { maxZoom: CFG.zoomMax, attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics' });
+  satOn = S.get("meta_sat") === "1";
+  (satOn ? satTiles : roadTiles).addTo(map);
+  document.body.classList.toggle("sat", satOn);
+  $("satBtn").textContent = satOn ? "🗺️" : "🛰️";
 
   map.on("popupopen", (e) => {
     const btn = e.popup._closeButton;
@@ -1047,6 +1073,17 @@ $("logBtn").addEventListener("click", () => {
   }
 });
 $("logClose").addEventListener("click", () => $("logPanel").classList.remove("show"));
+$("satBtn").addEventListener("click", () => {
+  if (!map) return;
+  satOn = !satOn;
+  S.set("meta_sat", satOn ? "1" : "0");
+  map.removeLayer(satOn ? roadTiles : satTiles);
+  (satOn ? satTiles : roadTiles).addTo(map);
+  document.body.classList.toggle("sat", satOn);
+  $("satBtn").textContent = satOn ? "🗺️" : "🛰️";
+});
+$("zoomInBtn").addEventListener("click", () => { if (map) map.zoomIn(1); });
+$("zoomOutBtn").addEventListener("click", () => { if (map) map.zoomOut(1); });
 $("jumpMe").addEventListener("click", () => { if (playerPos) map.panTo([playerPos.lat, playerPos.lng]); });
 $("jumpHq").addEventListener("click", () => {
   const cc = live.buildings.find(b => b.data.kind === "cc");
@@ -3066,6 +3103,7 @@ $("ordClear").addEventListener("click", clearSelection);
 
 /* ============ map tap routing ============ */
 function onMapTap(e) {
+  if (originPicking) return;   // the origin picker owns the map right now
   if (placement) { moveGhost(e.latlng); return; }
   if (sel) { orderMove(selectedEntries(), e.latlng); return; }
   if (devMoveActive && devTeleport && started) {
@@ -4151,13 +4189,79 @@ function switchSlot(newSlot) {
   saveWorld();
   return true;
 }
+let originPicking = false, originMarker = null, originPos = null;
+function pickOrigin(done) {
+  // brand-new AUTO save: the whole Earth is the map. Picked ONCE, forever.
+  originPicking = true; originPos = null;
+  cancelPlacement(); clearSelection();
+  $("originPick").style.display = "block";
+  $("originGo").disabled = true;
+  map.setView([20, 0], 2);
+  const setPick = (p, jump) => {
+    originPos = { lat: p.lat, lng: p.lng };
+    if (!originMarker) {
+      originMarker = L.marker([p.lat, p.lng], {
+        icon: L.divIcon({ className: "", iconSize: [30, 30], iconAnchor: [15, 28], html: '<div style="font-size:26px;">📍</div>' }),
+        zIndexOffset: 1200, interactive: false,
+      }).addTo(map);
+    } else originMarker.setLatLng([p.lat, p.lng]);
+    if (jump) map.setView([p.lat, p.lng], 5);
+    $("originGo").disabled = false;
+  };
+  const onPick = e => setPick(e.latlng, false);
+  map.on("click", onPick);
+  const finish = confirmed => {
+    map.off("click", onPick);
+    if (originMarker) { originMarker.remove(); originMarker = null; }
+    $("originPick").style.display = "none";
+    originPicking = false;
+    done(confirmed ? originPos : null);
+  };
+  $("originRandom").onclick = () => setPick({ lat: -60 + Math.random() * 132, lng: -180 + Math.random() * 360 }, true);
+  $("originGo").onclick = () => { if (originPos) finish(true); };
+  $("originCancel").onclick = () => finish(false);
+}
+function createAutoWorld(origin, names) {
+  gameTime = 0;
+  S.set(K.gt(), "0");
+  S.set(K.v(), String(CFG.saveVersion));
+  world = {
+    armyName: names.a, enemyName: names.e,
+    cash: CFG.startCash, xp: 0, level: 1, nextId: 1,
+    buildings: [], units: [], enemies: [], scorch: [], caches: [],
+    player: { hp: CFG.player.maxHp, maxHp: CFG.player.maxHp, weapons: {}, ammo: { a556: 0 }, drawn: false, targetId: null, graceUntil: 0 },
+    war: null, msgTier: 1, log: [], tut: -1, auto: true, camMode: camMode,
+  };
+  initWar();
+  live.buildings.push(buildBuilding({
+    id: newId("b"), kind: "cc", tier: 1,
+    lat: origin.lat, lng: origin.lng,
+    hp: CFG.buildings.cc.hp, maxHp: CFG.buildings.cc.hp,
+    progress: 1,
+  }));
+  lastEconGt = gt(); lastConGt = gt(); lastAiGt = gt(); nextAutoGt = 0;
+  refreshHud(); refreshSquadChips(); refreshWeaponBtn();
+  saveWorld();
+  if (map) map.setView([origin.lat, origin.lng], 16);
+}
 function enterAutoSave() {
   saveWorld();
-  // seed the auto slot from the current war the first time
   if (!S.get("wf_auto_world")) {
-    S.set("wf_auto_world", S.get("wf_world"));
-    S.set("wf_auto_gt", S.get("wf_gt") || "0");
-    S.set("wf_auto_v", S.get("wf_v") || String(CFG.saveVersion));
+    // brand-new AUTO save: pick its theater anywhere on Earth
+    const names = { a: world.armyName, e: world.enemyName };
+    pickOrigin(origin => {
+      if (!origin) {   // cancelled — stay in the player's war
+        const cc0 = world.buildings.find(b => b.kind === "cc");
+        if (cc0 && map) map.setView([cc0.lat, cc0.lng], 16);
+        return;
+      }
+      saveSlot = "wf_auto_";
+      teardownLive();
+      createAutoWorld(origin, names);
+      $("autoBtn").textContent = "AUTO: ON";
+      toast("AUTO WAR founded at the chosen theater — the AI commands here; your real save is untouched.", false);
+    });
+    return;
   }
   if (!switchSlot("wf_auto_")) { saveSlot = "wf_"; toast("Couldn't open the AUTO save.", true); return; }
   world.auto = true;
