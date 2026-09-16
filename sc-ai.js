@@ -33,7 +33,7 @@ function spectAllowed(t){
        t.closest("#cine") || t.closest("#speeds") || t.closest("#logPanel")
     || t.closest("#splash") || t.closest("#nameOv") || t.closest("#gangPanel")
     || t.closest("#safety") || t.closest("#busted")
-    || t.id === "logBtn" || t.id === "camBtn" || t.id === "autoBadge");
+    || t.id === "logBtn" || t.id === "camBtn" || t.id === "satBtn" || t.id === "autoBadge");
 }
 function spectBlock(e){
   e.stopPropagation();

@@ -366,6 +366,9 @@
     right:10px;z-index:1050;width:38px;height:38px;border-radius:50%;
     border:1px solid #2a332a;background:rgba(13,15,13,.85);color:#aab5aa;
     font-size:17px;font-family:inherit}
+  #satBtn{position:absolute;top:calc(env(safe-area-inset-top,0px) + 188px);
+    right:10px;z-index:1500;width:42px;height:42px;border-radius:12px;
+    border:1px solid #333;background:rgba(12,12,16,.85);font-size:20px}
   #camBtn{position:absolute;top:calc(env(safe-area-inset-top,0px) + 138px);
     right:10px;z-index:1050;width:38px;height:38px;border-radius:50%;
     border:1px solid #2a332a;background:rgba(13,15,13,.85);color:#aab5aa;
@@ -460,6 +463,7 @@
 <div id="toasts"></div>
 <button id="logBtn">📜</button>
 <button id="camBtn">📍</button>
+<button id="satBtn">🛰️</button>
 <div id="logPanel">
   <h2>MESSAGE LOG</h2>
   <div id="logList"></div>
@@ -824,13 +828,31 @@ function offsetPoint(lat, lng, distM, bearing){
 }
 
 // ---------- map ----------
+let roadTiles = null, satTiles = null;
+let satOn = window.localStorage.getItem("meta_sat") === "1"; // visual pref, all saves
+function setSat(on){
+  satOn = on;
+  window.localStorage.setItem("meta_sat", on ? "1" : "0");
+  if (!map) return;
+  if (on){ map.removeLayer(roadTiles); satTiles.addTo(map); }
+  else   { map.removeLayer(satTiles);  roadTiles.addTo(map); }
+  $("satBtn").textContent = on ? "🗺️" : "🛰️";
+  toast(on ? "🛰️ Satellite — the actual Earth." : "🗺️ Street map.");
+}
 function initMap(center){
   map = L.map("map", {zoomControl:false,
     fadeAnimation:false, markerZoomAnimation:false}).setView([center.lat, center.lng], 16);
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  roadTiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
     attribution: '&copy; OpenStreetMap contributors'
-  }).addTo(map);
+  });
+  satTiles = L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+    maxZoom: 19,
+    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics'
+  });
+  (satOn ? satTiles : roadTiles).addTo(map);
+  $("satBtn").textContent = satOn ? "🗺️" : "🛰️";
 
   playerMarker = L.marker([center.lat, center.lng], {
     icon: L.divIcon({className:"", html:'<div class="player-dot"></div>',
@@ -4662,6 +4684,7 @@ $("ioGo").addEventListener("click", () => {
   location.reload();
 });
 
+$("satBtn").addEventListener("click", () => setSat(!satOn));
 $("startGps").addEventListener("click", () => {
   if (AUTO_SESSION){
     if (introNeeded()) beginIntro(false); // you name it, gang it, tap the story
