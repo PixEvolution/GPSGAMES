@@ -413,3 +413,5 @@ const MISSIONS = {
     {type:"pay", money:850, xp:700, toast:"Enzo tips like a man who plans to use you again."},
   ]},
 };
+
+window.SC_MISSIONS_V = 4;

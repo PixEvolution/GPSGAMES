@@ -449,6 +449,7 @@ const CFG = {
   },
   noise: { radius: 300 },                     // gunshot pull
   night: { start: 20, end: 6, speed: 1.25, detect: 1.3, extra: 4 },
+  animals: { target: 6, minDist: 100, maxDist: 700, cull: 1200 },
   base: { radii: [50, 75, 100], maxWalls: 3,
           wallHpPerLevel: 150,
           wallDps: { walker: 0.8, runner: 1, screamer: 0.5 },  // brutes walk straight through
@@ -520,6 +521,68 @@ const ITEMS = {
   barricade:{ name:"Barricade Kit",icon:"🧱", rarity:"uncommon", w:0, wt:3,   mat:true },                              // craft-only
   produce:  { name:"Garden Produce",icon:"🥕", rarity:"common",  w:0, wt:0.3, use:{hunger:20} },                       // garden-only
 };
+/* ---- the wild: id:[icon,name,beh(0 flee/1 defend/2 aggressive),hp,wanderSpd,activeSpd,dmg,detect,meatN,meatHunger,spawnW,size(0/1/2)] ---- */
+const ANIMAL_DEFS={
+monkey:["🐒","Monkey",1,25,0.8,3,3,20,1,10,4,0], gorilla:["🦍","Gorilla",1,90,0.7,4,12,25,4,18,1,1],
+orangutan:["🦧","Orangutan",1,70,0.6,3,8,22,3,16,1,1], dog:["🐕","Dog",1,35,1,4.5,5,30,2,12,6,1],
+guidedog:["🦮","Guide Dog",0,35,1,4.5,0,30,2,12,2,1], servicedog:["🐕‍🦺","Service Dog",0,35,1,4.5,0,30,2,12,2,1],
+poodle:["🐩","Poodle",0,25,1,4,0,25,1,10,3,0], wolf:["🐺","Wolf",2,55,1.1,5.5,9,60,3,14,3,1],
+fox:["🦊","Fox",0,25,1,5,0,40,1,10,5,0], raccoon:["🦝","Raccoon",1,20,0.8,3.5,3,20,1,8,5,0],
+cat:["🐈","Cat",0,18,0.9,4.5,0,30,1,8,6,0], lion:["🦁","Lion",2,110,0.9,7,16,70,5,20,0.8,2],
+tiger:["🐅","Tiger",2,110,0.9,7.5,17,70,5,20,0.8,2], leopard:["🐆","Leopard",2,80,1,8,13,65,4,18,1,1],
+horse:["🐎","Horse",0,90,1.2,10,0,45,5,16,3,2], moose:["🫎","Moose",1,140,1,6,14,35,7,18,1.5,2],
+donkey:["🫏","Donkey",1,70,1,5,6,30,4,14,2,1], zebra:["🦓","Zebra",0,80,1.2,9,0,50,5,15,2,1],
+deer:["🦌","Deer",0,55,1.1,9,0,55,4,14,6,1], bison:["🦬","Bison",1,180,0.9,6.5,15,35,8,18,1.5,2],
+cow:["🐄","Cow",0,110,0.7,4,0,30,6,16,4,2], ox:["🐂","Ox",1,150,0.7,5,12,30,7,17,2,2],
+buffalo:["🐃","Water Buffalo",1,170,0.8,5.5,14,35,8,17,1.5,2], pig:["🐖","Pig",0,60,0.8,4.5,0,30,4,15,5,1],
+boar:["🐗","Boar",2,75,0.9,5.5,10,45,4,15,3,1], ram:["🐏","Ram",1,60,0.9,5,8,30,3,13,3,1],
+ewe:["🐑","Ewe",0,50,0.8,4.5,0,30,3,13,4,1], goat:["🐐","Goat",1,45,0.9,5,5,28,3,12,4,1],
+camel:["🐪","Camel",1,100,0.9,6,8,30,6,16,1.5,2], camel2:["🐫","Two-Hump Camel",1,110,0.9,6,8,30,6,16,1,2],
+llama:["🦙","Llama",1,60,0.9,5,5,30,3,13,2,1], giraffe:["🦒","Giraffe",0,150,1,8,0,45,8,17,1,2],
+elephant:["🐘","Elephant",1,300,0.8,5.5,22,40,12,20,0.7,2], mammoth:["🦣","Mammoth",1,350,0.8,5,24,40,14,22,0.3,2],
+rhino:["🦏","Rhinoceros",1,220,0.8,7,20,40,9,18,0.7,2], hippo:["🦛","Hippo",2,240,0.7,5.5,22,45,9,18,0.7,2],
+mouse:["🐁","Mouse",0,4,0.5,2.5,0,15,1,3,8,0], rat:["🐀","Rat",0,6,0.6,3,0,15,1,4,8,0],
+hamster:["🐹","Hamster",0,5,0.4,2,0,12,1,3,4,0], rabbit:["🐇","Rabbit",0,12,0.8,6,0,40,1,8,8,0],
+chipmunk:["🐿️","Chipmunk",0,5,0.6,4,0,25,1,3,6,0], beaver:["🦫","Beaver",1,30,0.6,3,3,20,2,10,3,0],
+hedgehog:["🦔","Hedgehog",1,15,0.4,1.5,2,10,1,6,5,0], bat:["🦇","Bat",0,8,1.5,5,0,25,1,4,6,0],
+bear:["🐻","Bear",2,160,0.8,6.5,18,55,7,19,1,2], koala:["🐨","Koala",0,30,0.3,1.5,0,15,2,10,2,0],
+panda:["🐼","Panda",1,120,0.5,3,10,25,6,16,0.8,2], sloth:["🦥","Sloth",0,35,0.1,0.3,0,10,2,10,2,1],
+otter:["🦦","Otter",0,22,0.8,3.5,0,25,1,9,4,0], skunk:["🦨","Skunk",1,20,0.6,2.5,2,18,1,7,4,0],
+kangaroo:["🦘","Kangaroo",1,70,1,7,9,35,4,14,2,1], badger:["🦡","Badger",2,45,0.7,4,7,35,2,11,3,0],
+turkey:["🦃","Turkey",1,20,0.7,3.5,2,20,2,10,6,0], chicken:["🐔","Chicken",0,10,0.6,3,0,20,1,8,10,0],
+rooster:["🐓","Rooster",1,14,0.7,3.5,2,22,1,8,6,0], chick:["🐥","Baby Chick",0,3,0.4,2,0,15,1,2,6,0],
+bird:["🐦","Bird",0,5,1.2,6,0,30,1,3,10,0], penguin:["🐧","Penguin",0,30,0.6,2.5,0,20,2,10,2,1],
+dove:["🕊️","Dove",0,6,1.2,6,0,30,1,3,6,0], eagle:["🦅","Eagle",2,35,1.5,9,6,70,2,9,2,0],
+duck:["🦆","Duck",0,10,0.7,4,0,25,1,7,8,0], swan:["🦢","Swan",1,25,0.7,4,4,25,2,9,4,1],
+owl:["🦉","Owl",1,25,1.2,7,4,50,1,7,3,0], flamingo:["🦩","Flamingo",0,20,0.8,4.5,0,30,2,8,3,1],
+peacock:["🦚","Peacock",0,18,0.7,3.5,0,25,2,8,3,1], parrot:["🦜","Parrot",0,8,1.3,6,0,30,1,4,4,0],
+goose:["🪿","Goose",2,20,0.8,4.5,4,40,2,9,5,0], frog:["🐸","Frog",0,5,0.4,2.5,0,15,1,3,8,0],
+crocodile:["🐊","Crocodile",2,140,0.5,4.5,18,35,6,16,1.5,2], turtle:["🐢","Turtle",1,40,0.2,0.5,2,8,2,10,4,0],
+lizard:["🦎","Lizard",0,8,0.6,3.5,0,20,1,4,6,0], snake:["🐍","Snake",2,25,0.5,3,8,25,1,7,4,0],
+whale:["🐋","Whale",0,500,0.5,2,0,20,20,24,0.2,2], dolphin:["🐬","Dolphin",0,90,1,5,0,30,5,14,0.8,1],
+seal:["🦭","Seal",0,60,0.5,2.5,0,25,4,13,1.5,1], fish:["🐟","Fish",0,6,0.4,1.5,0,15,1,6,8,0],
+tropicalfish:["🐠","Tropical Fish",0,5,0.4,1.5,0,15,1,5,6,0], blowfish:["🐡","Blowfish",1,10,0.3,1,3,10,1,5,4,0],
+shark:["🦈","Shark",2,130,0.8,5,16,50,6,15,1,2], octopus:["🐙","Octopus",1,45,0.4,2,6,20,3,12,2,1],
+jellyfish:["🪼","Jellyfish",1,8,0.2,0.8,5,8,1,4,4,0], crab:["🦀","Crab",1,15,0.4,1.8,3,12,1,7,6,0],
+lobster:["🦞","Lobster",1,18,0.3,1.5,3,10,1,8,4,0], shrimp:["🦐","Shrimp",0,4,0.3,1.5,0,10,1,4,6,0],
+squid:["🦑","Squid",1,30,0.5,2.5,4,18,2,10,3,0], oyster:["🦪","Oyster",1,8,0,0,0,0,1,6,4,0],
+snail:["🐌","Snail",0,4,0.05,0.1,0,5,1,2,7,0], butterfly:["🦋","Butterfly",0,2,0.8,3,0,20,1,1,8,0],
+bug:["🐛","Bug",0,2,0.2,0.8,0,8,1,1,8,0], ant:["🐜","Ant",1,2,0.3,1,1,6,1,1,8,0],
+bee:["🐝","Bee",1,3,1,4,2,15,1,1,8,0], beetle:["🪲","Beetle",0,3,0.3,1,0,8,1,1,7,0],
+ladybug:["🐞","Lady Beetle",0,2,0.3,1.2,0,8,1,1,7,0], cricket:["🦗","Cricket",0,2,0.4,2,0,12,1,1,7,0],
+cockroach:["🪳","Cockroach",0,3,0.5,2.5,0,15,1,1,7,0], spider:["🕷️","Spider",2,6,0.4,2,3,15,1,2,5,0],
+scorpion:["🦂","Scorpion",2,10,0.4,2,6,15,1,2,4,0], mosquito:["🦟","Mosquito",2,1,1,3.5,1,25,1,1,7,0],
+fly:["🪰","Fly",0,1,1.2,4,0,20,1,1,8,0], worm:["🪱","Worm",0,2,0.05,0.1,0,3,1,2,7,0],
+};
+const ANIMALS={};
+for(const [aid,r] of Object.entries(ANIMAL_DEFS)){
+  ANIMALS[aid]={icon:r[0],name:r[1],beh:r[2],hp:r[3],wSpd:r[4],aSpd:r[5],dmg:r[6],detect:r[7],
+                meatN:r[8],hun:r[9],w:r[10],size:r[11],xp:Math.max(2,Math.round(r[3]/6+r[6]))};
+  const mw=[0.2,0.5,1][r[11]];
+  ITEMS["raw_"+aid]={name:"Raw "+r[1]+" Meat", icon:"🥩", rarity:"common", w:0, wt:mw, grant:r[8], raw:aid};
+  ITEMS["meat_"+aid]={name:"Cooked "+r[1], icon:"🍖", rarity:"common", w:0, wt:mw, use:{hunger:r[9]}};
+}
+
 const WEAPON_IDS = ["spear","bat","machete","pistol","shotgun","rifle"];
 const FISTS = { dmg:5, rate:1100, range:6 };
 
@@ -596,6 +659,7 @@ function save(){
         loot: lootPoints.map(p=>({lat:p.lat,lng:p.lng,item:p.item})),
         zombies: zombies.map(z=>({kind:z.kind,lat:z.lat,lng:z.lng,hp:z.hp,state:z.state,lastSense:z.lastSense,noiseTgt:z.noiseTgt||null})),
         drop: drop?{lat:drop.lat,lng:drop.lng}:null,
+        animals: animals.map(a=>({kind:a.kind,lat:a.lat,lng:a.lng,hp:a.hp})),
         npcs: npcs.map(n=>({kind:n.kind,lat:n.lat,lng:n.lng,hp:n.hp,weapon:n.weapon||null,group:n.group,
           befriended:n.befriended,follow:n.follow,
           anchor:n.anchor?{lat:n.anchor.lat,lng:n.anchor.lng}:null})),
@@ -641,6 +705,7 @@ let roadTiles=null, satTiles=null;
 let satOn=(function(){ try{ return localStorage.getItem("meta_sat")==="1"; }catch(e){ return false; } })();
 let baseMarker=null, baseCircle=null;
 let lootPoints=[]; let lootSeq=1;
+let animals=[]; let animSeq=1;
 let zombies=[]; let zombSeq=1; let graceUntil=0;
 let channel=null, dead=false;
 let drop=null;
@@ -731,7 +796,7 @@ function setPos(lat,lng){
   playerPos={lat,lng};
   playerMarker.setLatLng(playerPos);
   map.setView(playerPos, map.getZoom(), {animate:true});
-  maintainLoot(); maintainZombies(); maintainDrop(); maintainNpcs();
+  maintainLoot(); maintainZombies(); maintainDrop(); maintainNpcs(); maintainAnimals();
 }
 function drawBase(){
   if(baseMarker){ map.removeLayer(baseMarker); baseMarker=null; }
@@ -1103,6 +1168,19 @@ function gardenPending(){
   if(!S.base||!S.base.garden) return 0;
   return Math.min(CFG.garden.cap, Math.floor((gt()-S.base.gardenLast)/CFG.garden.msPer));
 }
+function cookAll(silent){
+  let n=0;
+  for(const id of Object.keys(ITEMS)){
+    if(!ITEMS[id].raw) continue;
+    const total=(S.inv[id]||0)+(S.chest[id]||0);
+    if(!total) continue;
+    consume({[id]:total});
+    S.inv["meat_"+ITEMS[id].raw]=(S.inv["meat_"+ITEMS[id].raw]||0)+total;
+    n+=total;
+  }
+  if(n){ sfx("craft"); if(!silent) toast("🔥 Cooked "+n+" piece"+(n>1?"s":"")+" of meat"); save(); }
+  return n;
+}
 let baseTab="chest";
 function costChips(cost){
   return Object.entries(cost).map(([id,n])=>
@@ -1145,6 +1223,19 @@ function renderBase(){
     hp+="<h3>FIELD</h3>"+craftRows(false);
     hp+="<h3>WORKBENCH "+(b.workbench?"✓":"🔒")+"</h3>"+craftRows(true);
     if(!b.workbench) hp+='<div class="hint">Build the workbench in the BUILD tab to unlock these.</div>';
+    hp+="<h3>CAMPFIRE 🔥</h3>";
+    const raws=Object.keys(ITEMS).filter(id=>ITEMS[id].raw && ((S.inv[id]||0)+(S.chest[id]||0))>0);
+    if(!raws.length) hp+='<div class="hint">No raw meat — go hunting.</div>';
+    else{
+      hp+='<div style="margin:2px 0 8px"><button class="usebtn" data-cookall="1">🔥 COOK ALL</button></div>';
+      hp+=raws.map(id=>{
+        const ck=ITEMS["meat_"+ITEMS[id].raw];
+        return '<div class="invrow"><div class="ic">🥩</div><div class="nm">'+ITEMS[id].name+
+          '<small>→ '+ck.name+' (+'+ck.use.hunger+' food)</small></div>'+
+          '<div class="ct">×'+((S.inv[id]||0)+(S.chest[id]||0))+'</div>'+
+          '<button class="usebtn" data-cook="'+id+'">COOK</button></div>';
+      }).join("");
+    }
   } else {
     const maxHp=b.walls*CFG.base.wallHpPerLevel;
     hp+='<div class="invrow"><div class="ic">🧱</div><div class="nm">Walls · lvl '+b.walls+'/'+CFG.base.maxWalls+
@@ -1189,7 +1280,7 @@ document.addEventListener("click",e=>{
   const c=e.target.closest("[data-close]"); if(c){ $(c.dataset.close).style.display="none"; return; }
   const tb0=e.target.closest("[data-tab]");
   if(autoRunning && !tb0){
-    const blocked=e.target.closest("[data-use],[data-buy],[data-stash],[data-take],[data-stashall],[data-craft],[data-build],[data-wall],[data-repairwall],[data-expand],[data-harvest]");
+    const blocked=e.target.closest("[data-use],[data-buy],[data-stash],[data-take],[data-stashall],[data-craft],[data-build],[data-wall],[data-repairwall],[data-expand],[data-harvest],[data-cook],[data-cookall]");
     if(blocked){ toast("🤖 Look, don't touch — every move is the AI's call"); return; }
   }
   const u=e.target.closest("[data-use]"); if(u){ useItem(u.dataset.use); return; }
@@ -1213,7 +1304,7 @@ document.addEventListener("click",e=>{
     }
     return;
   }
-  const baseAct=e.target.closest("[data-stash],[data-take],[data-stashall],[data-craft],[data-build],[data-wall],[data-repairwall],[data-expand],[data-harvest]");
+  const baseAct=e.target.closest("[data-stash],[data-take],[data-stashall],[data-craft],[data-build],[data-wall],[data-repairwall],[data-expand],[data-harvest],[data-cook],[data-cookall]");
   if(!baseAct) return;
   if(!atBase()){ toast("You've drifted outside the base radius — step back in"); return; }
   const st=e.target.closest("[data-stash]");
@@ -1274,6 +1365,14 @@ document.addEventListener("click",e=>{
       drawBase(); grantXp(20); sfx("craft"); toast("📐 Perimeter expanded to "+baseRadius()+"m");
       save(); renderBase();
     } return; }
+  const ckb=e.target.closest("[data-cook]");
+  if(ckb){ const id=ckb.dataset.cook;
+    if(ITEMS[id]&&ITEMS[id].raw&&have(id)>0){
+      consume({[id]:1});
+      S.inv["meat_"+ITEMS[id].raw]=(S.inv["meat_"+ITEMS[id].raw]||0)+1;
+      sfx("craft"); save(); renderBase();
+    } return; }
+  if(e.target.closest("[data-cookall]")){ cookAll(); renderBase(); return; }
   if(e.target.closest("[data-harvest]")){
     const pend=gardenPending();
     if(pend>0){
@@ -1417,11 +1516,13 @@ setInterval(()=>{
     let vic=null, vd=1e12;
     if(!inGrace){ vd=haversine(z,playerPos); vic={p:true}; }
     for(const n of npcs){ const nd2=haversine(z,n); if(nd2<vd){vd=nd2; vic={n};} }
+    for(const an of animals){ const ad=haversine(z,an); if(ad<vd){vd=ad; vic={a:an};} }
     if(vic && vd<=det) alertZombie(z,vic);
     if(z.state==="chase"){
       if(!z.vic) z.vic={p:true};
       const vn=z.vic.n && npcs.includes(z.vic.n) ? z.vic.n : null;
-      const vpos=vn ? vn : (z.vic.p ? playerPos : null);
+      const va=z.vic.a && animals.includes(z.vic.a) ? z.vic.a : null;
+      const vpos=vn ? vn : (va ? va : (z.vic.p ? playerPos : null));
       if(!vpos){ z.state="wander"; z.vic=null; refreshZombIcon(z); continue; }
       const d=haversine(z,vpos);
       if(d>det*CFG.zombies.loseFactor && now-z.lastSense>CFG.zombies.loseAfterMs){
@@ -1432,7 +1533,8 @@ setInterval(()=>{
       const wallsUp=S.base && S.base.walls>0 && S.base.wallHp>0;
       const blocked=wallsUp && z.kind!=="brute" && haversine(vpos,S.base)<bR && haversine(z,S.base)>=bR-1;
       if(!blocked && d<=t.range){
-        if(vn) damageNpc(vn, t.dps*0.2);
+        if(va) damageAnimal(va, t.dps*0.2, {z:z}, z);
+        else if(vn) damageNpc(vn, t.dps*0.2);
         else if(!inGrace) hurtPlayer(t.dps*0.2);
       } else if(blocked && haversine(z,S.base)<=bR+5){
         damageWalls((CFG.base.wallDps[z.kind]!=null?CFG.base.wallDps[z.kind]:0.8)*0.2);
@@ -1462,6 +1564,127 @@ setInterval(()=>{
       z.wp={lat:pt.lat,lng:pt.lng};
     }
     moveZombie(z,z.wp,t.wander,0.4);
+  }
+},400);
+
+/* ---------------- animals: the wild lives here too ---------------- */
+function pickAnimalKind(){
+  let tot=0; for(const k in ANIMALS) tot+=ANIMALS[k].w;
+  let r=Math.random()*tot;
+  for(const k in ANIMALS){ r-=ANIMALS[k].w; if(r<=0) return k; }
+  return "bird";
+}
+function animalIcon(a){
+  const sp=a.def, sz=[22,30,38][sp.size];
+  const ring=a.state==="chase"?"var(--red)":(sp.beh===2?"#e08a3a":sp.beh===1?"#e0b34a":"#7c8f6c");
+  const wounded=a.hp<a.maxHp;
+  const html='<div class="mk zomb'+(a.state==="chase"?" chasing":"")+'" style="width:'+sz+'px;height:'+sz+'px;border-color:'+ring+'">'+sp.icon+
+    (wounded?'<div class="zhp"><i style="width:'+Math.max(0,a.hp/a.maxHp*100)+'%"></i></div>':'')+'</div>';
+  return L.divIcon({className:"",html,iconSize:[sz,sz],iconAnchor:[sz/2,sz/2]});
+}
+function refreshAnimalIcon(a){ a.marker.setIcon(animalIcon(a)); }
+function addAnimal(kind,lat,lng,hp,state){ // builder
+  kind=ANIMALS[kind]?kind:"bird";
+  const sp=ANIMALS[kind];
+  const a={id:"A"+(animSeq++), isAnimal:true, kind, def:sp, lat, lng,
+           hp:(hp==null?sp.hp:hp), maxHp:sp.hp, state:state||"wander", wp:null, tgt:null, fleeFrom:null};
+  a.marker=L.marker([lat,lng],{icon:animalIcon(a)}).addTo(map);
+  a.marker.on("click",()=>{
+    const d=Math.round(haversine(playerPos,a));
+    if(autoRunning){ toast(sp.icon+" "+sp.name+" · "+d+"m"); return; }
+    manualTarget=a;
+    toast("Target locked "+sp.icon+" "+sp.name+" ("+["skittish","defensive","aggressive"][sp.beh]+") · "+d+"m");
+  });
+  animals.push(a);
+  return a;
+}
+function spawnAnimal(){ // random spawner
+  const ang=Math.random()*360;
+  const dist=CFG.animals.minDist+Math.random()*(CFG.animals.maxDist-CFG.animals.minDist);
+  const pt=offsetPoint(playerPos.lat,playerPos.lng,dist,ang);
+  addAnimal(pickAnimalKind(), pt.lat, pt.lng);
+}
+function removeAnimal(a){
+  if(a.marker) map.removeLayer(a.marker);
+  animals=animals.filter(x=>x!==a);
+  if(manualTarget===a) manualTarget=null;
+}
+function maintainAnimals(){
+  if(!playerPos) return;
+  for(const a of animals.slice()) if(haversine(playerPos,a)>CFG.animals.cull) removeAnimal(a);
+  let guard=0;
+  while(animals.length<CFG.animals.target && guard++<20) spawnAnimal();
+}
+function killAnimal(a,byPlayer){
+  createLoot(a.lat,a.lng,"raw_"+a.kind);
+  if(byPlayer){ grantXp(a.def.xp); S.kills++; toast("🍖 "+a.def.name+" down — grab the meat"); }
+  removeAnimal(a);
+  save(); maintainAnimals();
+}
+function onAnimalHit(a,ref,srcPos){
+  const sp=a.def;
+  if(sp.beh===0){ a.state="flee"; a.tgt=null; a.fleeFrom={lat:srcPos.lat,lng:srcPos.lng}; }
+  else { a.state="chase"; a.tgt=ref; a.fleeFrom=null; }
+  refreshAnimalIcon(a);
+}
+function damageAnimal(a,dmg,ref,srcPos){
+  a.hp-=dmg;
+  if(a.hp<=0){ dmgNum([a.lat,a.lng],"☠"); killAnimal(a, !!(ref&&ref.p)); return; }
+  if(!updateHpBar(a.marker,a.hp/a.maxHp)) refreshAnimalIcon(a);
+  if(a.state!=="chase") onAnimalHit(a,ref,srcPos);
+}
+/* animal AI — 400ms */
+setInterval(()=>{
+  if(paused()||!playerPos||dead) return;
+  const now=gt(), inGrace=now<graceUntil;
+  for(const a of animals.slice()){
+    const sp=a.def;
+    if(a.state==="chase"){
+      let tpos=null, ref=a.tgt||{};
+      if(ref.p) tpos=inGrace?null:playerPos;
+      else if(ref.n && npcs.includes(ref.n)) tpos=ref.n;
+      else if(ref.z && zombies.includes(ref.z)) tpos=ref.z;
+      if(!tpos){ a.state="wander"; a.tgt=null; refreshAnimalIcon(a); continue; }
+      const d=haversine(a,tpos);
+      if(d>Math.max(sp.detect*2,80)){ a.state="wander"; a.tgt=null; refreshAnimalIcon(a); continue; }
+      if(d<=4){
+        const hit=sp.dmg*0.4;
+        if(ref.p) hurtPlayer(hit);
+        else if(ref.n) damageNpc(ref.n,hit);
+        else if(ref.z){
+          const zz=ref.z; zz.hp-=hit;
+          alertZombie(zz,{a});
+          if(zz.hp<=0){ removeZombie(zz); maintainZombies(); }
+          else if(!updateHpBar(zz.marker,zz.hp/zz.maxHp)) refreshZombIcon(zz);
+        }
+      } else moveZombie(a,tpos,sp.aSpd,0.4);
+    } else if(a.state==="flee"){
+      if(!a.fleeFrom){ a.state="wander"; continue; }
+      if(haversine(a,a.fleeFrom)>120){ a.state="wander"; a.fleeFrom=null; refreshAnimalIcon(a); }
+      else{
+        const pt=offsetPoint(a.lat,a.lng,sp.aSpd*0.4,bearingBetween(a.fleeFrom,a));
+        a.lat=pt.lat; a.lng=pt.lng; a.marker.setLatLng([a.lat,a.lng]);
+      }
+    } else {
+      if(sp.beh===2){ // predators hunt anything that moves — player, survivor, or the dead
+        let ref=null,bd=sp.detect;
+        if(!inGrace){ const d=haversine(a,playerPos); if(d<bd){bd=d;ref={p:true};} }
+        for(const n of npcs){ const d=haversine(a,n); if(d<bd){bd=d;ref={n};} }
+        for(const z of zombies){ const d=haversine(a,z); if(d<bd){bd=d;ref={z};} }
+        if(ref){ a.state="chase"; a.tgt=ref; refreshAnimalIcon(a); continue; }
+      } else if(sp.beh===0){ // prey spooks off approaching zombies
+        let danger=null,bd=30;
+        for(const z of zombies){ const d=haversine(a,z); if(d<bd){bd=d;danger=z;} }
+        if(danger){ a.state="flee"; a.fleeFrom={lat:danger.lat,lng:danger.lng}; refreshAnimalIcon(a); continue; }
+      }
+      if(sp.wSpd>0){
+        if(!a.wp || haversine(a,a.wp)<3){
+          const pt=offsetPoint(a.lat,a.lng,15+Math.random()*50,Math.random()*360);
+          a.wp={lat:pt.lat,lng:pt.lng};
+        }
+        moveZombie(a,a.wp,sp.wSpd,0.4);
+      }
+    }
   }
 },400);
 
@@ -1611,6 +1834,7 @@ function npcAttack(n,st){ // everyone can fight zombies at close range
   if(gt()-n.lastShot<st.rate) return false;
   let tgt=null,bd=1e12;
   for(const z of zombies){ const d=haversine(n,z); if(d<=st.range&&d<bd){bd=d;tgt=z;} }
+  for(const x of animals){ if(x.state!=="chase") continue; const d=haversine(n,x); if(d<=st.range&&d<bd){bd=d;tgt=x;} }
   if(!tgt) return false;
   n.lastShot=gt();
   if(st.gun){
@@ -1618,6 +1842,11 @@ function npcAttack(n,st){ // everyone can fight zombies at close range
     if(Math.random()<0.5) noiseEvent(n.lat,n.lng,CFG.npc.noiseRadius,true); // gunfire carries
   } else sfx("hit"); // melee stays quiet, same rule as the player
   tgt.hp-=st.dmg; dmgNum([tgt.lat,tgt.lng],"-"+st.dmg);
+  if(tgt.isAnimal){
+    if(tgt.hp<=0){ dmgNum([tgt.lat,tgt.lng],"☠"); killAnimal(tgt,false); }
+    else { if(!updateHpBar(tgt.marker,tgt.hp/tgt.maxHp)) refreshAnimalIcon(tgt); onAnimalHit(tgt,{n},n); }
+    return true;
+  }
   alertZombie(tgt,{n});                              // the zombie turns on its attacker
   if(tgt.hp<=0){ dmgNum([tgt.lat,tgt.lng],"☠"); removeZombie(tgt); maintainZombies(); }
   else if(!updateHpBar(tgt.marker,tgt.hp/tgt.maxHp)) refreshZombIcon(tgt);
@@ -1742,7 +1971,7 @@ setInterval(()=>{ // attack scheduler 100ms
   if(paused()||!drawn||!playerPos||dead) return;
   const w=currentWeapon(), now=gt();
   if(now-lastSwing<w.rate) return;
-  const candidates=[...zombies, ...npcs.filter(n=>n.kind==="hostile")];
+  const candidates=[...zombies, ...npcs.filter(n=>n.kind==="hostile"), ...animals];
   let tgt=null;
   if(manualTarget && candidates.includes(manualTarget) && haversine(playerPos,manualTarget)<=w.range) tgt=manualTarget;
   if(!tgt){
@@ -1763,11 +1992,14 @@ setInterval(()=>{ // attack scheduler 100ms
   if(w.type==="melee") applyMeleeWear(w);
   tgt.hp-=w.dmg;
   dmgNum([tgt.lat,tgt.lng],"-"+w.dmg);
-  if(tgt.isNpc){ tgt.state="chase"; tgt.lastSense=now; }  // shooting a hostile enrages him
+  if(tgt.isAnimal){ /* fight-or-flight resolved below */ }
+  else if(tgt.isNpc){ tgt.state="chase"; tgt.lastSense=now; }
   else alertZombie(tgt);
   if(tgt.hp<=0){
     dmgNum([tgt.lat,tgt.lng],"☠");
-    if(tgt.isNpc){
+    if(tgt.isAnimal){
+      killAnimal(tgt,true);
+    } else if(tgt.isNpc){
       grantXp(30); S.kills++;
       dropNpcGear(tgt);
       if(Math.random()<0.3) createLoot(tgt.lat, tgt.lng, weightedItem());
@@ -1782,7 +2014,11 @@ setInterval(()=>{ // attack scheduler 100ms
       maintainZombies();
     }
     save();
-  } else if(!updateHpBar(tgt.marker,tgt.hp/tgt.maxHp)) (tgt.isNpc?refreshNpcIcon:refreshZombIcon)(tgt);
+  } else {
+    if(!updateHpBar(tgt.marker,tgt.hp/tgt.maxHp))
+      (tgt.isAnimal?refreshAnimalIcon:tgt.isNpc?refreshNpcIcon:refreshZombIcon)(tgt);
+    if(tgt.isAnimal) onAnimalHit(tgt,{p:true},playerPos);
+  }
 },100);
 
 /* ---------------- dev mode movement ---------------- */
@@ -1900,6 +2136,7 @@ function autoThreat(){
   let best=null,bd=CFG.auto.threat;
   for(const z of zombies){ if(z.state==="chase"&&z.vic&&z.vic.p){ const d=haversine(playerPos,z); if(d<bd){bd=d;best=z;} } }
   for(const n of npcs){ if(n.kind==="hostile"&&n.state==="chase"){ const d=haversine(playerPos,n); if(d<bd){bd=d;best=n;} } }
+  for(const a of animals){ if(a.state==="chase"&&a.tgt&&a.tgt.p){ const d=haversine(playerPos,a); if(d<bd){bd=d;best=a;} } }
   return best;
 }
 function autoPickAction(){ // nothing -> null; several -> ONE at random. {label, fn, tab, sel}
@@ -1925,6 +2162,9 @@ function autoPickAction(){ // nothing -> null; several -> ONE at random. {label,
   const pend=gardenPending();
   if(pend>0) acts.push({label:"harvested 🥕 ×"+pend, tab:"build", sel:'[data-harvest]',
     fn:()=>{ S.inv.produce=(S.inv.produce||0)+pend; S.base.gardenLast=gt(); }});
+  const rawTotal=Object.keys(ITEMS).filter(id=>ITEMS[id].raw).reduce((s,id)=>s+have(id),0);
+  if(rawTotal>0) acts.push({label:"cooked "+rawTotal+" meat over the fire", tab:"craft", sel:'[data-cookall]',
+    fn:()=>cookAll(true)});
   for(const [rid,r] of Object.entries(RECIPES)){
     if(r.bench&&!S.base.workbench) continue;
     if(canAfford(r.cost)) acts.push({label:"crafted "+r.name, tab:"craft", sel:'[data-craft="'+rid+'"]',
@@ -1962,8 +2202,9 @@ setInterval(()=>{
   const now=gt();
   // survival reflexes — always on
   const pick=l=>l.find(id=>S.inv[id]>0);
-  if(S.thirst<40){ const id=pick(["water","soda"]); if(id) useItem(id); }
-  if(S.hunger<40){ const id=pick(["canned","produce","snack","soda"]); if(id) useItem(id); }
+  const anyWith=f=>Object.keys(S.inv).find(k=>ITEMS[k]&&ITEMS[k].use&&f(ITEMS[k].use));
+  if(S.thirst<40){ const id=pick(["water","soda"])||anyWith(u=>u.thirst); if(id) useItem(id); }
+  if(S.hunger<40){ const id=pick(["canned","produce","snack"])||anyWith(u=>u.hunger)||pick(["soda"]); if(id) useItem(id); }
   if(S.hp<S.maxHp*0.6){ const id=pick(["medkit","meds","bandage"]); if(id) useItem(id); }
   // random weapon shuffle every 1-100s
   if(now>=AUTO.nextWeaponRoll){
@@ -2074,7 +2315,7 @@ function restoreWorld(){ // rebuild every saved entity via the builders
       if(d<0.5) return {lat:playerPos.lat,lng:playerPos.lng};
       return offsetPoint(playerPos.lat,playerPos.lng,d,bearingBetween(A,pt));
     };
-    for(const p of (w.loot||[])) if(ITEMS[p.item]&&ITEMS[p.item].w>0||p.item==="produce") createLoot(p.lat,p.lng,p.item);
+    for(const p of (w.loot||[])) if(ITEMS[p.item]) createLoot(p.lat,p.lng,p.item);
     for(const z of (w.zombies||[])){
       const zp=tr({lat:z.lat,lng:z.lng});
       addZombie(z.kind||"walker", zp.lat, zp.lng, z.hp, z.state, z.lastSense, z.noiseTgt?tr(z.noiseTgt):null);
@@ -2083,6 +2324,10 @@ function restoreWorld(){ // rebuild every saved entity via the builders
       const np=tr({lat:n.lat,lng:n.lng});
       addNpc(n.kind, np.lat, np.lng, n.hp,
         {weapon:n.weapon, group:n.group, befriended:n.befriended, follow:n.follow, anchor:n.anchor?tr(n.anchor):null});
+    }
+    for(const a of (w.animals||[])){
+      const ap=tr({lat:a.lat,lng:a.lng});
+      addAnimal(a.kind, ap.lat, ap.lng, a.hp);
     }
     nextGroupRoll=w.nextGroupRoll||0;
     if(w.drop) createDrop(w.drop.lat, w.drop.lng);
@@ -2101,6 +2346,7 @@ function initWorld(lat,lng){
   maintainZombies();
   maintainDrop();
   maintainNpcs();
+  maintainAnimals();
   $("drawbtn").style.display="block";
   $("wpnbtn").style.display="block";
   $("start").style.display="none";

@@ -845,6 +845,22 @@ function setSat(on){
   $("satBtn").textContent = on ? "🗺️" : "🛰️";
   toast(on ? "🛰️ Satellite — the actual Earth." : "🗺️ Street map.");
 }
+const BUILD_V = 4; // bump with every release, together with the ?v= tags
+function buildCheck(){
+  const m = window.SC_MISSIONS_V, a = window.SC_AI_V;
+  if (m === BUILD_V && a === BUILD_V){
+    toast(`BUILD v${BUILD_V} — all files in sync.`);
+  } else {
+    const el = document.createElement("div");
+    el.style.cssText = "position:absolute;top:40%;left:6%;right:6%;z-index:5000;" +
+      "background:#5c1212;border:2px solid #ff5555;border-radius:12px;padding:16px;" +
+      "font-weight:900;text-align:center;color:#fff;font-size:15px";
+    el.innerHTML = `⚠️ FILES OUT OF SYNC<br>engine v${BUILD_V} · missions v${m||"MISSING"} · ai v${a||"MISSING"}` +
+      `<br><span style="font-weight:400;font-size:13px">Re-upload all 3 files, force-close the app, reopen.</span>`;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 12000);
+  }
+}
 function initMap(center){
   map = L.map("map", {zoomControl:false,
     fadeAnimation:false, markerZoomAnimation:false}).setView([center.lat, center.lng], 16);
@@ -3676,6 +3692,11 @@ $("mcMove").addEventListener("click", () => { if (placing) placementAgain(); });
 
 // ---- mission givers (GTA letter markers) ----
 let giverMarker = null;
+function refreshPlaceMarkers(){
+  if (giverMarker){ try{ map.removeLayer(giverMarker); }catch(e){} giverMarker = null; }
+  const st = typeof curStep === "function" ? curStep() : null;
+  if (st && st.at && st.at !== "t" && places[st.at]) drawMissionRing(places[st.at]);
+}
 function offeredMission(){
   if (mission.id) return null;
   for (const [id, M] of Object.entries(MISSIONS)){
@@ -3740,6 +3761,8 @@ function pickOrigin(done){
     $("originOv").style.display = "none";
     window.originPicking = false;
     map.setView([originPick.lat, originPick.lng], 16);
+    playerPos = {lat: originPick.lat, lng: originPick.lng}; // seed the road fetch
+    ensureRoads(); // pull this corner of the world NOW, during the cutscenes
     done();
   };
 }
@@ -3838,9 +3861,14 @@ const OVERPASS = ["https://overpass-api.de/api/interpreter",
 let opIdx = 0;
 async function ensureRoads(){
   if (!playerPos) return;
-  if (!roadG && !roadCacheTried && loadRoadCache() && roadsCover(playerPos)){
-    resnapWorld();
-    return; // cached streets cover us — instant, offline-proof
+  if (!roadG && !roadCacheTried && loadRoadCache()){
+    if (roadsCover(playerPos)){
+      resnapWorld();
+      return; // cached streets cover us — instant, offline-proof
+    }
+    // cached graph is for some OTHER part of the world (new origin, most likely).
+    // Running on it would strand every AI and misplace every spawn — drop it cold.
+    roadG = null; roadBox = null;
   }
   if (roadBusy || roadsCover(playerPos) || gt() < roadRetryAt) return;
   roadBusy = true;
@@ -3881,6 +3909,21 @@ function resnapWorld(){
   for (const j2 of jobs) fix(j2);
   for (const n of npcs) if (n.kind !== "target" && !n.follow) fix(n);
   for (const c of cops) fix(c);
+  // mission places too: wrong-graph victims stranded absurdly far come home to a
+  // local street; anything merely off-road gets nudged onto one
+  let placesMoved = 0;
+  for (const k of Object.keys(places)){
+    const pl = places[k];
+    if (!pl || typeof pl.lat !== "number") continue;
+    if (playerPos && haversine(playerPos, pl) > 8000){
+      const np = roadSpot(playerPos, 300, 900);
+      pl.lat = np.lat; pl.lng = np.lng; placesMoved++;
+    } else if (!nearRoad(pl, 60)){
+      const np = roadSpot(pl, 0, 250);
+      pl.lat = np.lat; pl.lng = np.lng; placesMoved++;
+    }
+  }
+  if (placesMoved){ savePlaces(); refreshPlaceMarkers(); }
   if (moved) saveWorld();
 }
 function buildRoadGraph(j){
@@ -4027,7 +4070,8 @@ function roadSpot(center, minR, maxR){
   }
   if (roadG && roadG.pts.length){
     const r = roadG.pts[Math.floor(Math.random() * roadG.pts.length)];
-    return {lat: r.lat, lng: r.lng};
+    if (haversine(center, r) < Math.max(maxR * 3, 2500)) return {lat: r.lat, lng: r.lng};
+    // graph is for somewhere else entirely — a raw local point beats a wrong-city one
   }
   return offsetPoint(center.lat, center.lng,
     minR + Math.random() * (maxR - minR), Math.random() * Math.PI * 2);
@@ -4556,6 +4600,7 @@ let startedOnce = false;
 function start(useGps){
   devMode = !useGps;
   started = true;
+  setTimeout(buildCheck, 1200);
   $("splash").style.display = "none";
   $("err").style.display = "none";
   $("devbadge").style.display = (devMode && !AUTO_SESSION) ? "block" : "none";
@@ -4745,7 +4790,7 @@ renderMoney(false);
 renderLevel();
 renderHealth();
 </script>
-<script src="sc-missions.js?v=3"></script>
-<script src="sc-ai.js?v=3"></script>
+<script src="sc-missions.js?v=4"></script>
+<script src="sc-ai.js?v=4"></script>
 </body>
 </html>

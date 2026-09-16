@@ -313,3 +313,5 @@ setInterval(() => {
   } else aiStuck = null;
 }, 400);
 let aiStuck = null;
+
+window.SC_AI_V = 4;

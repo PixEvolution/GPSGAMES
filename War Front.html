@@ -476,6 +476,18 @@
   <button id="okEnemy" class="btn primary">DECLARE WAR</button>
 </div>
 
+<div id="scrMenu" class="screen">
+  <div class="scrInner">
+    <h1>WAR FRONT</h1>
+    <p style="font-size:12px; margin-top:-6px; color:#8fa070;">A war on your real streets.</p>
+    <button id="menuPlay" class="btn primary" style="margin-top:14px;">START YOUR WAR</button>
+    <p style="font-size:11px; margin:4px 0 10px;">Command in person — GPS, boots on the ground.</p>
+    <button id="menuAuto" class="btn">AUTO WAR 🌍</button>
+    <p style="font-size:11px; margin:4px 0 0;">A separate war run entirely by the AI, anywhere on Earth. Watch it fight.</p>
+    <button id="menuAutoNew" class="btn" style="display:none; margin-top:8px; font-size:11px; padding:8px;">🌍 NEW AUTO WAR (abandons the old one)</button>
+  </div>
+</div>
+
 <div id="scrSafety" class="screen">
   <div class="scrInner">
     <h1>FIELD SAFETY BRIEFING</h1>
@@ -580,7 +592,7 @@ const CFG = {
   scorchMinPerM2: 1/1500,     // repair game-minutes ∝ area
 
   zoomStart: 17,
-  zoomMin: 14,
+  zoomMin: 2,     // full world zoom-out — navigate the planet, spectate distant theaters
   zoomMax: 19,
 
   buildings: {
@@ -2050,7 +2062,7 @@ let pendingNames = { army: "", enemy: "" };
 let ccPlaceMode = "onboard";
 
 function showScreen(id) {
-  ["scrSafety","scrArmy","scrEnemy","scrIntro","scrGps","scrOver"].forEach(s => $(s).classList.remove("show"));
+  ["scrMenu","scrSafety","scrArmy","scrEnemy","scrIntro","scrGps","scrOver"].forEach(s => $(s).classList.remove("show"));
   if (id) $(id).classList.add("show");
 }
 $("okArmy").addEventListener("click", () => {
@@ -4271,7 +4283,18 @@ function enterAutoSave() {
   toast("AUTO SAVE loaded — a separate war. The AI commands here; your real save is untouched.", false);
 }
 function exitAutoSave() {
+  if (!S.get("wf_world")) {
+    // no commander war exists yet — back to the main menu
+    saveWorld();
+    saveSlot = "wf_";
+    teardownLive();
+    world = null;
+    $("autoBtn").textContent = "AUTO: OFF";
+    openMainMenu();
+    return;
+  }
   if (!switchSlot("wf_")) { toast("Couldn't reload your war.", true); return; }
+  mainSaved = world;
   $("autoBtn").textContent = "AUTO: OFF";
   toast("Back to YOUR war, Commander. The AUTO war keeps its own save for next time.", false);
 }
@@ -4372,34 +4395,88 @@ $("sfxBtn").classList.toggle("ghosted", !sfxOn);
 if (!S.persistent) {
   setTimeout(() => toast("Preview mode: saves won't survive a reload here. Deploy to GitHub Pages for real persistence.", true), 400);
 }
+let mainSaved = null;
+function openMainMenu() {
+  document.body.classList.remove("playing");
+  started = false;
+  $("menuPlay").textContent = mainSaved ? "CONTINUE YOUR WAR" : "START YOUR WAR";
+  const hasAuto = !!S.get("wf_auto_world");
+  $("menuAuto").textContent = hasAuto ? "AUTO WAR 🌍 — SPECTATE" : "AUTO WAR 🌍 — NEW";
+  $("menuAutoNew").style.display = hasAuto ? "" : "none";
+  showScreen("scrMenu");
+}
+function enterMainWar() {
+  saveSlot = "wf_";
+  gameTime = parseInt(S.get(K.gt()) || "0", 10) || 0;
+  showScreen(null);
+  restoreWorld(mainSaved);
+  mainSaved = world;   // keep the reference fresh for later menu visits
+  applyCamMode();
+  started = true;
+  document.body.classList.add("playing");
+  lastEconGt = gt(); lastConGt = gt(); lastAiGt = gt(); nextAutoGt = 0;
+  refreshHud(); refreshSquadChips(); refreshWeaponBtn();
+  const cc = world.buildings.find(b => b.kind === "cc");
+  if (cc && map) map.setView([cc.lat, cc.lng], 16);
+  startGps();
+  toast(world.enemies.length
+    ? "Welcome back, commander — the attack you left is still on!"
+    : "Welcome back, commander. The front held while you were gone.");
+}
+function enterAutoFromMenu(fresh) {
+  if (fresh) S.wipePrefix("wf_auto_");
+  const hasAuto = !!S.get("wf_auto_world");
+  showScreen(null);
+  if (hasAuto) {
+    saveSlot = "wf_auto_";
+    gameTime = parseInt(S.get(K.gt()) || "0", 10) || 0;
+    const saved2 = loadWorld();
+    if (!saved2) { saveSlot = "wf_"; openMainMenu(); return; }
+    teardownLive();
+    migrateSave();
+    restoreWorld(saved2);
+    world.auto = true;
+    started = true;
+    document.body.classList.add("playing");
+    lastEconGt = gt(); lastConGt = gt(); lastAiGt = gt(); nextAutoGt = 0;
+    refreshHud(); refreshSquadChips(); refreshWeaponBtn();
+    $("autoBtn").textContent = "AUTO: ON";
+    const cc = world.buildings.find(b => b.kind === "cc");
+    if (cc && map) map.setView([cc.lat, cc.lng], 16);
+    startGps();
+    toast("AUTO WAR — the AI commands. Watch, or take the controls anytime.", false);
+  } else {
+    // brand-new AUTO war: pick its theater anywhere on Earth
+    if (!map) initMap({ lat: 20, lng: 0 });
+    teardownLive();
+    const names = mainSaved ? { a: mainSaved.armyName, e: mainSaved.enemyName } : { a: "ALLIED COMMAND", e: "THE OPPOSITION" };
+    saveSlot = "wf_auto_";
+    pickOrigin(origin => {
+      if (!origin) { saveSlot = "wf_"; openMainMenu(); return; }
+      createAutoWorld(origin, names);
+      started = true;
+      document.body.classList.add("playing");
+      $("autoBtn").textContent = "AUTO: ON";
+      startGps();
+      toast("AUTO WAR founded — the AI commands here. Your own war is untouched.", false);
+    });
+  }
+}
+$("menuPlay").addEventListener("click", () => {
+  if (mainSaved) { teardownLive(); enterMainWar(); }
+  else { flow = "army"; showScreen("scrArmy"); }
+});
+$("menuAuto").addEventListener("click", () => enterAutoFromMenu(false));
+$("menuAutoNew").addEventListener("click", () => enterAutoFromMenu(true));
+
 (function boot() {
   const saved = loadWorld();
   if (saved && saved.buildings && saved.buildings.length) {
-    saved._bSnapshot = saved.buildings;
-    saved._uSnapshot = saved.units || [];
-    saved._eSnapshot = saved.enemies || [];
-    saved._sSnapshot = saved.scorch || [];
-    saved._cSnapshot = saved.caches || [];
-    flow = "play";
-    showScreen(null);
-    const cc = saved._bSnapshot.find(b => b.kind === "cc");
+    mainSaved = saved;
+    const cc = saved.buildings.find(b => b.kind === "cc");
     initMap(cc ? { lat: cc.lat, lng: cc.lng } : { lat: 41.0814, lng: -81.5190 });
-    restoreWorld(saved);
-    applyCamMode();
-    afterSafety = () => {
-      started = true;
-      document.body.classList.add("playing");
-      lastEconGt = gt(); lastConGt = gt(); lastAiGt = gt();
-      refreshHud(); refreshSquadChips(); refreshWeaponBtn();
-      startGps();
-      toast(world.enemies.length
-        ? "Welcome back, commander — the attack you left is still on!"
-        : "Welcome back, commander. The front held while you were gone.");
-    };
-  } else {
-    flow = "army";
-    afterSafety = () => showScreen("scrArmy");
   }
+  afterSafety = () => openMainMenu();
   showScreen("scrSafety");
 })();
 </script>
