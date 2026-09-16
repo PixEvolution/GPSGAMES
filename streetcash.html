@@ -369,6 +369,11 @@
   #satBtn{position:absolute;top:calc(env(safe-area-inset-top,0px) + 188px);
     right:10px;z-index:1500;width:42px;height:42px;border-radius:12px;
     border:1px solid #333;background:rgba(12,12,16,.85);font-size:20px}
+  #zinBtn,#zoutBtn{position:absolute;right:10px;z-index:1500;width:42px;height:42px;
+    border-radius:12px;border:1px solid #333;background:rgba(12,12,16,.85);
+    font-size:18px;color:var(--fg)}
+  #zinBtn{top:calc(env(safe-area-inset-top,0px) + 238px)}
+  #zoutBtn{top:calc(env(safe-area-inset-top,0px) + 288px)}
   #camBtn{position:absolute;top:calc(env(safe-area-inset-top,0px) + 138px);
     right:10px;z-index:1050;width:38px;height:38px;border-radius:50%;
     border:1px solid #2a332a;background:rgba(13,15,13,.85);color:#aab5aa;
@@ -464,6 +469,8 @@
 <button id="logBtn">📜</button>
 <button id="camBtn">📍</button>
 <button id="satBtn">🛰️</button>
+<button id="zinBtn">➕</button>
+<button id="zoutBtn">➖</button>
 <div id="logPanel">
   <h2>MESSAGE LOG</h2>
   <div id="logList"></div>
@@ -4685,6 +4692,8 @@ $("ioGo").addEventListener("click", () => {
 });
 
 $("satBtn").addEventListener("click", () => setSat(!satOn));
+$("zinBtn").addEventListener("click", () => { if (map) map.zoomIn(1); });
+$("zoutBtn").addEventListener("click", () => { if (map) map.zoomOut(1); });
 $("startGps").addEventListener("click", () => {
   if (AUTO_SESSION){
     if (introNeeded()) beginIntro(false); // you name it, gang it, tap the story
