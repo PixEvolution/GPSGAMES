@@ -449,7 +449,8 @@ const CFG = {
   },
   noise: { radius: 300 },                     // gunshot pull
   night: { start: 20, end: 6, speed: 1.25, detect: 1.3, extra: 4 },
-  animals: { target: 6, minDist: 100, maxDist: 700, cull: 1200 },
+  animals: { target: 6, minDist: 100, maxDist: 700, cull: 1200,
+             waterRadius: 900, waterRefetchMs: 30000 },
   base: { radii: [50, 75, 100], maxWalls: 3,
           wallHpPerLevel: 150,
           wallDps: { walker: 0.8, runner: 1, screamer: 0.5 },  // brutes walk straight through
@@ -477,7 +478,8 @@ const CFG = {
           weaponRollMaxS:100, respawnMs:3000,
           levelsPerExtraItem:4,     // 1 item/trip at LV1-4, 2 at LV5-8, 3 at LV9-12…
           campArrive:6,             // walks all the way to the base CENTER, not the perimeter
-          campMenuMs:1400, campActMs:1600 },
+          campMenuMs:1400, campActMs:1600,
+          huntRange:40, tradeRange:80, tradeCdMs:180000 },
   devSpeeds: [1.5, 4, 8, 20],
   defaultPos: [44.7631, -85.6206],
   autosaveMs: 3000,
@@ -574,10 +576,13 @@ cockroach:["🪳","Cockroach",0,3,0.5,2.5,0,15,1,1,7,0], spider:["🕷️","Spid
 scorpion:["🦂","Scorpion",2,10,0.4,2,6,15,1,2,4,0], mosquito:["🦟","Mosquito",2,1,1,3.5,1,25,1,1,7,0],
 fly:["🪰","Fly",0,1,1.2,4,0,20,1,1,8,0], worm:["🪱","Worm",0,2,0.05,0.1,0,3,1,2,7,0],
 };
+const AQUATIC=new Set(["whale","dolphin","seal","fish","tropicalfish","blowfish","shark",
+                       "octopus","jellyfish","crab","lobster","shrimp","squid","oyster"]);
 const ANIMALS={};
 for(const [aid,r] of Object.entries(ANIMAL_DEFS)){
   ANIMALS[aid]={icon:r[0],name:r[1],beh:r[2],hp:r[3],wSpd:r[4],aSpd:r[5],dmg:r[6],detect:r[7],
-                meatN:r[8],hun:r[9],w:r[10],size:r[11],xp:Math.max(2,Math.round(r[3]/6+r[6]))};
+                meatN:r[8],hun:r[9],w:r[10],size:r[11],aq:AQUATIC.has(aid),
+                xp:Math.max(2,Math.round(r[3]/6+r[6]))};
   const mw=[0.2,0.5,1][r[11]];
   ITEMS["raw_"+aid]={name:"Raw "+r[1]+" Meat", icon:"🥩", rarity:"common", w:0, wt:mw, grant:r[8], raw:aid};
   ITEMS["meat_"+aid]={name:"Cooked "+r[1], icon:"🍖", rarity:"common", w:0, wt:mw, use:{hunger:r[9]}};
@@ -1567,12 +1572,81 @@ setInterval(()=>{
   }
 },400);
 
+/* ---------------- water knowledge (OSM via Overpass, cached) ----------------
+   Marine species spawn only inside real water polygons and can't leave them.
+   Cache lives in the global meta_water key (bbox-cover pattern from The Streets'
+   roads cache): reused when it covers the player, refetched when they've moved. */
+let waterPolys=[], waterCenter=null, waterFetching=false, lastWaterFetch=0, waterLayer=null;
+try{ const wc=JSON.parse(localStorage.getItem("meta_water")||"null");
+     if(wc&&wc.polys){ waterPolys=wc.polys; waterCenter=wc.c; } }catch(e){}
+function pip(pt,poly){ // ray-cast point-in-polygon on [lat,lng] rings
+  let inside=false;
+  for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+    const yi=poly[i][0], xi=poly[i][1], yj=poly[j][0], xj=poly[j][1];
+    if(((yi>pt.lat)!==(yj>pt.lat)) && (pt.lng < (xj-xi)*(pt.lat-yi)/(yj-yi)+xi)) inside=!inside;
+  }
+  return inside;
+}
+function waterCovered(){
+  return waterCenter && playerPos && haversine(waterCenter,playerPos)<CFG.animals.waterRadius*0.5;
+}
+function drawWater(){
+  if(waterLayer){ map.removeLayer(waterLayer); waterLayer=null; }
+  if(!map||!waterPolys.length) return;
+  waterLayer=L.layerGroup(waterPolys.map(p=>L.polygon(p,{color:"#3a7ae0",weight:1,opacity:.35,
+    fillColor:"#3a7ae0",fillOpacity:.10,interactive:false}))).addTo(map);
+}
+function fetchWater(){
+  // Date.now on purpose: throttling real network calls is wall-clock territory
+  if(waterFetching || !playerPos || Date.now()-lastWaterFetch<CFG.animals.waterRefetchMs) return;
+  waterFetching=true; lastWaterFetch=Date.now();
+  const c={lat:playerPos.lat,lng:playerPos.lng}, R=CFG.animals.waterRadius;
+  const q='[out:json][timeout:15];(way["natural"="water"](around:'+R+','+c.lat+','+c.lng+');'+
+          'way["water"](around:'+R+','+c.lat+','+c.lng+'););out geom;';
+  fetch("https://overpass-api.de/api/interpreter",{method:"POST",body:"data="+encodeURIComponent(q)})
+    .then(r=>r.json())
+    .then(j=>{
+      const polys=[];
+      for(const el2 of (j.elements||[])){
+        if(el2.type==="way" && el2.geometry && el2.geometry.length>=4)
+          polys.push(el2.geometry.map(g=>[g.lat,g.lon]));
+      }
+      waterPolys=polys; waterCenter=c;
+      try{ localStorage.setItem("meta_water", JSON.stringify({c, polys})); }catch(e){}
+      for(const a of animals) if(a.def.aq && !a.home) a.home=waterPolys.find(p=>pip(a,p))||null;
+      drawWater();
+      waterFetching=false;
+    })
+    .catch(()=>{ waterFetching=false; });
+}
+function waterSpawnPoint(){
+  const cands=waterPolys.filter(p=>haversine(playerPos,{lat:p[0][0],lng:p[0][1]})<1500);
+  if(!cands.length) return null;
+  for(let t=0;t<12;t++){
+    const poly=cands[Math.floor(Math.random()*cands.length)];
+    let miLat=90,maLat=-90,miLng=180,maLng=-180;
+    for(const v of poly){ miLat=Math.min(miLat,v[0]); maLat=Math.max(maLat,v[0]); miLng=Math.min(miLng,v[1]); maLng=Math.max(maLng,v[1]); }
+    const ll={lat:miLat+Math.random()*(maLat-miLat), lng:miLng+Math.random()*(maLng-miLng)};
+    const d=haversine(playerPos,ll);
+    if(d>=CFG.animals.minDist*0.5 && d<=CFG.animals.maxDist+300 && pip(ll,poly)) return {pt:ll, poly};
+  }
+  return null;
+}
+
 /* ---------------- animals: the wild lives here too ---------------- */
-function pickAnimalKind(){
-  let tot=0; for(const k in ANIMALS) tot+=ANIMALS[k].w;
+function pickAnimalKind(landOnly){
+  let tot=0; for(const k in ANIMALS){ if(landOnly&&ANIMALS[k].aq) continue; tot+=ANIMALS[k].w; }
   let r=Math.random()*tot;
-  for(const k in ANIMALS){ r-=ANIMALS[k].w; if(r<=0) return k; }
+  for(const k in ANIMALS){ if(landOnly&&ANIMALS[k].aq) continue; r-=ANIMALS[k].w; if(r<=0) return k; }
   return "bird";
+}
+function moveAnimal(a,toward,spd,dt){ // aquatics never leave their water body
+  if(!a.def.aq){ moveZombie(a,toward,spd,dt); return; }
+  if(!a.home) return; // no known water polygon: bob in place until relinked
+  const d=haversine(a,toward); if(d<1) return;
+  const step=Math.min(d,spd*dt);
+  const pt=offsetPoint(a.lat,a.lng,step,bearingBetween(a,toward));
+  if(pip(pt,a.home)){ a.lat=pt.lat; a.lng=pt.lng; a.marker.setLatLng([a.lat,a.lng]); }
 }
 function animalIcon(a){
   const sp=a.def, sz=[22,30,38][sp.size];
@@ -1598,11 +1672,17 @@ function addAnimal(kind,lat,lng,hp,state){ // builder
   animals.push(a);
   return a;
 }
-function spawnAnimal(){ // random spawner
+function spawnAnimal(){ // random spawner — marine rolls need real water nearby
+  let kind=pickAnimalKind();
+  if(ANIMALS[kind].aq){
+    const w=waterSpawnPoint();
+    if(w){ addAnimal(kind, w.pt.lat, w.pt.lng).home=w.poly; return; }
+    kind=pickAnimalKind(true); // dry land as far as we know: reroll to a land species
+  }
   const ang=Math.random()*360;
   const dist=CFG.animals.minDist+Math.random()*(CFG.animals.maxDist-CFG.animals.minDist);
   const pt=offsetPoint(playerPos.lat,playerPos.lng,dist,ang);
-  addAnimal(pickAnimalKind(), pt.lat, pt.lng);
+  addAnimal(kind, pt.lat, pt.lng);
 }
 function removeAnimal(a){
   if(a.marker) map.removeLayer(a.marker);
@@ -1611,6 +1691,7 @@ function removeAnimal(a){
 }
 function maintainAnimals(){
   if(!playerPos) return;
+  if(!waterCovered()) fetchWater();
   for(const a of animals.slice()) if(haversine(playerPos,a)>CFG.animals.cull) removeAnimal(a);
   let guard=0;
   while(animals.length<CFG.animals.target && guard++<20) spawnAnimal();
@@ -1657,14 +1738,11 @@ setInterval(()=>{
           if(zz.hp<=0){ removeZombie(zz); maintainZombies(); }
           else if(!updateHpBar(zz.marker,zz.hp/zz.maxHp)) refreshZombIcon(zz);
         }
-      } else moveZombie(a,tpos,sp.aSpd,0.4);
+      } else moveAnimal(a,tpos,sp.aSpd,0.4);
     } else if(a.state==="flee"){
       if(!a.fleeFrom){ a.state="wander"; continue; }
       if(haversine(a,a.fleeFrom)>120){ a.state="wander"; a.fleeFrom=null; refreshAnimalIcon(a); }
-      else{
-        const pt=offsetPoint(a.lat,a.lng,sp.aSpd*0.4,bearingBetween(a.fleeFrom,a));
-        a.lat=pt.lat; a.lng=pt.lng; a.marker.setLatLng([a.lat,a.lng]);
-      }
+      else moveAnimal(a, offsetPoint(a.lat,a.lng,25,bearingBetween(a.fleeFrom,a)), sp.aSpd, 0.4);
     } else {
       if(sp.beh===2){ // predators hunt anything that moves — player, survivor, or the dead
         let ref=null,bd=sp.detect;
@@ -1682,7 +1760,7 @@ setInterval(()=>{
           const pt=offsetPoint(a.lat,a.lng,15+Math.random()*50,Math.random()*360);
           a.wp={lat:pt.lat,lng:pt.lng};
         }
-        moveZombie(a,a.wp,sp.wSpd,0.4);
+        moveAnimal(a,a.wp,sp.wSpd,0.4);
       }
     }
   }
@@ -2087,7 +2165,7 @@ if(window.visualViewport) window.visualViewport.addEventListener("resize",onView
 /* ---------------- AUTO MODE: the game plays itself ---------------- */
 let autoRunning=false;
 const AUTO={ wp:null, task:"idle", quota:0, collected:0, pending:null, camp:null,
-             speed:1.3, nextSpeedRoll:0, nextWeaponRoll:0, respT:null };
+             speed:1.3, nextSpeedRoll:0, nextWeaponRoll:0, nextTrade:0, respT:null };
 let opPick=null, opMarker=null;
 function opSet(p){
   opPick={lat:p.lat,lng:p.lng};
@@ -2135,7 +2213,7 @@ function startAutoSim(){
 function autoThreat(){
   let best=null,bd=CFG.auto.threat;
   for(const z of zombies){ if(z.state==="chase"&&z.vic&&z.vic.p){ const d=haversine(playerPos,z); if(d<bd){bd=d;best=z;} } }
-  for(const n of npcs){ if(n.kind==="hostile"&&n.state==="chase"){ const d=haversine(playerPos,n); if(d<bd){bd=d;best=n;} } }
+  for(const n of npcs){ if(n.kind==="hostile"){ const d=haversine(playerPos,n); if(d<bd){bd=d;best=n;} } } // attack on sight — or flee them below half HP
   for(const a of animals){ if(a.state==="chase"&&a.tgt&&a.tgt.p){ const d=haversine(playerPos,a); if(d<bd){bd=d;best=a;} } }
   return best;
 }
@@ -2228,6 +2306,7 @@ setInterval(()=>{
     if(S.hp<S.maxHp*CFG.auto.fleeHpFrac){
       AUTO.wp=offsetPoint(playerPos.lat,playerPos.lng,CFG.auto.fleeDist,bearingBetween(th,playerPos));
     } else {
+      manualTarget=th;
       const w=currentWeapon(), d=haversine(playerPos,th);
       AUTO.wp = d>Math.max(3,w.range-2) ? {lat:th.lat,lng:th.lng} : null;
     }
@@ -2236,6 +2315,8 @@ setInterval(()=>{
   if(drawn){ // holster once it's clear
     let near=false;
     for(const z of zombies){ if(haversine(playerPos,z)<CFG.auto.holsterAt){ near=true; break; } }
+    if(!near) for(const a of animals){ if(haversine(playerPos,a)<CFG.auto.holsterAt){ near=true; break; } }
+    if(!near) for(const n of npcs){ if(n.kind==="hostile" && haversine(playerPos,n)<CFG.auto.holsterAt){ near=true; break; } }
     if(!near){ drawn=false; updateCombatBtns(); }
   }
   if(channel){ AUTO.wp=null; return; } // stand still and finish the scavenge
@@ -2248,6 +2329,37 @@ setInterval(()=>{
       grp.forEach(x=>{ x.befriended=true; x.follow=true; refreshNpcIcon(x); });
       toast("🤖 recruited "+grp.length+" survivor"+(grp.length>1?"s":"")); save();
     } else { AUTO.wp={lat:bf.lat,lng:bf.lng}; return; }
+  }
+  // opportunistic hunting: any animal in range is dinner — unless we're hurt
+  if(manualTarget && manualTarget.isAnimal && haversine(playerPos,manualTarget)>60) manualTarget=null;
+  if(S.hp>=S.maxHp*CFG.auto.fleeHpFrac){
+    let prey=null,pd=CFG.auto.huntRange;
+    for(const a of animals){ const d=haversine(playerPos,a); if(d<pd){pd=d;prey=a;} }
+    if(prey){
+      if(!drawn){ drawn=true; updateCombatBtns(); }
+      manualTarget=prey;
+      const w=currentWeapon(), d=haversine(playerPos,prey);
+      AUTO.wp = d>Math.max(3,w.range-2) ? {lat:prey.lat,lng:prey.lng} : null;
+      return;
+    }
+  }
+  // the trader: walk over and buy ONE random affordable thing, then move on
+  if(gt()>=AUTO.nextTrade && (S.inv.metal||0)>0){
+    const m=npcs.find(x=>x.kind==="merchant");
+    if(m){
+      const afford=TRADE.filter(t=>(S.inv.metal||0)>=t.cost);
+      const md=haversine(playerPos,m);
+      if(afford.length && md<=CFG.auto.tradeRange){
+        if(md<=CFG.collectRadius){
+          const t=afford[Math.floor(Math.random()*afford.length)];
+          S.inv.metal-=t.cost; if(S.inv.metal<=0) delete S.inv.metal;
+          S.inv[t.id]=(S.inv[t.id]||0)+t.qty;
+          sfx("craft"); toast("🤖 bought "+ITEMS[t.id].name+(t.qty>1?" ×"+t.qty:"")+" from the trader");
+          AUTO.nextTrade=gt()+CFG.auto.tradeCdMs;
+          save();
+        } else { AUTO.wp={lat:m.lat,lng:m.lng}; return; }
+      }
+    }
   }
   // task machine: scavenge LV items -> return -> spend -> repeat
   if(AUTO.task==="return"){
@@ -2327,7 +2439,8 @@ function restoreWorld(){ // rebuild every saved entity via the builders
     }
     for(const a of (w.animals||[])){
       const ap=tr({lat:a.lat,lng:a.lng});
-      addAnimal(a.kind, ap.lat, ap.lng, a.hp);
+      const na=addAnimal(a.kind, ap.lat, ap.lng, a.hp);
+      if(na.def.aq) na.home=waterPolys.find(p=>pip(na,p))||null;
     }
     nextGroupRoll=w.nextGroupRoll||0;
     if(w.drop) createDrop(w.drop.lat, w.drop.lng);
@@ -2347,6 +2460,7 @@ function initWorld(lat,lng){
   maintainDrop();
   maintainNpcs();
   maintainAnimals();
+  drawWater();
   $("drawbtn").style.display="block";
   $("wpnbtn").style.display="block";
   $("start").style.display="none";
