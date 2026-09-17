@@ -845,7 +845,7 @@ function setSat(on){
   $("satBtn").textContent = on ? "🗺️" : "🛰️";
   toast(on ? "🛰️ Satellite — the actual Earth." : "🗺️ Street map.");
 }
-const BUILD_V = 4; // bump with every release, together with the ?v= tags
+const BUILD_V = 5; // bump with every release, together with the ?v= tags
 function buildCheck(){
   const m = window.SC_MISSIONS_V, a = window.SC_AI_V;
   if (m === BUILD_V && a === BUILD_V){
@@ -4104,6 +4104,24 @@ function npcRoadStep(n, dest, dtSec){
   if (!n.paceAt || gt() >= n.paceAt) rollNpcPace(n);
   const d = haversine(n, dest);
   if (d < 2) return;
+  // PROGRESS WATCHDOG: track the closest we've EVER been to this destination.
+  // 12s with no net gain — frozen, ping-ponging, or looping a dead end, doesn't
+  // matter which — means the roads have failed us: screw it, WALK straight at
+  // it for 20s, then give the roads another chance from wherever that lands.
+  const mk = Math.round(dest.lat * 2e3) + "_" + Math.round(dest.lng * 2e3);
+  if (!n.mw || n.mw.k !== mk) n.mw = {k: mk, best: d, at: gt()};
+  if (d < n.mw.best - 4){ n.mw.best = d; n.mw.at = gt(); }
+  if (gt() - n.mw.at > 12000){
+    n.walkUntil = gt() + 20000;
+    n.mw = {k: mk, best: d, at: gt()};
+  }
+  if (gt() < (n.walkUntil || 0)){
+    const spd = Math.max(1, n.spdOff || 2) * dtSec;
+    const np = offsetPoint(n.lat, n.lng, Math.min(spd, d), bearingBetween(n, dest));
+    n.lat = np.lat; n.lng = np.lng;
+    if (n.marker) n.marker.setLatLng([n.lat, n.lng]);
+    return;
+  }
   let wp = dest, onRoad = false, routeDone = false, noRoute = false;
   if (roadG && d > 60){
     const key = Math.round(dest.lat * 1e4) + "," + Math.round(dest.lng * 1e4);
@@ -4790,7 +4808,7 @@ renderMoney(false);
 renderLevel();
 renderHealth();
 </script>
-<script src="sc-missions.js?v=4"></script>
-<script src="sc-ai.js?v=4"></script>
+<script src="sc-missions.js?v=5"></script>
+<script src="sc-ai.js?v=5"></script>
 </body>
 </html>

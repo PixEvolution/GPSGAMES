@@ -964,6 +964,10 @@ function builderCount() { return world.units.filter(u => u.kind === "builder").l
    tier 1: local only. tier 2 (Radar): remote place/train/orders, 120s intel.
    tier 3 (General alive): same remote + 180s intel with spawn bearing.
    Caches, your own weapon, and on-site work stay physical at every tier. */
+/* the AUTO war is a SPECTATOR world: the phone's GPS is not a commander there.
+   No player marker, no proximity presence, no workforce assist, no rifle, and
+   enemies cannot target the player. The AI commands through its own systems. */
+function inAutoWar() { return saveSlot === "wf_auto_"; }
 function hasRadar() { return world.buildings.some(b => b.kind === "radar" && !b.rubble && b.progress >= 1); }
 function hasGeneral() { return world.units.some(u => u.kind === "general"); }
 function remoteCommand() { return hasRadar() || hasGeneral(); }
@@ -1023,6 +1027,11 @@ function initMap(center) {
 }
 
 function ensurePlayerMarker() {
+  if (inAutoWar()) {
+    if (playerMarker) { playerMarker.remove(); playerMarker = null; }
+    if (accCircle) { accCircle.remove(); accCircle = null; }
+    return;
+  }
   if (!playerPos || !map) return;
   if (!playerMarker) {
     const icon = L.divIcon({
@@ -1452,7 +1461,7 @@ setInterval(() => {
   }
   if (playerPos) {
     live.caches.slice().forEach(c => {
-      if (haversine(playerPos, { lat: c.data.lat, lng: c.data.lng }) <= CFG.cachePickup) collectCache(c, "player");
+      if (!inAutoWar() && haversine(playerPos, { lat: c.data.lat, lng: c.data.lng }) <= CFG.cachePickup) collectCache(c, "player");
     });
   }
 
@@ -2023,7 +2032,7 @@ function initWar() {
 let gpsErrToasted = false;
 function onPosition(lat, lng, acc) {
   playerPos = { lat, lng };
-  $("gpsChip").textContent = devMoveActive ? "DEV MOVE" : ("GPS ±" + Math.round(acc || 0) + "m");
+  $("gpsChip").textContent = inAutoWar() ? "SPECTATOR" : (devMoveActive ? "DEV MOVE" : ("GPS ±" + Math.round(acc || 0) + "m"));
   $("gpsChip").classList.remove("bad");
   if (!map) initMap(playerPos);
   ensurePlayerMarker();
@@ -2163,7 +2172,7 @@ function moveGhost(latlng) {
 }
 
 function checkPlacement(kind, pos, forRemote) {
-  if (!playerPos && !freeOps() && !forRemote) return { ok:false, reason:"No position fix — enable GPS or use DEV movement first." };
+  if (!playerPos && !freeOps() && !forRemote && !inAutoWar()) return { ok:false, reason:"No position fix — enable GPS or use DEV movement first." };
   const meta = CFG.buildings[kind];
   if (kind === "cc") {
     if (freeOps() && !playerPos) return { ok:true, reason:"FREE OPS: Command Center site set. Confirm to break ground." };
@@ -2197,7 +2206,7 @@ function checkPlacement(kind, pos, forRemote) {
       return { ok:false, reason:"That ground is scorched — repair the land before building on it." };
   }
   if (!freeOps() && !remoteCommand() && !forRemote) {
-    const dp = haversine(playerPos, pos);
+    const dp = (inAutoWar() || !playerPos) ? 1e9 : haversine(playerPos, pos);
     const reach = meta.foot + CFG.assistRadius;
     if (dp > reach) {
       if (world.cash < meta.cost)
@@ -2579,7 +2588,7 @@ $("msgClose").addEventListener("click", () => $("msgMenu").style.display = "none
 /* ============ training / upgrades ============ */
 function canTrainAt(bld) {
   if (freeOps() || remoteCommand()) return true;
-  if (!playerPos) return false;
+  if (inAutoWar() || !playerPos) return false;
   return haversine(playerPos, { lat: bld.lat, lng: bld.lng }) <= bldFoot(bld) + CFG.assistRadius;
 }
 function queueTrain(bldEntry, kind) {
@@ -3013,7 +3022,7 @@ function refreshSquadChips() {
 
 function commandable(entries) {
   if (freeOps() || remoteCommand()) return { ok: entries, out: 0, outE: [] };
-  if (!playerPos) return { ok: [], out: entries.length, outE: entries.slice() };
+  if (inAutoWar() || !playerPos) return { ok: [], out: entries.length, outE: entries.slice() };
   const ok = [], outArr = [];
   entries.forEach(e => {
     (haversine(playerPos, { lat: e.data.lat, lng: e.data.lng }) <= CFG.orderRange ? ok : outArr).push(e);
@@ -3128,7 +3137,7 @@ function onMapTap(e) {
 function workforceAtSite(id, lat, lng, reach) {
   if (freeOps()) return CFG.playerWorkforce;
   let wf = 0;
-  if (playerPos && haversine(playerPos, { lat, lng }) <= reach) wf += CFG.playerWorkforce;
+  if (!inAutoWar() && playerPos && haversine(playerPos, { lat, lng }) <= reach) wf += CFG.playerWorkforce;
   world.units.forEach(u => {
     if (u.kind !== "builder" || u.state !== "WORK" || u.task !== id) return;
     if (haversine({lat:u.lat,lng:u.lng}, {lat, lng}) <= reach) wf += CFG.units.builder.workforce;
@@ -3363,7 +3372,7 @@ function nearestPlayerThing(pos) {
     const d = haversine(pos, { lat: e.data.lat, lng: e.data.lng });
     if (d < bestD) { bestD = d; best = { type: "unit", entry: e, pos: { lat: e.data.lat, lng: e.data.lng } }; }
   });
-  if (playerPos && world.player.hp > 0) {
+  if (!inAutoWar() && playerPos && world.player.hp > 0) {
     const d = haversine(pos, playerPos);
     if (d < bestD) { bestD = d; best = { type: "player", pos: playerPos }; }
   }
@@ -3680,9 +3689,9 @@ setInterval(() => {
     }
   });
 
-  /* ---- the player's own weapon (physical-only, always) ---- */
+  /* ---- the player's own weapon (physical-only, always; not in the AI's war) ---- */
   const p = world.player;
-  if (p.drawn && p.weapons.rifle && playerPos && (p.ammo.a556 | 0) > 0) {
+  if (!inAutoWar() && p.drawn && p.weapons.rifle && playerPos && (p.ammo.a556 | 0) > 0) {
     const w = CFG.player.weapons.rifle;
     if (now >= (p.nextShotGt || 0)) {
       let targetEntry = p.targetId ? findEnemy(p.targetId) : null;
@@ -3784,6 +3793,7 @@ setInterval(() => {
     tutTick();
     const fb = $("freeOpsBadge");
     if (fb) fb.style.display = freeOps() ? "block" : "none";
+    if (inAutoWar()) $("gpsChip").textContent = "SPECTATOR";
     // live mission readout for a single selected unit — full width, never cut off
     const mb = $("missionBar");
     if (sel && sel.type === "unit") {
@@ -4072,7 +4082,15 @@ function autoDecide() {
       }
     }
   }]);
-  if (!hasRadar() && countU("messenger") < 2 && cash >= CFG.units.messenger.cost) acts.push(["msgr", 9, () => autoTryTrain("cc", "messenger")]);
+  if (!hasRadar() && countU("messenger") < 2 && cash >= CFG.units.messenger.cost) acts.push(["msgr", 9, () => {
+    if (!autoTryTrain("cc", "messenger") && countU("messenger") === 0) {
+      // dead-cold: no runner exists to carry the order — standing orders apply
+      if (world.cash >= CFG.units.messenger.cost && cc.data.queue.length < CFG.queueCap) {
+        world.cash -= CFG.units.messenger.cost;
+        cc.data.queue.push({ kind: "messenger", remainMs: CFG.units.messenger.trainMin * 60000 });
+      }
+    }
+  }]);
 
   // --- economy & tech, with random appetite ---
   if (countB("depot") < 1 + Math.floor(lvl / 3) && cash >= CFG.buildings.depot.cost) acts.push(["depot", 8, () => autoPlace("depot")]);
@@ -4295,6 +4313,7 @@ function exitAutoSave() {
   }
   if (!switchSlot("wf_")) { toast("Couldn't reload your war.", true); return; }
   mainSaved = world;
+  startGps();
   $("autoBtn").textContent = "AUTO: OFF";
   toast("Back to YOUR war, Commander. The AUTO war keeps its own save for next time.", false);
 }
@@ -4443,8 +4462,7 @@ function enterAutoFromMenu(fresh) {
     $("autoBtn").textContent = "AUTO: ON";
     const cc = world.buildings.find(b => b.kind === "cc");
     if (cc && map) map.setView([cc.lat, cc.lng], 16);
-    startGps();
-    toast("AUTO WAR — the AI commands. Watch, or take the controls anytime.", false);
+    toast("AUTO WAR — the AI commands. This is a spectator world: your GPS plays no part here.", false);
   } else {
     // brand-new AUTO war: pick its theater anywhere on Earth
     if (!map) initMap({ lat: 20, lng: 0 });
@@ -4457,8 +4475,7 @@ function enterAutoFromMenu(fresh) {
       started = true;
       document.body.classList.add("playing");
       $("autoBtn").textContent = "AUTO: ON";
-      startGps();
-      toast("AUTO WAR founded — the AI commands here. Your own war is untouched.", false);
+      toast("AUTO WAR founded — the AI commands here. This is a spectator world: your GPS plays no part.", false);
     });
   }
 }

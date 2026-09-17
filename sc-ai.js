@@ -91,11 +91,28 @@ function rollAiPace(){
   aiPace = {road:(1 + Math.random()*99)*0.447, off:(1 + Math.random()*9)*0.447,
     at: gt() + (1 + Math.random()*99)*1000};
 }
+let aiMW = null, aiWalkUntil = 0;
 function aiMoveToward(dest, stopAt){
   const d = haversine(playerPos, dest);
   if (d < (stopAt || 8)){ aiDest = null; aiRoute = null; return; }
   ensureRoads();
   if (gt() >= aiPace.at) rollAiPace();
+  // PROGRESS WATCHDOG (same law as every NPC): 12s without getting any closer
+  // — frozen, ping-ponging, or looping a dead end — means walk it straight.
+  const mk = Math.round(dest.lat * 2e3) + "_" + Math.round(dest.lng * 2e3);
+  if (!aiMW || aiMW.k !== mk) aiMW = {k: mk, best: d, at: gt()};
+  if (d < aiMW.best - 4){ aiMW.best = d; aiMW.at = gt(); }
+  if (gt() - aiMW.at > 12000){
+    aiWalkUntil = gt() + 20000;
+    aiMW = {k: mk, best: d, at: gt()};
+    aiSay("cutting across");
+  }
+  if (gt() < aiWalkUntil){
+    const spd = Math.max(1, aiPace.off) * 0.4;
+    setPlayerPos(offsetPoint(playerPos.lat, playerPos.lng,
+      Math.min(spd, d - (stopAt || 8) + 1), bearingBetween(playerPos, dest)));
+    return;
+  }
   let wp = dest, onRoad = false, routeDone = false, noRoute = false;
   if (roadG && d > 60){
     const key = Math.round(dest.lat * 1e4) + "," + Math.round(dest.lng * 1e4);
@@ -314,4 +331,4 @@ setInterval(() => {
 }, 400);
 let aiStuck = null;
 
-window.SC_AI_V = 4;
+window.SC_AI_V = 5;
