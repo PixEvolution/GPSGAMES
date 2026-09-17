@@ -1587,6 +1587,10 @@ function pip(pt,poly){ // ray-cast point-in-polygon on [lat,lng] rings
   }
   return inside;
 }
+function inWater(pt){
+  for(const p of waterPolys){ if(pip(pt,p)) return true; }
+  return false;
+}
 function waterCovered(){
   return waterCenter && playerPos && haversine(waterCenter,playerPos)<CFG.animals.waterRadius*0.5;
 }
@@ -1640,8 +1644,17 @@ function pickAnimalKind(landOnly){
   for(const k in ANIMALS){ if(landOnly&&ANIMALS[k].aq) continue; r-=ANIMALS[k].w; if(r<=0) return k; }
   return "bird";
 }
-function moveAnimal(a,toward,spd,dt){ // aquatics never leave their water body
-  if(!a.def.aq){ moveZombie(a,toward,spd,dt); return; }
+function moveAnimal(a,toward,spd,dt){ // aquatics never leave the water; land animals never enter it
+  if(!a.def.aq){
+    if(waterPolys.length){
+      const d0=haversine(a,toward); if(d0<1) return;
+      const step=Math.min(d0,spd*dt);
+      const pt=offsetPoint(a.lat,a.lng,step,bearingBetween(a,toward));
+      if(inWater(pt)) return; // pulls up at the shoreline
+      a.lat=pt.lat; a.lng=pt.lng; a.marker.setLatLng([a.lat,a.lng]);
+    } else moveZombie(a,toward,spd,dt);
+    return;
+  }
   if(!a.home) return; // no known water polygon: bob in place until relinked
   const d=haversine(a,toward); if(d<1) return;
   const step=Math.min(d,spd*dt);
@@ -1679,10 +1692,12 @@ function spawnAnimal(){ // random spawner — marine rolls need real water nearb
     if(w){ addAnimal(kind, w.pt.lat, w.pt.lng).home=w.poly; return; }
     kind=pickAnimalKind(true); // dry land as far as we know: reroll to a land species
   }
-  const ang=Math.random()*360;
-  const dist=CFG.animals.minDist+Math.random()*(CFG.animals.maxDist-CFG.animals.minDist);
-  const pt=offsetPoint(playerPos.lat,playerPos.lng,dist,ang);
-  addAnimal(kind, pt.lat, pt.lng);
+  for(let t=0;t<8;t++){ // land species roll dry ground or don't spawn this pass
+    const ang=Math.random()*360;
+    const dist=CFG.animals.minDist+Math.random()*(CFG.animals.maxDist-CFG.animals.minDist);
+    const pt=offsetPoint(playerPos.lat,playerPos.lng,dist,ang);
+    if(!inWater(pt)){ addAnimal(kind, pt.lat, pt.lng); return; }
+  }
 }
 function removeAnimal(a){
   if(a.marker) map.removeLayer(a.marker);
