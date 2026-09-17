@@ -781,7 +781,7 @@ function makeMap(center){
   map=L.map("map",{zoomControl:false,attributionControl:true,
     fadeAnimation:false,markerZoomAnimation:false}).setView(center,17);
   roadTiles=L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-    {maxZoom:19, attribution:"© OpenStreetMap"});
+    {maxZoom:19, attribution:"© OpenStreetMap", crossOrigin:true}); // CORS-mode: keeps cache clean for the water sampler
   satTiles=L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
     {maxZoom:19, attribution:"Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics"});
   (satOn?satTiles:roadTiles).addTo(map);
@@ -1580,7 +1580,8 @@ setInterval(()=>{
    samples, never the full image. */
 try{ localStorage.removeItem("meta_water"); }catch(e){} // polygon-era cache, retired
 const WZ=15;
-const tileCache={}; // "x_y" -> {loading, mask:Uint8Array|null, w, samples:[[lat,lng],...]}
+const tileCache={}; // "x_y" -> {loading, mask:Uint8Array|null, w, samples:[[lat,lng],...], failedAt}
+let waterNoted=false, waterFailNoted=false;
 let lastTilePrefetch=0;
 function ll2tile(lat,lng,z){
   const n=Math.pow(2,z);
@@ -1597,21 +1598,32 @@ function tile2ll(x,y,z){
 function isWaterRGB(r,g,b){ // OSM-carto water ≈ #aad3df, with tolerance for style drift
   return b>150 && b>r+20 && g>r && Math.abs(b-g)<60;
 }
-function loadTile(tx,ty){
+function loadTile(tx,ty,bust){
   const key=tx+"_"+ty;
-  if(tileCache[key]) return;
+  const ex=tileCache[key];
+  if(ex){
+    if(ex.mask||ex.loading) return;
+    if(!ex.failedAt || Date.now()-ex.failedAt<60000) return;
+    delete tileCache[key]; // old failure: worth another shot
+  }
   const keys=Object.keys(tileCache);
   if(keys.length>24) delete tileCache[keys[0]];
-  const t=tileCache[key]={loading:true, mask:null, w:0, samples:[]};
+  const t=tileCache[key]={loading:true, mask:null, w:0, samples:[], failedAt:0};
   const img=new Image();
   img.crossOrigin="anonymous";
+  const fail=()=>{
+    if(!bust){ delete tileCache[key]; loadTile(tx,ty,true); return; } // dodge a CORS-poisoned cache entry
+    t.loading=false; t.failedAt=Date.now();
+    if(!waterFailNoted){ waterFailNoted=true;
+      toast("⚠️ Water detection unavailable — map tiles unreadable on this device"); }
+  };
   img.onload=()=>{
     try{
       const cv=document.createElement("canvas");
       cv.width=img.width; cv.height=img.height;
       const cx=cv.getContext("2d");
       cx.drawImage(img,0,0);
-      const d=cx.getImageData(0,0,img.width,img.height).data;
+      const d=cx.getImageData(0,0,img.width,img.height).data; // throws if tainted -> fail()
       const w=img.width;
       const mask=new Uint8Array(Math.ceil(w*img.height/8));
       for(let i=0;i<w*img.height;i++){
@@ -1619,7 +1631,7 @@ function loadTile(tx,ty){
         if(isWaterRGB(d[o],d[o+1],d[o+2])) mask[i>>3]|=(1<<(i&7));
       }
       t.mask=mask; t.w=w;
-      for(let py=4;py<img.height;py+=8){ // sparse spawn samples
+      for(let py=4;py<img.height;py+=8){
         for(let px=4;px<w;px+=8){
           const i=py*w+px;
           if(mask[i>>3]&(1<<(i&7))){
@@ -1628,11 +1640,15 @@ function loadTile(tx,ty){
           }
         }
       }
-    }catch(e){}
-    t.loading=false;
+      t.loading=false;
+      if(!waterNoted && t.samples.length){
+        waterNoted=true;
+        toast("🌊 Water mapped — marine life active");
+      }
+    }catch(e){ fail(); }
   };
-  img.onerror=()=>{ t.loading=false; };
-  img.src="https://tile.openstreetmap.org/"+WZ+"/"+tx+"/"+ty+".png";
+  img.onerror=fail;
+  img.src="https://tile.openstreetmap.org/"+WZ+"/"+tx+"/"+ty+".png"+(bust?"?c=1":"");
 }
 function prefetchTiles(){
   if(!playerPos || Date.now()-lastTilePrefetch<5000) return; // wall clock: real network
@@ -1781,7 +1797,8 @@ setInterval(()=>{
       if(haversine(a,a.fleeFrom)>120){ a.state="wander"; a.fleeFrom=null; refreshAnimalIcon(a); }
       else moveAnimal(a, offsetPoint(a.lat,a.lng,25,bearingBetween(a.fleeFrom,a)), sp.aSpd, 0.4);
     } else {
-      if(sp.aq && waterAt(a.lat,a.lng)===false){ removeAnimal(a); continue; } // beached: gone
+      const wat=waterAt(a.lat,a.lng);
+      if(sp.aq ? wat===false : wat===true){ removeAnimal(a); continue; } // wrong element: gone
       if(sp.beh===2){ // predators hunt anything that moves — player, survivor, or the dead
         let ref=null,bd=sp.detect;
         if(!inGrace){ const d=haversine(a,playerPos); if(d<bd){bd=d;ref={p:true};} }
