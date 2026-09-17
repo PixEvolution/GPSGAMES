@@ -449,8 +449,7 @@ const CFG = {
   },
   noise: { radius: 300 },                     // gunshot pull
   night: { start: 20, end: 6, speed: 1.25, detect: 1.3, extra: 4 },
-  animals: { target: 6, minDist: 100, maxDist: 700, cull: 1200,
-             waterRadius: 900, waterRefetchMs: 30000 },
+  animals: { target: 6, minDist: 100, maxDist: 700, cull: 1200 },
   base: { radii: [50, 75, 100], maxWalls: 3,
           wallHpPerLevel: 150,
           wallDps: { walker: 0.8, runner: 1, screamer: 0.5 },  // brutes walk straight through
@@ -1572,69 +1571,100 @@ setInterval(()=>{
   }
 },400);
 
-/* ---------------- water knowledge (OSM via Overpass, cached) ----------------
-   Marine species spawn only inside real water polygons and can't leave them.
-   Cache lives in the global meta_water key (bbox-cover pattern from The Streets'
-   roads cache): reused when it covers the player, refetched when they've moved. */
-let waterPolys=[], waterCenter=null, waterFetching=false, lastWaterFetch=0, waterLayer=null;
-try{ const wc=JSON.parse(localStorage.getItem("meta_water")||"null");
-     if(wc&&wc.polys){ waterPolys=wc.polys; waterCenter=wc.c; } }catch(e){}
-function pip(pt,poly){ // ray-cast point-in-polygon on [lat,lng] rings
-  let inside=false;
-  for(let i=0,j=poly.length-1;i<poly.length;j=i++){
-    const yi=poly[i][0], xi=poly[i][1], yj=poly[j][0], xj=poly[j][1];
-    if(((yi>pt.lat)!==(yj>pt.lat)) && (pt.lng < (xj-xi)*(pt.lat-yi)/(yj-yi)+xi)) inside=!inside;
-  }
-  return inside;
+/* ---------------- water by map tile ----------------
+   "I don't care about boundaries, just what tile they spawn on." — exactly.
+   We sample the OSM raster tiles themselves: if the renderer painted a pixel
+   water-blue, it's water. Covers lakes, rivers, and the OCEAN with zero
+   geometry. Sampling zoom 15 ≈ 3-4 m/pixel. Tiles are CORS-enabled and
+   browser-cached; per tile we keep an 8KB water bitmask + sparse spawn
+   samples, never the full image. */
+try{ localStorage.removeItem("meta_water"); }catch(e){} // polygon-era cache, retired
+const WZ=15;
+const tileCache={}; // "x_y" -> {loading, mask:Uint8Array|null, w, samples:[[lat,lng],...]}
+let lastTilePrefetch=0;
+function ll2tile(lat,lng,z){
+  const n=Math.pow(2,z);
+  const x=(lng+180)/360*n;
+  const latR=lat*Math.PI/180;
+  const y=(1-Math.log(Math.tan(latR)+1/Math.cos(latR))/Math.PI)/2*n;
+  return {x,y};
 }
-function inWater(pt){
-  for(const p of waterPolys){ if(pip(pt,p)) return true; }
-  return false;
+function tile2ll(x,y,z){
+  const n=Math.pow(2,z);
+  const latR=Math.atan(Math.sinh(Math.PI*(1-2*y/n)));
+  return {lat:latR*180/Math.PI, lng:x/n*360-180};
 }
-function waterCovered(){
-  return waterCenter && playerPos && haversine(waterCenter,playerPos)<CFG.animals.waterRadius*0.5;
+function isWaterRGB(r,g,b){ // OSM-carto water ≈ #aad3df, with tolerance for style drift
+  return b>150 && b>r+20 && g>r && Math.abs(b-g)<60;
 }
-function drawWater(){
-  if(waterLayer){ map.removeLayer(waterLayer); waterLayer=null; }
-  if(!map||!waterPolys.length) return;
-  waterLayer=L.layerGroup(waterPolys.map(p=>L.polygon(p,{color:"#3a7ae0",weight:1,opacity:.35,
-    fillColor:"#3a7ae0",fillOpacity:.10,interactive:false}))).addTo(map);
-}
-function fetchWater(){
-  // Date.now on purpose: throttling real network calls is wall-clock territory
-  if(waterFetching || !playerPos || Date.now()-lastWaterFetch<CFG.animals.waterRefetchMs) return;
-  waterFetching=true; lastWaterFetch=Date.now();
-  const c={lat:playerPos.lat,lng:playerPos.lng}, R=CFG.animals.waterRadius;
-  const q='[out:json][timeout:15];(way["natural"="water"](around:'+R+','+c.lat+','+c.lng+');'+
-          'way["water"](around:'+R+','+c.lat+','+c.lng+'););out geom;';
-  fetch("https://overpass-api.de/api/interpreter",{method:"POST",body:"data="+encodeURIComponent(q)})
-    .then(r=>r.json())
-    .then(j=>{
-      const polys=[];
-      for(const el2 of (j.elements||[])){
-        if(el2.type==="way" && el2.geometry && el2.geometry.length>=4)
-          polys.push(el2.geometry.map(g=>[g.lat,g.lon]));
+function loadTile(tx,ty){
+  const key=tx+"_"+ty;
+  if(tileCache[key]) return;
+  const keys=Object.keys(tileCache);
+  if(keys.length>24) delete tileCache[keys[0]];
+  const t=tileCache[key]={loading:true, mask:null, w:0, samples:[]};
+  const img=new Image();
+  img.crossOrigin="anonymous";
+  img.onload=()=>{
+    try{
+      const cv=document.createElement("canvas");
+      cv.width=img.width; cv.height=img.height;
+      const cx=cv.getContext("2d");
+      cx.drawImage(img,0,0);
+      const d=cx.getImageData(0,0,img.width,img.height).data;
+      const w=img.width;
+      const mask=new Uint8Array(Math.ceil(w*img.height/8));
+      for(let i=0;i<w*img.height;i++){
+        const o=i*4;
+        if(isWaterRGB(d[o],d[o+1],d[o+2])) mask[i>>3]|=(1<<(i&7));
       }
-      waterPolys=polys; waterCenter=c;
-      try{ localStorage.setItem("meta_water", JSON.stringify({c, polys})); }catch(e){}
-      for(const a of animals) if(a.def.aq && !a.home) a.home=waterPolys.find(p=>pip(a,p))||null;
-      drawWater();
-      waterFetching=false;
-    })
-    .catch(()=>{ waterFetching=false; });
+      t.mask=mask; t.w=w;
+      for(let py=4;py<img.height;py+=8){ // sparse spawn samples
+        for(let px=4;px<w;px+=8){
+          const i=py*w+px;
+          if(mask[i>>3]&(1<<(i&7))){
+            const ll=tile2ll(tx+px/w, ty+py/img.height, WZ);
+            t.samples.push([ll.lat,ll.lng]);
+          }
+        }
+      }
+    }catch(e){}
+    t.loading=false;
+  };
+  img.onerror=()=>{ t.loading=false; };
+  img.src="https://tile.openstreetmap.org/"+WZ+"/"+tx+"/"+ty+".png";
 }
+function prefetchTiles(){
+  if(!playerPos || Date.now()-lastTilePrefetch<5000) return; // wall clock: real network
+  lastTilePrefetch=Date.now();
+  const c=ll2tile(playerPos.lat,playerPos.lng,WZ);
+  const cx=Math.floor(c.x), cy=Math.floor(c.y);
+  for(let dx=-2;dx<=2;dx++) for(let dy=-2;dy<=2;dy++) loadTile(cx+dx,cy+dy);
+}
+function waterAt(lat,lng){ // true / false / null while the tile is still loading
+  const t=ll2tile(lat,lng,WZ);
+  const tx=Math.floor(t.x), ty=Math.floor(t.y);
+  const c=tileCache[tx+"_"+ty];
+  if(!c||!c.mask){ loadTile(tx,ty); return null; }
+  const px=Math.min(c.w-1,Math.floor((t.x-tx)*c.w));
+  const py=Math.min(c.w-1,Math.floor((t.y-ty)*c.w));
+  const i=py*c.w+px;
+  return !!(c.mask[i>>3]&(1<<(i&7)));
+}
+function inWater(pt){ return waterAt(pt.lat,pt.lng)===true; }
 function waterSpawnPoint(){
-  const cands=waterPolys.filter(p=>haversine(playerPos,{lat:p[0][0],lng:p[0][1]})<1500);
-  if(!cands.length) return null;
-  for(let t=0;t<12;t++){
-    const poly=cands[Math.floor(Math.random()*cands.length)];
-    let miLat=90,maLat=-90,miLng=180,maLng=-180;
-    for(const v of poly){ miLat=Math.min(miLat,v[0]); maLat=Math.max(maLat,v[0]); miLng=Math.min(miLng,v[1]); maLng=Math.max(maLng,v[1]); }
-    const ll={lat:miLat+Math.random()*(maLat-miLat), lng:miLng+Math.random()*(maLng-miLng)};
-    const d=haversine(playerPos,ll);
-    if(d>=CFG.animals.minDist*0.5 && d<=CFG.animals.maxDist+300 && pip(ll,poly)) return {pt:ll, poly};
+  const cands=[];
+  for(const k in tileCache){
+    const t=tileCache[k]; if(!t.samples||!t.samples.length) continue;
+    for(const s of t.samples){
+      const d=haversine(playerPos,{lat:s[0],lng:s[1]});
+      if(d>=CFG.animals.minDist*0.5 && d<=CFG.animals.maxDist+300) cands.push(s);
+    }
   }
-  return null;
+  if(!cands.length) return null;
+  const s=cands[Math.floor(Math.random()*cands.length)];
+  const p=offsetPoint(s[0],s[1],Math.random()*10,Math.random()*360);
+  return waterAt(p.lat,p.lng)===true ? {lat:p.lat,lng:p.lng} : {lat:s[0],lng:s[1]};
 }
 
 /* ---------------- animals: the wild lives here too ---------------- */
@@ -1644,22 +1674,14 @@ function pickAnimalKind(landOnly){
   for(const k in ANIMALS){ if(landOnly&&ANIMALS[k].aq) continue; r-=ANIMALS[k].w; if(r<=0) return k; }
   return "bird";
 }
-function moveAnimal(a,toward,spd,dt){ // aquatics never leave the water; land animals never enter it
-  if(!a.def.aq){
-    if(waterPolys.length){
-      const d0=haversine(a,toward); if(d0<1) return;
-      const step=Math.min(d0,spd*dt);
-      const pt=offsetPoint(a.lat,a.lng,step,bearingBetween(a,toward));
-      if(inWater(pt)) return; // pulls up at the shoreline
-      a.lat=pt.lat; a.lng=pt.lng; a.marker.setLatLng([a.lat,a.lng]);
-    } else moveZombie(a,toward,spd,dt);
-    return;
-  }
-  if(!a.home) return; // no known water polygon: bob in place until relinked
+function moveAnimal(a,toward,spd,dt){ // aquatics stay on water pixels; land animals stay off them
   const d=haversine(a,toward); if(d<1) return;
   const step=Math.min(d,spd*dt);
   const pt=offsetPoint(a.lat,a.lng,step,bearingBetween(a,toward));
-  if(pip(pt,a.home)){ a.lat=pt.lat; a.lng=pt.lng; a.marker.setLatLng([a.lat,a.lng]); }
+  const w=waterAt(pt.lat,pt.lng);
+  if(a.def.aq){ if(w!==true) return; }        // hold at the shoreline (or while the tile loads)
+  else if(w===true) return;                    // unknown tiles fail open for land animals
+  a.lat=pt.lat; a.lng=pt.lng; a.marker.setLatLng([a.lat,a.lng]);
 }
 function animalIcon(a){
   const sp=a.def, sz=[22,30,38][sp.size];
@@ -1689,7 +1711,7 @@ function spawnAnimal(){ // random spawner — marine rolls need real water nearb
   let kind=pickAnimalKind();
   if(ANIMALS[kind].aq){
     const w=waterSpawnPoint();
-    if(w){ addAnimal(kind, w.pt.lat, w.pt.lng).home=w.poly; return; }
+    if(w){ addAnimal(kind, w.lat, w.lng); return; }
     kind=pickAnimalKind(true); // dry land as far as we know: reroll to a land species
   }
   for(let t=0;t<8;t++){ // land species roll dry ground or don't spawn this pass
@@ -1706,7 +1728,7 @@ function removeAnimal(a){
 }
 function maintainAnimals(){
   if(!playerPos) return;
-  if(!waterCovered()) fetchWater();
+  prefetchTiles();
   for(const a of animals.slice()) if(haversine(playerPos,a)>CFG.animals.cull) removeAnimal(a);
   let guard=0;
   while(animals.length<CFG.animals.target && guard++<20) spawnAnimal();
@@ -1759,6 +1781,7 @@ setInterval(()=>{
       if(haversine(a,a.fleeFrom)>120){ a.state="wander"; a.fleeFrom=null; refreshAnimalIcon(a); }
       else moveAnimal(a, offsetPoint(a.lat,a.lng,25,bearingBetween(a.fleeFrom,a)), sp.aSpd, 0.4);
     } else {
+      if(sp.aq && waterAt(a.lat,a.lng)===false){ removeAnimal(a); continue; } // beached: gone
       if(sp.beh===2){ // predators hunt anything that moves — player, survivor, or the dead
         let ref=null,bd=sp.detect;
         if(!inGrace){ const d=haversine(a,playerPos); if(d<bd){bd=d;ref={p:true};} }
@@ -2454,8 +2477,7 @@ function restoreWorld(){ // rebuild every saved entity via the builders
     }
     for(const a of (w.animals||[])){
       const ap=tr({lat:a.lat,lng:a.lng});
-      const na=addAnimal(a.kind, ap.lat, ap.lng, a.hp);
-      if(na.def.aq) na.home=waterPolys.find(p=>pip(na,p))||null;
+      addAnimal(a.kind, ap.lat, ap.lng, a.hp);
     }
     nextGroupRoll=w.nextGroupRoll||0;
     if(w.drop) createDrop(w.drop.lat, w.drop.lng);
@@ -2475,7 +2497,7 @@ function initWorld(lat,lng){
   maintainDrop();
   maintainNpcs();
   maintainAnimals();
-  drawWater();
+  prefetchTiles();
   $("drawbtn").style.display="block";
   $("wpnbtn").style.display="block";
   $("start").style.display="none";
