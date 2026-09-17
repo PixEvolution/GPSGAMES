@@ -97,17 +97,9 @@ function aiMoveToward(dest, stopAt){
   if (d < (stopAt || 8)){ aiDest = null; aiRoute = null; return; }
   ensureRoads();
   if (gt() >= aiPace.at) rollAiPace();
-  // PROGRESS WATCHDOG (same law as every NPC): 12s without getting any closer
-  // — frozen, ping-ponging, or looping a dead end — means walk it straight.
   const mk = Math.round(dest.lat * 2e3) + "_" + Math.round(dest.lng * 2e3);
-  if (!aiMW || aiMW.k !== mk) aiMW = {k: mk, best: d, at: gt()};
-  if (d < aiMW.best - 4){ aiMW.best = d; aiMW.at = gt(); }
-  if (gt() - aiMW.at > 12000){
-    aiWalkUntil = gt() + 20000;
-    aiMW = {k: mk, best: d, at: gt()};
-    aiSay("cutting across");
-  }
   if (gt() < aiWalkUntil){
+    if (aiMW && aiMW.k === mk && d < aiMW.best) aiMW.best = d; // bank the gains
     const spd = Math.max(1, aiPace.off) * 0.4;
     setPlayerPos(offsetPoint(playerPos.lat, playerPos.lng,
       Math.min(spd, d - (stopAt || 8) + 1), bearingBetween(playerPos, dest)));
@@ -116,7 +108,8 @@ function aiMoveToward(dest, stopAt){
   let wp = dest, onRoad = false, routeDone = false, noRoute = false;
   if (roadG && d > 60){
     const key = Math.round(dest.lat * 1e4) + "," + Math.round(dest.lng * 1e4);
-    if ((!aiRoute || aiRoute.key !== key) && (!aiRoute || gt() >= aiRouteCd)){
+    if ((!aiRoute || aiRoute.key !== key || aiRoute.pts === null)
+        && (!aiRoute || gt() >= aiRouteCd)){ // null routes RETRY on cooldown
       const pts = roadRoute(playerPos, dest);
       if (pts !== undefined){
         aiRoute = {key, pts, i: pts ? routeAnchor(playerPos, pts) : 0};
@@ -129,6 +122,21 @@ function aiMoveToward(dest, stopAt){
       if (aiRoute.i < aiRoute.pts.length){ wp = aiRoute.pts[aiRoute.i]; onRoad = true; }
       else routeDone = true;
     } else if (aiRoute) noRoute = true;
+    // PROGRESS WATCHDOG: closer OR advancing along the route counts as progress
+    if (!aiMW || aiMW.k !== mk) aiMW = {k:mk, best:d, at:gt(), rk:null, ri:0};
+    let prog = false;
+    if (d < aiMW.best - 4){ aiMW.best = d; prog = true; }
+    if (aiRoute && aiRoute.pts){
+      if (aiMW.rk === aiRoute.key){
+        if (aiRoute.i > aiMW.ri){ aiMW.ri = aiRoute.i; prog = true; }
+      } else { aiMW.rk = aiRoute.key; aiMW.ri = aiRoute.i; }
+    }
+    if (prog) aiMW.at = gt();
+    else if (gt() - aiMW.at > 15000){
+      aiWalkUntil = gt() + 20000;
+      aiMW.at = gt() + 20000;
+      aiSay("cutting across");
+    }
     // aiRoute === null: routing lane busy this tick — walk toward dest meanwhile
   }
   if (!onRoad){
@@ -139,8 +147,8 @@ function aiMoveToward(dest, stopAt){
       const nid = nearestRoadNode(playerPos, 700);
       if (nid){
         const rn = roadG.nodes.get(nid);
-        if (haversine(playerPos, rn) >= 40) wp = rn;
-        // else: already on/near pavement that can't help — walk straight for dest
+        const fwd = Math.cos(bearingBetween(playerPos, rn) - bearingBetween(playerPos, dest)) > 0.1;
+        if (haversine(playerPos, rn) >= 40 && fwd) wp = rn; // pavement only if it's AHEAD
       }
     } else if ((routeDone || d <= 60) && destOnRoad(dest)){
       onRoad = true; // curbside finish — the ONLY drive-up case
@@ -331,4 +339,4 @@ setInterval(() => {
 }, 400);
 let aiStuck = null;
 
-window.SC_AI_V = 5;
+window.SC_AI_V = 6;

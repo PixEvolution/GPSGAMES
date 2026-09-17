@@ -845,7 +845,7 @@ function setSat(on){
   $("satBtn").textContent = on ? "🗺️" : "🛰️";
   toast(on ? "🛰️ Satellite — the actual Earth." : "🗺️ Street map.");
 }
-const BUILD_V = 5; // bump with every release, together with the ?v= tags
+const BUILD_V = 6; // bump with every release, together with the ?v= tags
 function buildCheck(){
   const m = window.SC_MISSIONS_V, a = window.SC_AI_V;
   if (m === BUILD_V && a === BUILD_V){
@@ -4104,18 +4104,10 @@ function npcRoadStep(n, dest, dtSec){
   if (!n.paceAt || gt() >= n.paceAt) rollNpcPace(n);
   const d = haversine(n, dest);
   if (d < 2) return;
-  // PROGRESS WATCHDOG: track the closest we've EVER been to this destination.
-  // 12s with no net gain — frozen, ping-ponging, or looping a dead end, doesn't
-  // matter which — means the roads have failed us: screw it, WALK straight at
-  // it for 20s, then give the roads another chance from wherever that lands.
+  // WALK MODE: the unstick burst — straight at the destination on foot
   const mk = Math.round(dest.lat * 2e3) + "_" + Math.round(dest.lng * 2e3);
-  if (!n.mw || n.mw.k !== mk) n.mw = {k: mk, best: d, at: gt()};
-  if (d < n.mw.best - 4){ n.mw.best = d; n.mw.at = gt(); }
-  if (gt() - n.mw.at > 12000){
-    n.walkUntil = gt() + 20000;
-    n.mw = {k: mk, best: d, at: gt()};
-  }
   if (gt() < (n.walkUntil || 0)){
+    if (n.mw && n.mw.k === mk && d < n.mw.best) n.mw.best = d; // bank the gains
     const spd = Math.max(1, n.spdOff || 2) * dtSec;
     const np = offsetPoint(n.lat, n.lng, Math.min(spd, d), bearingBetween(n, dest));
     n.lat = np.lat; n.lng = np.lng;
@@ -4125,7 +4117,8 @@ function npcRoadStep(n, dest, dtSec){
   let wp = dest, onRoad = false, routeDone = false, noRoute = false;
   if (roadG && d > 60){
     const key = Math.round(dest.lat * 1e4) + "," + Math.round(dest.lng * 1e4);
-    if ((!n.route || n.route.key !== key) && (!n.route || gt() >= (n.routeCd || 0))){
+    if ((!n.route || n.route.key !== key || n.route.pts === null)
+        && (!n.route || gt() >= (n.routeCd || 0))){ // null routes RETRY on cooldown
       const pts = roadRoute(n, dest);
       if (pts !== undefined){ // undefined = routing lane busy; keep the old route a beat
         n.route = {key, pts, i: pts ? routeAnchor(n, pts) : 0};
@@ -4138,6 +4131,22 @@ function npcRoadStep(n, dest, dtSec){
       if (n.route.i < n.route.pts.length){ wp = n.route.pts[n.route.i]; onRoad = true; }
       else routeDone = true;
     } else if (n.route) noRoute = true;
+    // PROGRESS WATCHDOG: progress = getting CLOSER *or* ADVANCING ALONG A ROUTE
+    // (a road detour that swings wide still counts). 15s with neither — frozen,
+    // ping-ponging, or looping a dead end — and we walk it straight for 20s.
+    if (!n.mw || n.mw.k !== mk) n.mw = {k:mk, best:d, at:gt(), rk:null, ri:0};
+    let prog = false;
+    if (d < n.mw.best - 4){ n.mw.best = d; prog = true; }
+    if (n.route && n.route.pts){
+      if (n.mw.rk === n.route.key){
+        if (n.route.i > n.mw.ri){ n.mw.ri = n.route.i; prog = true; }
+      } else { n.mw.rk = n.route.key; n.mw.ri = n.route.i; }
+    }
+    if (prog) n.mw.at = gt();
+    else if (gt() - n.mw.at > 15000){
+      n.walkUntil = gt() + 20000;
+      n.mw.at = gt() + 20000; // clock restarts when the walk ends, not during it
+    }
     // n.route === null: routing lane busy — keep walking toward dest this tick
   }
   if (!onRoad){
@@ -4145,8 +4154,10 @@ function npcRoadStep(n, dest, dtSec){
       const nid = nearestRoadNode(n, 700);
       if (nid){
         const rn = roadG.nodes.get(nid);
-        if (haversine(n, rn) >= 40) wp = rn;
-        // else: already on/near pavement that can't help — walk straight for dest
+        // pavement is only worth reaching if it's roughly AHEAD — never trudge
+        // backward to a road behind you while the destination sits in front
+        const fwd = Math.cos(bearingBetween(n, rn) - bearingBetween(n, dest)) > 0.1;
+        if (haversine(n, rn) >= 40 && fwd) wp = rn;
       }
     } else if ((routeDone || d <= 60) && destOnRoad(dest)){
       onRoad = true;
@@ -4808,7 +4819,7 @@ renderMoney(false);
 renderLevel();
 renderHealth();
 </script>
-<script src="sc-missions.js?v=5"></script>
-<script src="sc-ai.js?v=5"></script>
+<script src="sc-missions.js?v=6"></script>
+<script src="sc-ai.js?v=6"></script>
 </body>
 </html>

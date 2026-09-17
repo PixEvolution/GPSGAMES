@@ -414,4 +414,4 @@ const MISSIONS = {
   ]},
 };
 
-window.SC_MISSIONS_V = 5;
+window.SC_MISSIONS_V = 6;

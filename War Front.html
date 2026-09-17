@@ -1027,11 +1027,6 @@ function initMap(center) {
 }
 
 function ensurePlayerMarker() {
-  if (inAutoWar()) {
-    if (playerMarker) { playerMarker.remove(); playerMarker = null; }
-    if (accCircle) { accCircle.remove(); accCircle = null; }
-    return;
-  }
   if (!playerPos || !map) return;
   if (!playerMarker) {
     const icon = L.divIcon({
@@ -1461,7 +1456,7 @@ setInterval(() => {
   }
   if (playerPos) {
     live.caches.slice().forEach(c => {
-      if (!inAutoWar() && haversine(playerPos, { lat: c.data.lat, lng: c.data.lng }) <= CFG.cachePickup) collectCache(c, "player");
+      if (haversine(playerPos, { lat: c.data.lat, lng: c.data.lng }) <= CFG.cachePickup) collectCache(c, "player");
     });
   }
 
@@ -1825,6 +1820,10 @@ function damagePlayer(amt, from) {
 }
 function playerDeath() {
   const p = world.player;
+  if (inAutoWar()) {
+    const cc = world.buildings.find(b => b.kind === "cc");
+    if (cc) { playerPos = { lat: cc.lat, lng: cc.lng }; simTarget = null; if (playerMarker) playerMarker.setLatLng([cc.lat, cc.lng]); }
+  }
   p.hp = p.maxHp;
   p.graceUntil = gt() + CFG.player.respawnGraceMs;
   const hadGear = p.weapons.rifle || (p.ammo.a556 > 0);
@@ -2030,9 +2029,12 @@ function initWar() {
 
 /* ============ GPS ============ */
 let gpsErrToasted = false;
+let lastGpsPos = null;   // the phone's real fix, tracked even while the AI commands
 function onPosition(lat, lng, acc) {
+  lastGpsPos = { lat, lng };
+  if (inAutoWar()) return;   // the AI's commander is simulated — GPS stays outside
   playerPos = { lat, lng };
-  $("gpsChip").textContent = inAutoWar() ? "SPECTATOR" : (devMoveActive ? "DEV MOVE" : ("GPS ±" + Math.round(acc || 0) + "m"));
+  $("gpsChip").textContent = devMoveActive ? "DEV MOVE" : ("GPS ±" + Math.round(acc || 0) + "m");
   $("gpsChip").classList.remove("bad");
   if (!map) initMap(playerPos);
   ensurePlayerMarker();
@@ -2172,7 +2174,7 @@ function moveGhost(latlng) {
 }
 
 function checkPlacement(kind, pos, forRemote) {
-  if (!playerPos && !freeOps() && !forRemote && !inAutoWar()) return { ok:false, reason:"No position fix — enable GPS or use DEV movement first." };
+  if (!playerPos && !freeOps() && !forRemote) return { ok:false, reason:"No position fix — enable GPS or use DEV movement first." };
   const meta = CFG.buildings[kind];
   if (kind === "cc") {
     if (freeOps() && !playerPos) return { ok:true, reason:"FREE OPS: Command Center site set. Confirm to break ground." };
@@ -2206,7 +2208,7 @@ function checkPlacement(kind, pos, forRemote) {
       return { ok:false, reason:"That ground is scorched — repair the land before building on it." };
   }
   if (!freeOps() && !remoteCommand() && !forRemote) {
-    const dp = (inAutoWar() || !playerPos) ? 1e9 : haversine(playerPos, pos);
+    const dp = !playerPos ? 1e9 : haversine(playerPos, pos);
     const reach = meta.foot + CFG.assistRadius;
     if (dp > reach) {
       if (world.cash < meta.cost)
@@ -2588,7 +2590,7 @@ $("msgClose").addEventListener("click", () => $("msgMenu").style.display = "none
 /* ============ training / upgrades ============ */
 function canTrainAt(bld) {
   if (freeOps() || remoteCommand()) return true;
-  if (inAutoWar() || !playerPos) return false;
+  if (!playerPos) return false;
   return haversine(playerPos, { lat: bld.lat, lng: bld.lng }) <= bldFoot(bld) + CFG.assistRadius;
 }
 function queueTrain(bldEntry, kind) {
@@ -3022,7 +3024,7 @@ function refreshSquadChips() {
 
 function commandable(entries) {
   if (freeOps() || remoteCommand()) return { ok: entries, out: 0, outE: [] };
-  if (inAutoWar() || !playerPos) return { ok: [], out: entries.length, outE: entries.slice() };
+  if (!playerPos) return { ok: [], out: entries.length, outE: entries.slice() };
   const ok = [], outArr = [];
   entries.forEach(e => {
     (haversine(playerPos, { lat: e.data.lat, lng: e.data.lng }) <= CFG.orderRange ? ok : outArr).push(e);
@@ -3137,7 +3139,7 @@ function onMapTap(e) {
 function workforceAtSite(id, lat, lng, reach) {
   if (freeOps()) return CFG.playerWorkforce;
   let wf = 0;
-  if (!inAutoWar() && playerPos && haversine(playerPos, { lat, lng }) <= reach) wf += CFG.playerWorkforce;
+  if (playerPos && haversine(playerPos, { lat, lng }) <= reach) wf += CFG.playerWorkforce;
   world.units.forEach(u => {
     if (u.kind !== "builder" || u.state !== "WORK" || u.task !== id) return;
     if (haversine({lat:u.lat,lng:u.lng}, {lat, lng}) <= reach) wf += CFG.units.builder.workforce;
@@ -3372,7 +3374,7 @@ function nearestPlayerThing(pos) {
     const d = haversine(pos, { lat: e.data.lat, lng: e.data.lng });
     if (d < bestD) { bestD = d; best = { type: "unit", entry: e, pos: { lat: e.data.lat, lng: e.data.lng } }; }
   });
-  if (!inAutoWar() && playerPos && world.player.hp > 0) {
+  if (playerPos && world.player.hp > 0) {
     const d = haversine(pos, playerPos);
     if (d < bestD) { bestD = d; best = { type: "player", pos: playerPos }; }
   }
@@ -3691,7 +3693,7 @@ setInterval(() => {
 
   /* ---- the player's own weapon (physical-only, always; not in the AI's war) ---- */
   const p = world.player;
-  if (!inAutoWar() && p.drawn && p.weapons.rifle && playerPos && (p.ammo.a556 | 0) > 0) {
+  if (p.drawn && p.weapons.rifle && playerPos && (p.ammo.a556 | 0) > 0) {
     const w = CFG.player.weapons.rifle;
     if (now >= (p.nextShotGt || 0)) {
       let targetEntry = p.targetId ? findEnemy(p.targetId) : null;
@@ -3793,7 +3795,7 @@ setInterval(() => {
     tutTick();
     const fb = $("freeOpsBadge");
     if (fb) fb.style.display = freeOps() ? "block" : "none";
-    if (inAutoWar()) $("gpsChip").textContent = "SPECTATOR";
+    if (inAutoWar()) $("gpsChip").textContent = "AI CMDR";
     // live mission readout for a single selected unit — full width, never cut off
     const mb = $("missionBar");
     if (sel && sel.type === "unit") {
@@ -4109,6 +4111,16 @@ function autoDecide() {
   if (countB("depot") >= 2 && countU("struck") < 1 && cash >= CFG.units.struck.cost + 200 && Math.random() < 0.5) acts.push(["trk", 2, () => autoTryTrain("warfactory", "struck")]);
   if (cc.data.tier >= 3 && !hasGeneral() && cash >= CFG.units.general.cost + 300) acts.push(["gen", 4, () => autoTryTrain("cc", "general")]);
 
+  // --- the commander arms himself at the Barracks ---
+  const brkE = bldEntryOf("barracks");
+  if (brkE && playerPos && canTrainAt(brkE.data)) {
+    if (!world.player.weapons.rifle && cash >= CFG.player.weapons.rifle.cost + 100) {
+      acts.push(["arm", 5, () => { buyWeapon(brkE, "rifle"); world.player.drawn = true; refreshWeaponBtn(); }]);
+    } else if (world.player.weapons.rifle && (world.player.ammo.a556 | 0) < 20 && cash >= CFG.player.ammo.a556.cost + 100) {
+      acts.push(["ammo", 4, () => { buyAmmo(brkE, "a556"); world.player.drawn = true; refreshWeaponBtn(); }]);
+    }
+  }
+
   // --- upgrades ---
   const nt = CFG.buildings.cc.tiers && CFG.buildings.cc.tiers[cc.data.tier + 1];
   if (nt && cash > nt.cost * 1.6 && Math.random() < 0.35) acts.push(["ccup", 4, () => startUpgrade(cc)]);
@@ -4214,6 +4226,7 @@ function switchSlot(newSlot) {
   lastEconGt = gt(); lastConGt = gt(); lastAiGt = gt();
   nextAutoGt = 0;
   refreshHud(); refreshSquadChips(); refreshWeaponBtn();
+  applySlotPlayerPos();
   const cc = world.buildings.find(b => b.kind === "cc");
   if (cc && map) map.panTo([cc.lat, cc.lng]);
   saveWorld();
@@ -4254,6 +4267,7 @@ function pickOrigin(done) {
 function createAutoWorld(origin, names) {
   gameTime = 0;
   S.set(K.gt(), "0");
+  S.set("wf_auto_pos", JSON.stringify({ lat: origin.lat, lng: origin.lng }));
   S.set(K.v(), String(CFG.saveVersion));
   world = {
     armyName: names.a, enemyName: names.e,
@@ -4269,8 +4283,9 @@ function createAutoWorld(origin, names) {
     hp: CFG.buildings.cc.hp, maxHp: CFG.buildings.cc.hp,
     progress: 1,
   }));
-  lastEconGt = gt(); lastConGt = gt(); lastAiGt = gt(); nextAutoGt = 0;
+  lastEconGt = gt(); lastConGt = gt(); lastAiGt = gt(); nextAutoGt = 0; lastCmdGt = 0;
   refreshHud(); refreshSquadChips(); refreshWeaponBtn();
+  applySlotPlayerPos();
   saveWorld();
   if (map) map.setView([origin.lat, origin.lng], 16);
 }
@@ -4317,13 +4332,87 @@ function exitAutoSave() {
   $("autoBtn").textContent = "AUTO: OFF";
   toast("Back to YOUR war, Commander. The AUTO war keeps its own save for next time.", false);
 }
+/* ---- the AI COMMANDER: a simulated body in the auto war ----
+   Spawns at the picked origin, resumes from wf_auto_pos (handoff pattern),
+   and walks the map with purpose: stands at construction sites (workforce!),
+   shops at the Barracks, collects nearby caches, backs off from close threats.
+   Every presence system treats him exactly like a real player on real GPS. */
+let simTarget = null, lastSimPosSave = 0;
+function jparseKey(key, fb) {
+  try { const v = S.get(key); return v === null ? fb : JSON.parse(v); } catch (e) { return fb; }
+}
+function applySlotPlayerPos() {
+  if (inAutoWar()) {
+    const cc = world && world.buildings.find(b => b.kind === "cc");
+    playerPos = jparseKey("wf_auto_pos", null) || (cc ? { lat: cc.lat, lng: cc.lng } : null);
+    simTarget = null;
+  } else {
+    playerPos = lastGpsPos;
+  }
+  ensurePlayerMarker();
+  if (playerMarker && playerPos) playerMarker.setLatLng([playerPos.lat, playerPos.lng]);
+}
+function moveCommander(dt) {
+  if (!playerPos || !world) return;
+  const cc = world.buildings.find(b => b.kind === "cc");
+  // survival first: back toward the CC when a hostile closes in
+  const threat = nearestEnemyTo(playerPos, 80);
+  if (threat && cc) {
+    simTarget = { lat: cc.lat, lng: cc.lng, why: "evac" };
+  } else if (!simTarget || haversine(playerPos, simTarget) < 6) {
+    // pick the next errand: work sites beat caches beat loitering at the post
+    let site = null, sd = 1e9;
+    world.buildings.forEach(b => {
+      if (!bldNeedsWork(b)) return;
+      const d = haversine(playerPos, { lat: b.lat, lng: b.lng });
+      if (d < sd) { sd = d; site = b; }
+    });
+    if (!site) {
+      live.scorch.forEach(e => {
+        const sc = e.data;
+        if (!sc.repairing || sc.progress >= 1) return;
+        const d = haversine(playerPos, { lat: sc.lat, lng: sc.lng });
+        if (d < sd) { sd = d; site = sc; }
+      });
+    }
+    let cache = null, cd = 1e9;
+    world.caches.forEach(c => {
+      const d = haversine(playerPos, { lat: c.lat, lng: c.lng });
+      if (d < cd) { cd = d; cache = c; }
+    });
+    if (site) simTarget = { lat: site.lat, lng: site.lng, why: "work" };
+    else if (cache && cd < 500) simTarget = { lat: cache.lat, lng: cache.lng, why: "cache" };
+    else if (cc) { const w = offsetPoint(cc.lat, cc.lng, rand(15, 60), rand(0, 360)); simTarget = { lat: w.lat, lng: w.lng, why: "post" }; }
+  }
+  if (simTarget) {
+    // standing at a work site IS the job — hold position inside assist reach
+    if (simTarget.why === "work" && haversine(playerPos, simTarget) <= CFG.assistRadius * 0.7) {
+      // linger; re-evaluate when the work no longer needs hands
+      const stillWorks = world.buildings.some(b => bldNeedsWork(b) && haversine(playerPos, { lat: b.lat, lng: b.lng }) <= CFG.assistRadius + 20);
+      if (!stillWorks) simTarget = null;
+    } else {
+      navStep(playerPos, simTarget, dt, CFG.speeds ? CFG.speeds.WALK || 1.5 : 1.5, "soft");
+      if (playerMarker) playerMarker.setLatLng([playerPos.lat, playerPos.lng]);
+    }
+  }
+  // handoff pattern: throttled position persist — reloads resume here
+  if (gt() - lastSimPosSave > 3000) {
+    lastSimPosSave = gt();
+    S.set("wf_auto_pos", JSON.stringify({ lat: playerPos.lat, lng: playerPos.lng }));
+  }
+}
 let nextAutoGt = 0;
+let lastCmdGt = 0;
 setInterval(() => {
   if (paused()) return;
-  if (!world || !world.auto) { $("autoBadge").style.display = "none"; return; }
+  if (!world || !world.auto || !inAutoWar()) { $("autoBadge").style.display = "none"; return; }
   $("autoBadge").style.display = "block";
-  if (gt() < nextAutoGt) return;
-  nextAutoGt = gt() + rand(8000, 16000);
+  const nowG = gt();
+  const dt = lastCmdGt ? nowG - lastCmdGt : 0;
+  lastCmdGt = nowG;
+  if (dt > 0) { try { moveCommander(dt); } catch (e) { logErr("auto cmdr", e); } }
+  if (nowG < nextAutoGt) return;
+  nextAutoGt = nowG + rand(8000, 16000);
   try { autoDecide(); } catch (e) { logErr("auto", e); }
 }, 1000);
 $("autoBtn").addEventListener("click", () => {
@@ -4457,12 +4546,13 @@ function enterAutoFromMenu(fresh) {
     world.auto = true;
     started = true;
     document.body.classList.add("playing");
-    lastEconGt = gt(); lastConGt = gt(); lastAiGt = gt(); nextAutoGt = 0;
+    lastEconGt = gt(); lastConGt = gt(); lastAiGt = gt(); nextAutoGt = 0; lastCmdGt = 0;
     refreshHud(); refreshSquadChips(); refreshWeaponBtn();
+    applySlotPlayerPos();
     $("autoBtn").textContent = "AUTO: ON";
     const cc = world.buildings.find(b => b.kind === "cc");
     if (cc && map) map.setView([cc.lat, cc.lng], 16);
-    toast("AUTO WAR — the AI commands. This is a spectator world: your GPS plays no part here.", false);
+    toast("AUTO WAR — the AI's commander walks this ground, not you. Your GPS plays no part here.", false);
   } else {
     // brand-new AUTO war: pick its theater anywhere on Earth
     if (!map) initMap({ lat: 20, lng: 0 });
