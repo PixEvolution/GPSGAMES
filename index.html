@@ -475,7 +475,6 @@ const CFG = {
           baseMs:1.3,            // floor: walker chase 1.2 m/s + the 0.1 edge — fleeing can work
           mph:0.44704,           // each level past 1 adds up to (L-1) mph on top of the floor
           weaponRollMaxS:100, respawnMs:3000,
-          levelsPerExtraItem:4,     // 1 item/trip at LV1-4, 2 at LV5-8, 3 at LV9-12…
           campArrive:6,             // walks all the way to the base CENTER, not the perimeter
           campMenuMs:1400, campActMs:1600,
           huntRange:40, tradeRange:80, tradeCdMs:180000 },
@@ -2452,7 +2451,8 @@ setInterval(()=>{
     }
     return;
   }
-  if(AUTO.task!=="scavenge"){ AUTO.task="scavenge"; AUTO.quota=1+Math.floor((S.level-1)/CFG.auto.levelsPerExtraItem); AUTO.collected=0; }
+  if(AUTO.task!=="scavenge"){ AUTO.task="scavenge"; AUTO.collected=0; }
+  AUTO.quota=Math.max(1,S.level); // live every tick: level N carries N items/trip, level-ups apply instantly
   if(AUTO.collected>=AUTO.quota){ AUTO.task="return"; return; }
   let tgt=null,bd=1e12;
   for(const p of lootPoints){
