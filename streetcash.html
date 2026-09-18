@@ -2732,6 +2732,8 @@ function busted(){
   saveMoney();
   renderMoney(true);
   clearHeat();
+  // going down forfeits the siege: the block shakes you off, back to 0%
+  if (capture){ capture = null; statusIdle(); toast("The block held. Start the takeover over."); }
   // the scene CLEARS when you go down — shooters scatter, nobody camps the body
   for (const n of [...npcs]){
     if (n.kind === "gang" && n.gang !== myGang && n.aggro) removeNpc(n);

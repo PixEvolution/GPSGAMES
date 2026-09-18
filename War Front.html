@@ -322,6 +322,7 @@
   <button id="satBtn" class="btn">🛰️</button>
   <button id="zoomInBtn" class="btn">➕</button>
   <button id="zoomOutBtn" class="btn">➖</button>
+  <button id="cmdrBtn" class="btn" style="display:none;">CMDR</button>
 </div>
 
 <div id="tutCard" style="position:fixed; z-index:30; left:8px; top:calc(52px + env(safe-area-inset-top)); width:calc(100vw - 132px); max-width:330px; display:none; background:rgba(20,26,10,0.95); border:1px solid #6b7a48; border-left:4px solid #b8c880; border-radius:8px; padding:9px 10px; font-size:12px; line-height:1.4; color:#dbe4c6;">
@@ -968,6 +969,16 @@ function builderCount() { return world.units.filter(u => u.kind === "builder").l
    No player marker, no proximity presence, no workforce assist, no rifle, and
    enemies cannot target the player. The AI commands through its own systems. */
 function inAutoWar() { return saveSlot === "wf_auto_"; }
+/* spectator lockdown: in the AUTO war the human LOOKS but never acts.
+   The AI's own calls run inside aiActing and pass through. */
+let aiActing = false;
+function specBlock() {
+  if (inAutoWar() && !aiActing) {
+    toast("Spectator mode — the AI commands this war. Menus are view-only.", true);
+    return true;
+  }
+  return false;
+}
 function hasRadar() { return world.buildings.some(b => b.kind === "radar" && !b.rubble && b.progress >= 1); }
 function hasGeneral() { return world.units.some(u => u.kind === "general"); }
 function remoteCommand() { return hasRadar() || hasGeneral(); }
@@ -1038,6 +1049,7 @@ function ensurePlayerMarker() {
     playerMarker = L.marker([playerPos.lat, playerPos.lng], { icon, zIndexOffset: 900 }).addTo(map);
     playerMarker.on("click", () => {
       if (!started || !sel) return;
+      if (specBlock()) return;
       const guards = splitSupplyRun(selectedEntries().filter(e =>
         CFG.units[e.data.kind].combat && CFG.units[e.data.kind].dmg && e.data.state !== "MOUNTED"));
       if (!guards.length) return;
@@ -1100,6 +1112,11 @@ $("satBtn").addEventListener("click", () => {
 });
 $("zoomInBtn").addEventListener("click", () => { if (map) map.zoomIn(1); });
 $("zoomOutBtn").addEventListener("click", () => { if (map) map.zoomOut(1); });
+$("cmdrBtn").addEventListener("click", () => {
+  followId = followId === "CMDR" ? null : "CMDR";
+  refreshFollowBtn();
+  if (followId === "CMDR" && playerPos && map) map.panTo([playerPos.lat, playerPos.lng], { animate: true });
+});
 $("jumpMe").addEventListener("click", () => { if (playerPos) map.panTo([playerPos.lat, playerPos.lng]); });
 $("jumpHq").addEventListener("click", () => {
   const cc = live.buildings.find(b => b.data.kind === "cc");
@@ -1894,6 +1911,7 @@ function buildCache(data) {
   const entry = { data, marker, ring };
   marker.on("click", () => {
     if (!started || !sel) return;   // no selection: popup opens as normal
+    if (specBlock()) return;
     const movers = splitSupplyRun(selectedEntries().filter(e => e.data.state !== "MOUNTED" && e.data.kind !== "messenger"));
     if (!movers.length) return;
     marker.closePopup();
@@ -2141,6 +2159,7 @@ function startCCPlacement() {
   startPlacement("cc", { lat: at.lat, lng: at.lng });
 }
 function startPlacement(kind, pos) {
+  if (specBlock()) return;
   cancelPlacement();
   const meta = CFG.buildings[kind];
   const circle = L.circle([pos.lat, pos.lng], {
@@ -2242,7 +2261,7 @@ $("placeCancel").addEventListener("click", () => {
   else cancelPlacement();
 });
 $("placeConfirm").addEventListener("click", () => {
-  if (!placement) return;
+  if (!placement || specBlock()) return;
   const res = checkPlacement(placement.kind, placement.pos);
   if (!res.ok) { toast(res.reason, true); return; }
   const kind = placement.kind, pos = placement.pos, meta = CFG.buildings[kind];
@@ -2562,6 +2581,7 @@ function renderMsgMenu() {
       rc.textContent = "RECALL";
       rc.addEventListener("click", (ev) => {
         ev.stopPropagation();
+        if (specBlock()) return;
         clearErrand(e, true);
         u.state = "IDLE"; u.target = null; u.post = { lat: u.lat, lng: u.lng };
         toast("Runner recalled — orders cancelled, funds returned.");
@@ -2594,6 +2614,7 @@ function canTrainAt(bld) {
   return haversine(playerPos, { lat: bld.lat, lng: bld.lng }) <= bldFoot(bld) + CFG.assistRadius;
 }
 function queueTrain(bldEntry, kind) {
+  if (specBlock()) return;
   const bld = bldEntry.data, meta = CFG.units[kind];
   if (bld.rubble || bld.progress < 1) { toast("That building isn't operational.", true); return; }
   if (bld.queue.length >= CFG.queueCap) { toast("Queue is full.", true); return; }
@@ -2672,6 +2693,7 @@ function buildingPopupContent(entry) {
       b.className = "btn primary popBtn";
       b.textContent = "REPAIR (" + fmtCash(rCost) + ")";
       b.addEventListener("click", () => {
+        if (specBlock()) return;
         if (world.cash < rCost) { toast("Not enough cash to repair.", true); return; }
         world.cash -= rCost;
         d.repairing = true;
@@ -2720,6 +2742,7 @@ function buildingPopupContent(entry) {
         b.className = "btn primary popBtn";
         b.textContent = "UPGRADE RUNNERS TO T" + ((world.msgTier || 1) + 1) + " (" + fmtCash(mt.cost) + ")";
         b.addEventListener("click", () => {
+          if (specBlock()) return;
           if (world.cash < mt.cost) { toast("Costs " + fmtCash(mt.cost) + ".", true); return; }
           if (canTrainAt(d)) {
             world.cash -= mt.cost;
@@ -2770,6 +2793,7 @@ function buildingPopupContent(entry) {
 }
 
 function startUpgrade(entry) {
+  if (specBlock()) return;
   const d = entry.data, meta = CFG.buildings[d.kind];
   const nt = meta.tiers && meta.tiers[d.tier + 1];
   if (!nt || d.rubble || d.progress < 1 || d.upgrading) return;
@@ -2807,6 +2831,7 @@ function finishUpgrade(entry) {
 
 /* ============ player weapons (physical-only, always) ============ */
 function buyWeapon(bldEntry, kind) {
+  if (specBlock()) return;
   const w = CFG.player.weapons[kind];
   if (!canTrainAt(bldEntry.data)) { toast("You must be at the Barracks to buy weapons.", true); return; }
   if (world.cash < w.cost) { toast("Costs " + fmtCash(w.cost) + ".", true); return; }
@@ -2817,6 +2842,7 @@ function buyWeapon(bldEntry, kind) {
   toast(w.name + " purchased. DRAW it to fight.");
 }
 function buyAmmo(bldEntry, cal) {
+  if (specBlock()) return;
   const am = CFG.player.ammo[cal];
   if (!canTrainAt(bldEntry.data)) { toast("You must be at the Barracks to buy ammo.", true); return; }
   if (world.cash < am.cost) { toast("Costs " + fmtCash(am.cost) + ".", true); return; }
@@ -2835,6 +2861,7 @@ function refreshWeaponBtn() {
   btn.textContent = (p.drawn ? "HOLSTER" : "DRAW") + " · " + (p.ammo.a556 | 0);
 }
 $("wepBtn").addEventListener("click", () => {
+  if (specBlock()) return;
   const p = world.player;
   if (!p.weapons.rifle) return;
   p.drawn = !p.drawn;
@@ -2847,8 +2874,12 @@ $("wepBtn").addEventListener("click", () => {
 let followId = null;
 function refreshFollowBtn() {
   const b = $("ordFollow");
-  b.classList.toggle("primary", !!followId);
-  b.textContent = followId ? "👁 ON" : "👁";
+  b.classList.toggle("primary", !!followId && followId !== "CMDR");
+  b.textContent = (followId && followId !== "CMDR") ? "👁 ON" : "👁";
+  const c = $("cmdrBtn");
+  c.style.display = inAutoWar() ? "block" : "none";
+  c.classList.toggle("primary", followId === "CMDR");
+  c.textContent = followId === "CMDR" ? "CMDR ●" : "CMDR";
 }
 function missionOf(u) {
   switch (u.state) {
@@ -2927,6 +2958,7 @@ function onFriendlyUnitTap(entry) {
   selectUnit(entry);
 }
 function orderEscort(entries, targetEntry) {
+  if (specBlock()) return;
   const { ok, out } = commandable(entries);
   ok.forEach(e => {
     const u = e.data;
@@ -2940,6 +2972,7 @@ function orderEscort(entries, targetEntry) {
   saveWorld();
 }
 function orderMount(entries, hvEntry) {
+  if (specBlock()) return;
   entries = splitSupplyRun(entries);
   if (!entries.length) return;
   const hv = hvEntry.data;
@@ -3055,6 +3088,7 @@ function routeOrderByRunner(outE, order) {
   return targets.length;
 }
 function orderMove(entries, latlng) {
+  if (specBlock()) return;
   const movable = splitSupplyRun(entries.filter(e => e.data.state !== "MOUNTED"));
   const { ok, out } = commandable(movable);
   ok.forEach(e => {
@@ -3071,6 +3105,7 @@ function orderMove(entries, latlng) {
   saveWorld();
 }
 function orderAttack(entries, enemyEntry) {
+  if (specBlock()) return;
   const combatEntries = splitSupplyRun(entries.filter(e => CFG.units[e.data.kind].combat && CFG.units[e.data.kind].dmg && e.data.state !== "MOUNTED"));
   if (!combatEntries.length) { toast("Nothing armed and free in that selection.", true); return; }
   const { ok, out, outE } = commandable(combatEntries);
@@ -3086,7 +3121,7 @@ function orderAttack(entries, enemyEntry) {
   saveWorld();
 }
 $("ordGuard").addEventListener("click", () => {
-  if (!sel) return;
+  if (!sel || specBlock()) return;
   const { ok, out, outE } = commandable(splitSupplyRun(selectedEntries().filter(e => e.data.state !== "MOUNTED")));
   ok.forEach(e => {
     const u = e.data;
@@ -3101,6 +3136,7 @@ $("ordGuard").addEventListener("click", () => {
   saveWorld();
 });
 $("ordDismount").addEventListener("click", () => {
+  if (specBlock()) return;
   if (!sel) return;
   const hvs = selectedEntries().filter(e => e.data.kind === "humvee" && e.data.mounted.length);
   if (!hvs.length) { toast("No loaded Humvees selected.", true); return; }
@@ -3109,7 +3145,7 @@ $("ordDismount").addEventListener("click", () => {
   if (out) toast(out + " Humvee(s) out of command range.", true);
 });
 $("ordRally").addEventListener("click", () => {
-  if (!sel) return;
+  if (!sel || specBlock()) return;
   if (!playerPos) { toast("No position to rally to.", true); return; }
   orderMove(selectedEntries(), { lat: playerPos.lat, lng: playerPos.lng });
 });
@@ -3796,6 +3832,8 @@ setInterval(() => {
     const fb = $("freeOpsBadge");
     if (fb) fb.style.display = freeOps() ? "block" : "none";
     if (inAutoWar()) $("gpsChip").textContent = "AI CMDR";
+    refreshFollowBtn();
+    if (followId === "CMDR" && playerPos && map) map.panTo([playerPos.lat, playerPos.lng], { animate: true, duration: 0.45 });
     // live mission readout for a single selected unit — full width, never cut off
     const mb = $("missionBar");
     if (sel && sel.type === "unit") {
@@ -4198,7 +4236,7 @@ function autoDecide() {
   // weighted random pick — the source of run-to-run variety
   const total = acts.reduce((a, x) => a + x[1], 0);
   let roll = Math.random() * total;
-  for (const [, w, fn] of acts) { roll -= w; if (roll <= 0) { try { fn(); } catch (e) { logErr("auto", e); } break; } }
+  for (const [, w, fn] of acts) { roll -= w; if (roll <= 0) { aiActing = true; try { fn(); } catch (e) { logErr("auto", e); } finally { aiActing = false; } break; } }
 }
 /* full teardown of the live Leaflet state so another save can load in-place */
 function teardownLive() {
@@ -4226,6 +4264,7 @@ function switchSlot(newSlot) {
   lastEconGt = gt(); lastConGt = gt(); lastAiGt = gt();
   nextAutoGt = 0;
   refreshHud(); refreshSquadChips(); refreshWeaponBtn();
+  followId = null;
   applySlotPlayerPos();
   const cc = world.buildings.find(b => b.kind === "cc");
   if (cc && map) map.panTo([cc.lat, cc.lng]);
@@ -4285,6 +4324,7 @@ function createAutoWorld(origin, names) {
   }));
   lastEconGt = gt(); lastConGt = gt(); lastAiGt = gt(); nextAutoGt = 0; lastCmdGt = 0;
   refreshHud(); refreshSquadChips(); refreshWeaponBtn();
+  followId = null;
   applySlotPlayerPos();
   saveWorld();
   if (map) map.setView([origin.lat, origin.lng], 16);
@@ -4565,7 +4605,7 @@ function enterAutoFromMenu(fresh) {
       started = true;
       document.body.classList.add("playing");
       $("autoBtn").textContent = "AUTO: ON";
-      toast("AUTO WAR founded — the AI commands here. This is a spectator world: your GPS plays no part.", false);
+      toast("AUTO WAR founded — spectator mode. The AI commander runs everything; tap CMDR to ride along.", false);
     });
   }
 }
