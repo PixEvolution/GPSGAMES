@@ -2734,6 +2734,12 @@ function busted(){
   clearHeat();
   // going down forfeits the siege: the block shakes you off, back to 0%
   if (capture){ capture = null; statusIdle(); toast("The block held. Start the takeover over."); }
+  // and the AI takes the hint: drop the turf task, do something ELSE next —
+  // no grinding the same block through death after death
+  if (typeof aiTask !== "undefined" && aiTask && aiTask.kind === "turf"){
+    aiTask = null;
+    aiAvoidTurfOnce = true;
+  }
   // the scene CLEARS when you go down — shooters scatter, nobody camps the body
   for (const n of [...npcs]){
     if (n.kind === "gang" && n.gang !== myGang && n.aggro) removeNpc(n);
@@ -4188,6 +4194,7 @@ function rollNpcWeapon(n){
 // your WALK/RUN/BIKE/CAR presets are the AI's gas pedal
 
 let aiTask = null;
+let aiAvoidTurfOnce = false; // set on a turf-task death: next roll skips turf once
 let aiLastDlr = 0, aiLastByr = 0; // fresh-faces rule for dealing
 // THE LIST: every objective a player has. Roll it. If the roll isn't
 // doable right now (broke, doesn't exist yet), roll again. That's the whole brain.
@@ -4248,6 +4255,7 @@ function aiTaskFor(id){
       return mark ? {kind:"rob", uid:mark.uid, at:mark, say:"picking out a mark"} : null;
     }
     case "turfWar": {
+      if (aiAvoidTurfOnce) return null; // died on a block — anything else THIS pick
       const cell = myGang !== null && nearestEnemyCell();
       return cell ? {kind:"turf", at:cell, say:"taking a block for the " + GANGS[myGang].name} : null;
     }
@@ -4281,12 +4289,15 @@ function aiTaskFor(id){
   return null;
 }
 function aiPickTask(){
+  let picked = null;
   for (let i = 0; i < 15; i++){
-    const t = aiTaskFor(AI_LIST[Math.floor(Math.random() * AI_LIST.length)]);
-    if (t) return t;
+    picked = aiTaskFor(AI_LIST[Math.floor(Math.random() * AI_LIST.length)]);
+    if (picked) break;
   }
   // nothing else feasible: dealing is always work
-  return aiTaskFor("dealDrugs");
+  if (!picked) picked = aiTaskFor("dealDrugs");
+  aiAvoidTurfOnce = false; // the skip covers exactly ONE full pick
+  return picked;
 }
 function aiRunTask(){
   const t = aiTask;
@@ -4543,13 +4554,26 @@ function aiRunTask(){
       aiSay("dealing — " + Math.ceil((t.until - gt())/1000) + "s left on the shift");
       const carrying = DRUGS.some(d => (onDrugs[d.id]||0) > 0);
       // a buyer only counts if he WANTS something we're actually holding
-      // fresh faces only — never the same buyer or dealer twice in a row
-      const byr = npcs.find(n => n.kind === "buyer" && n.uid !== aiLastByr
-        && n.wants && n.wants.some(w => (onDrugs[w.id]||0) > 0)
-        && (!dOrigin || haversine(dOrigin, n) >= 500)); // no flipping next to the source
-      const dlr = npcs.find(n => n.kind === "dealer" && n.uid !== aiLastDlr
+      // COMMITTED counterparties: pick once, pursue by uid — churn in the npc
+      // list must never flip the target mid-walk (that's a ping-pong machine).
+      // Fresh-faces rule still applies at pick time.
+      let byr = t.byrU ? npcs.find(n => n.uid === t.byrU && n.kind === "buyer"
+        && n.wants && n.wants.some(w => (onDrugs[w.id]||0) > 0)) : null;
+      if (!byr){
+        byr = npcs.find(n => n.kind === "buyer" && n.uid !== aiLastByr
+          && n.wants && n.wants.some(w => (onDrugs[w.id]||0) > 0)
+          && (!dOrigin || haversine(dOrigin, n) >= 500)); // no flipping next to the source
+        t.byrU = byr ? byr.uid : null;
+      }
+      let dlr = t.dlrU ? npcs.find(n => n.uid === t.dlrU && n.kind === "dealer"
         && n.stock && n.stock.some(it => it.qty > 0
-          && Math.round(drugById(it.id).base*it.mult/5)*5 <= money * 0.6));
+          && Math.round(drugById(it.id).base*it.mult/5)*5 <= money * 0.6)) : null;
+      if (!dlr){
+        dlr = npcs.find(n => n.kind === "dealer" && n.uid !== aiLastDlr
+          && n.stock && n.stock.some(it => it.qty > 0
+            && Math.round(drugById(it.id).base*it.mult/5)*5 <= money * 0.6));
+        t.dlrU = dlr ? dlr.uid : null;
+      }
       if (carrying && byr){
         if (haversine(playerPos, byr) > NPC_TRADE_RANGE - 3){ aiMoveToward(byr, NPC_TRADE_RANGE - 3); return; }
         let sold = 0;
@@ -4560,7 +4584,7 @@ function aiRunTask(){
           sold += sellPrice(wt, byr) * have;
         }
         if (sold > 0){
-          aiLastByr = byr.uid; // this customer's done for a while
+          aiLastByr = byr.uid; t.byrU = null; // customer served — next pick is fresh
           money += sold; showGain(sold); addXp(sold);
           saveMoney(); renderMoney(true); saveDrugs();
           // one witness roll PER SALE — not per tick
@@ -4581,7 +4605,7 @@ function aiRunTask(){
           }
         }
         if (spent > 0){
-          aiLastDlr = dlr.uid; // next re-up comes from somebody new
+          aiLastDlr = dlr.uid; t.dlrU = null; // re-up done — next pick is fresh
           money -= spent; saveMoney(); renderMoney(true); saveDrugs();
           dOrigin = {lat:dlr.lat, lng:dlr.lng}; saveOrigin(); // the haul starts here
         }
