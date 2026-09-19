@@ -470,7 +470,7 @@ const CFG = {
     merchant: { hp:70, dmg:6, rate:1000, range:10, flee:80, speed:1.3, bubble:2500, ringMin:400, ringMax:1200 },
     noiseChance: 0.25, noiseRadius: 120,
     hostileAim: 0.5,                  // survivors are worse shots than you (dmg scale vs player)
-    gait: { minMph:2, maxMph:12, rollMinS:1, rollMaxS:100 }, // human pace: stroll to hard run, rerolled like terrain
+    gait: { minMph:1, maxMph:12, rollMinS:1, rollMaxS:100 }, // human pace: amble to hard run, rerolled like terrain
     roam: 1609,                       // befriended non-followers drift inside a 1-mile circle of the player
   },
   auto: { threat:60, holsterAt:80, fleeHpFrac:0.5, fleeDist:120,
@@ -703,6 +703,7 @@ function weightCap(){ return CFG.weight.base+(S.level-1)*CFG.weight.perLevel; }
 function canCarry(add){ if(AUTO_SLOT) return true; return invWeight()+add<=weightCap()+1e-9; } // idle sim ignores weight — for the fun of it
 function lootWt(item){ return ITEMS[item].wt*(ITEMS[item].grant||1); }
 function durLeft(id){ return (S.dur&&S.dur[id]!=null)?S.dur[id]:ITEMS[id].melee.dur; }
+function rollWear(id){ return Math.max(1,Math.round(ITEMS[id].melee.dur*(0.2+Math.random()*0.8))); } // 20-100% life left
 
 /* ---------------- globals ---------------- */
 let map=null, playerMarker=null, playerPos=null, devMode=false, gpsAcc=null;
@@ -942,6 +943,7 @@ function completeChannel(){
   channel=null; $("actbtn").querySelector(".fill").style.transform="scaleX(0)";
   if(!canCarry(lootWt(p.item))){ toast("⚖️ Too heavy — stash something first"); return; }
   S.inv[p.item]=(S.inv[p.item]||0)+qty; S.scavenged++;
+  if(d.melee && S.inv[p.item]===qty && S.dur[p.item]==null) S.dur[p.item]=rollWear(p.item); // found gear has a past
   removeLoot(p);
   grantXp(d.rarity==="rare"?25:d.rarity==="uncommon"?12:6);
   sfx("pickup");
@@ -1836,12 +1838,9 @@ setInterval(()=>{
 
 /* ---------------- NPCs: survivors (good/bad) + merchant ---------------- */
 let npcs=[], npcSeq=1, nextGroupRoll=0;
-const NPC_WEAPON_TABLE=[["fists",25],["spear",12],["bat",20],["machete",10],["pistol",18],["shotgun",8],["rifle",7]];
-function rollNpcWeapon(){
-  const tot=NPC_WEAPON_TABLE.reduce((s,e)=>s+e[1],0);
-  let r=Math.random()*tot;
-  for(const [id,w] of NPC_WEAPON_TABLE){ r-=w; if(r<=0) return id; }
-  return "fists";
+function rollNpcWeapon(){ // flat roll across the whole armory, fists included — no weights
+  const all=["fists",...WEAPON_IDS];
+  return all[Math.floor(Math.random()*all.length)];
 }
 function npcWeaponStats(n){ // same numbers players get — one source of truth
   const id=n.weapon||"fists";
@@ -2171,8 +2170,9 @@ function applyMeleeWear(w){
   const max=ITEMS[w.id].melee.dur;
   S.dur[w.id]=(S.dur[w.id]==null?max:S.dur[w.id])-1;
   if(S.dur[w.id]<=0){
-    delete S.dur[w.id];
     S.inv[w.id]--; if(S.inv[w.id]<=0) delete S.inv[w.id];
+    if((S.inv[w.id]||0)>0) S.dur[w.id]=rollWear(w.id); // the spare has seen things too
+    else delete S.dur[w.id];
     sfx("hurt");
     toast("💥 Your "+ITEMS[w.id].name+" broke!"+((S.inv[w.id]||0)>0?" Grabbed a spare.":""),3000);
     updateCombatBtns();
