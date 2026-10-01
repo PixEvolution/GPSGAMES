@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RedlineStudio — Market</title>
+  <meta name="description" content="Trade game-ready models built by players: save part of your game as a model, sell it for coins, and build faster with everyone else's parts.">
+  <link rel="canonical" href="https://redlinestudio.dev/market.html">
+  <meta property="og:site_name" content="RedlineStudio">
+  <meta property="og:title" content="RedlineStudio Market — buy and sell game models">
+  <meta property="og:description" content="Trade game-ready models built by players: save part of your game as a model, sell it for coins, and build faster with everyone else's parts.">
+  <meta property="og:url" content="https://redlinestudio.dev/market.html">
+  <meta property="og:type" content="website">
+  <link rel="stylesheet" href="css/style.css">
+  <script>(window.adsbygoogle = window.adsbygoogle || []).requestNonPersonalizedAds = 1;</script>
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2208639648972390"
+     crossorigin="anonymous"></script>
+</head>
+<body>
+  <main class="page">
+    <div class="market-topbar">
+      <div>
+        <h1 class="page-title" style="margin:0">Market</h1>
+        <p class="page-sub" style="margin:4px 0 0">Models made by players — insert them into your games from the Studio.</p>
+      </div>
+      <div class="coins-box" id="coins-box">
+        <span id="coins-amount">◎ …</span>
+        <button class="btn btn-small" id="btn-claim">Claim daily</button>
+      </div>
+    </div>
+
+    <div class="tabs" style="max-width:380px;margin-top:20px">
+      <div class="tab active" id="tab-market">Market</div>
+      <div class="tab" id="tab-inv">My Models</div>
+    </div>
+
+    <div id="market-filter"></div>
+    <div id="market-list" class="games-grid"><p class="empty-note">Loading…</p></div>
+    <div id="inv-list" style="display:none"></div>
+  </main>
+
+  <script type="module">
+    import { renderNav, toast, $, fmtDate, setNavCoins, COIN } from "./js/ui.js";
+    import { currentUser } from "./js/auth.js";
+    import { getCoins, claimDaily, DAILY_COINS } from "./js/economy.js";
+    import { listMarket, listMyModels, acquireModel, setListing, deleteModel } from "./js/models.js";
+    import { renderVotes, renderComments } from "./js/social.js";
+    import { createFilterBar, applyFilter } from "./js/filterbar.js";
+
+    renderNav("");
+    const user = currentUser();
+
+    // ---------------- coins ----------------
+    async function refreshCoins() {
+      if (!user) { $("#coins-box").innerHTML = `<a class="btn btn-small" href="login.html">Log in</a>`; return; }
+      try { const n = await getCoins(user); $("#coins-amount").textContent = COIN + " " + n; setNavCoins(n); } catch {}
+    }
+    $("#btn-claim")?.addEventListener("click", async () => {
+      if (!user) return;
+      try {
+        const r = await claimDaily(user);
+        $("#coins-amount").textContent = COIN + " " + r.coins;
+        setNavCoins(r.coins);
+        toast(r.claimed ? `+${DAILY_COINS} coins — come back tomorrow!` : "Already claimed today — come back tomorrow.", !r.claimed);
+      } catch (err) { toast(err.message, true); }
+    });
+
+    // ---------------- tabs ----------------
+    $("#tab-market").addEventListener("click", () => setTab("market"));
+    $("#tab-inv").addEventListener("click", () => setTab("inv"));
+    function setTab(t) {
+      $("#tab-market").classList.toggle("active", t === "market");
+      $("#tab-inv").classList.toggle("active", t === "inv");
+      $("#market-list").style.display = t === "market" ? "" : "none";
+      $("#inv-list").style.display = t === "inv" ? "" : "none";
+      if (t === "inv") loadInventory();
+    }
+
+    // ---------------- market ----------------
+    async function loadMarket() {
+      const grid = $("#market-list");
+      try {
+        const models = await listMarket();
+        const mount = $("#market-filter");
+        mount.innerHTML = "";
+        const render = (search, sort) => {
+        grid.innerHTML = "";
+        const shown = applyFilter(models, search, sort, ["name", "owner", "description"]);
+        if (shown.length === 0) {
+          grid.innerHTML = models.length === 0
+            ? `<p class="empty-note">Nothing for sale yet.<br>Save a model in the Studio, then list it from My Models.</p>`
+            : `<p class="empty-note">No models match that search.</p>`;
+          return;
+        }
+        for (const m of shown) {
+          const card = document.createElement("div");
+          card.className = "game-card";
+
+          // the model's snapshot — the ONLY look inside a buyer gets.
+          // (no object counts, no scripts: buy it to open the box)
+          const shot = document.createElement("div");
+          shot.className = "model-shot";
+          if (m.kind === "behavior") {
+            // a 🧩 behavior is a script chunk: no picture, just its size
+            shot.style.display = "flex";
+            shot.style.flexDirection = "column";
+            shot.style.alignItems = "center";
+            shot.style.justifyContent = "center";
+            shot.style.gap = "4px";
+            const big = document.createElement("div");
+            big.textContent = "🧩";
+            big.style.fontSize = "42px";
+            const lbl = document.createElement("div");
+            lbl.className = "hint";
+            lbl.textContent = "BEHAVIOR · " + (m.summary || "script chunk");
+            shot.append(big, lbl);
+          } else if (m.thumb) {
+            const img = document.createElement("img");
+            img.src = m.thumb;
+            img.alt = m.name;
+            img.draggable = false;
+            shot.appendChild(img);
+          }
+          card.appendChild(shot);
+
+          const title = document.createElement("div");
+          title.className = "game-title";
+          title.textContent = m.name;
+          title.title = m.name;
+          card.appendChild(title);
+          if (m.description) {
+            const desc = document.createElement("div");
+            desc.className = "game-desc";
+            desc.textContent = m.description;
+            card.appendChild(desc);
+          }
+          const meta = document.createElement("div");
+          meta.className = "game-meta";
+          meta.textContent = `by ${m.owner} · ${fmtDate(m.createdAt)}`;
+          const priceRow = document.createElement("div");
+          priceRow.style.display = "flex";
+          priceRow.style.justifyContent = "space-between";
+          priceRow.style.alignItems = "center";
+          priceRow.style.marginTop = "8px";
+          const price = document.createElement("strong");
+          price.textContent = m.price > 0 ? `◎ ${m.price}` : "FREE";
+          const btn = document.createElement("button");
+          btn.className = "btn btn-small";
+          btn.textContent = m.price > 0 ? "Buy" : "Get";
+          btn.addEventListener("click", async () => {
+            if (!user) { window.location.href = "login.html"; return; }
+            btn.disabled = true;
+            try {
+              const r = await acquireModel(m.id, user);
+              toast(r.paid > 0 ? `Bought "${m.name}" for ◎ ${r.paid} — it's in My Models.` : `"${m.name}" added to My Models.`);
+              refreshCoins();
+            } catch (err) { toast(err.message, true); }
+            btn.disabled = false;
+          });
+          priceRow.append(price, btn);
+
+          // likes + a fold-out comments panel per model
+          const social = document.createElement("div");
+          social.style.display = "flex";
+          social.style.alignItems = "center";
+          social.style.gap = "8px";
+          social.style.marginTop = "6px";
+          const votesMount = document.createElement("div");
+          renderVotes(votesMount, "models", m.id, m, user);
+          const cbtn = document.createElement("button");
+          cbtn.className = "blk-mini";
+          cbtn.textContent = "💬 comments";
+          social.append(votesMount, cbtn);
+          const cpanel = document.createElement("div");
+          cpanel.style.display = "none";
+          cbtn.addEventListener("click", () => {
+            const open = cpanel.style.display === "none";
+            cpanel.style.display = open ? "" : "none";
+            if (open && !cpanel.dataset.loaded) {
+              cpanel.dataset.loaded = "1";
+              renderComments(cpanel, "models", m.id, user, { heading: "" });
+            }
+          });
+
+          card.append(meta, priceRow, social, cpanel);
+          grid.appendChild(card);
+        }
+        };
+        createFilterBar(mount, {
+          placeholder: "Search models…",
+          sorts: [
+            ["rated", "Top rated"],
+            ["recent", "Most recent"],
+            ["cheapest", "Cheapest"]
+          ],
+          onChange: render
+        });
+        render("", "rated");
+      } catch (err) {
+        grid.innerHTML = "";
+        toast("Couldn't load the market: " + err.message, true);
+      }
+    }
+
+    // ---------------- inventory ----------------
+    async function loadInventory() {
+      const mount = $("#inv-list");
+      if (!user) { mount.innerHTML = `<p class="empty-note">Log in to see your models.</p>`; return; }
+      try {
+        const models = await listMyModels(user);
+        mount.innerHTML = "";
+        if (models.length === 0) {
+          mount.innerHTML = `<p class="empty-note">No models yet.<br>In the Studio: check objects in the Explorer → "Save checked as Model".</p>`;
+          return;
+        }
+        for (const m of models) {
+          const row = document.createElement("div");
+          row.className = "my-game-row";
+
+          const info = document.createElement("div");
+          const t = document.createElement("strong");
+          t.textContent = m.name;
+          const meta = document.createElement("span");
+          meta.className = "hint";
+          meta.textContent = `  ${m.kind === "behavior" ? "🧩 " + (m.summary || "behavior") : (m.objects?.length || 0) + " objects"}` +
+            (m.creator && m.creator !== user ? ` · made by ${m.creator}` : "") +
+            (m.listed ? ` · LISTED for ${m.price > 0 ? "◎ " + m.price : "free"}` : "");
+          info.append(t, meta);
+
+          const actions = document.createElement("div");
+          actions.style.display = "flex";
+          actions.style.alignItems = "center";
+          actions.style.gap = "6px";
+
+          if (!m.listed) {
+            const priceIn = document.createElement("input");
+            priceIn.type = "number";
+            priceIn.min = "0";
+            priceIn.placeholder = "price";
+            priceIn.style.width = "80px";
+            const sell = document.createElement("button");
+            sell.className = "btn btn-small btn-ghost";
+            sell.textContent = "List for sale";
+            sell.addEventListener("click", async () => {
+              try {
+                await setListing(m.id, true, priceIn.value);
+                toast(`"${m.name}" is on the market.`);
+                loadInventory(); loadMarket();
+              } catch (err) { toast(err.message, true); }
+            });
+            actions.append(priceIn, sell);
+          } else {
+            const unlist = document.createElement("button");
+            unlist.className = "btn btn-small btn-ghost";
+            unlist.textContent = "Unlist";
+            unlist.addEventListener("click", async () => {
+              await setListing(m.id, false, 0);
+              toast("Taken off the market.");
+              loadInventory(); loadMarket();
+            });
+            actions.append(unlist);
+          }
+
+          const del = document.createElement("button");
+          del.className = "btn btn-small btn-ghost";
+          del.textContent = "Delete";
+          del.addEventListener("click", async () => {
+            if (!confirm(`Delete model "${m.name}" forever?`)) return;
+            await deleteModel(m.id);
+            toast("Deleted.");
+            loadInventory(); loadMarket();
+          });
+          actions.append(del);
+
+          row.append(info, actions);
+          mount.appendChild(row);
+        }
+      } catch (err) {
+        mount.innerHTML = "";
+        toast("Couldn't load your models: " + err.message, true);
+      }
+    }
+
+    refreshCoins();
+    loadMarket();
+  </script>
+  <script type="module">import { footAd } from "./js/ads.js"; footAd();</script>
+</body>
+</html>
